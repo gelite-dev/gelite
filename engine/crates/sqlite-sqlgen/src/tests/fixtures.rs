@@ -8,6 +8,10 @@ pub fn post_title_field() -> FieldRef {
     FieldRef::new(FieldId::new(2), post_type(), "title")
 }
 
+pub fn post_id_field() -> FieldRef {
+    FieldRef::new(FieldId::new(1), post_type(), "id")
+}
+
 pub fn post_title_shape_field() -> ir::ResolvedShapeField {
     ir::ResolvedShapeField::new(
         "title",
@@ -15,6 +19,10 @@ pub fn post_title_shape_field() -> ir::ResolvedShapeField {
         schema::Cardinality::Required,
         None,
     )
+}
+
+pub fn post_id_shape_field() -> ir::ResolvedShapeField {
+    ir::ResolvedShapeField::new("id", post_id_field(), schema::Cardinality::Required, None)
 }
 
 pub fn post_query_with_shape(fields: Vec<ir::ResolvedShapeField>) -> ir::SelectQuery {
