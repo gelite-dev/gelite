@@ -1,0 +1,6 @@
+[package]
+name = "query-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

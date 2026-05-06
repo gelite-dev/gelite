@@ -26,6 +26,10 @@ name = "query-ast"
 version = "0.1.0"
 
 [[package]]
+name = "query-parser"
+version = "0.1.0"
+
+[[package]]
 name = "resolver"
 version = "0.1.0"
 dependencies = [
