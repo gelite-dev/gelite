@@ -16,6 +16,8 @@ pub fn render_select(plan: &sqlite_plan::SQLiteSelectPlan) -> SQLiteSelectStatem
     let from_clause = render_from_clause(plan);
     let (where_clause, bind_values) = render_where_clause(plan);
     let order_clause = render_order_clause(plan);
+    let limit_clause = render_limit_clause(plan);
+    let offset_clause = render_offset_clause(plan);
 
     let mut clauses = vec![select_clause, from_clause];
     if let Some(where_clause) = where_clause {
@@ -23,6 +25,12 @@ pub fn render_select(plan: &sqlite_plan::SQLiteSelectPlan) -> SQLiteSelectStatem
     }
     if let Some(order_clause) = order_clause {
         clauses.push(order_clause);
+    }
+    if let Some(limit_clause) = limit_clause {
+        clauses.push(limit_clause);
+    }
+    if let Some(offset_clause) = offset_clause {
+        clauses.push(offset_clause);
     }
 
     SQLiteSelectStatement {
@@ -107,6 +115,24 @@ fn render_order_clause(plan: &SQLiteSelectPlan) -> Option<String> {
         .join(", ");
 
     Some(format!("ORDER BY {order_items}"))
+}
+
+fn render_limit_clause(plan: &SQLiteSelectPlan) -> Option<String> {
+    let limit = plan.limit();
+
+    match limit {
+        None => None,
+        Some(val) => Some(format!("LIMIT {val}")),
+    }
+}
+
+fn render_offset_clause(plan: &SQLiteSelectPlan) -> Option<String> {
+    let offset = plan.offset();
+
+    match offset {
+        None => None,
+        Some(val) => Some(format!("OFFSET {val}")),
+    }
 }
 
 pub struct SQLiteSelectStatement {
