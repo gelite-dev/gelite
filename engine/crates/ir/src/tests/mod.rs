@@ -4,6 +4,8 @@ use crate::{
     CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, ResolvedShape,
     ResolvedShapeField, SelectQuery, ValueExpr,
 };
+use alloc::string::ToString;
+use alloc::vec;
 use fixtures::{
     empty_post_shape, post_author_field, post_subtitle_field, post_title_field, post_type,
     user_name_shape,

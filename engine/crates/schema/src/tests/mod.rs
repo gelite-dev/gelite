@@ -4,6 +4,8 @@ use crate::{
     Field, FieldId, FieldRef, ObjectType, ObjectTypeId, ObjectTypeRef, ScalarField, ScalarType,
     SchemaCatalog, SchemaError, SingleCardinality,
 };
+use alloc::string::ToString;
+use alloc::vec;
 use fixtures::{book_type, schema_with_user_and_book, user_type};
 
 #[test]

@@ -1,3 +1,4 @@
+use alloc::vec;
 use schema::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
 pub fn post_only_catalog() -> SchemaCatalog {

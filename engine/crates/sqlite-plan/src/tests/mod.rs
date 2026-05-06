@@ -4,10 +4,12 @@ use crate::{
     SQLiteCompareOp, SQLiteJoinKind, SQLiteJoinReason, SQLiteOrderDirection, SQLiteValueExpr,
     SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
+use alloc::string::ToString;
+use alloc::vec;
 use fixtures::{
-    empty_post_query, optional_post_author_shape_field, post_author_field,
-    post_author_shape_field, post_author_shape_field_with_id_then_name, post_id_field,
-    post_id_shape_field, post_query_with_shape, post_title_field, post_title_shape_field, post_type,
+    empty_post_query, optional_post_author_shape_field, post_author_field, post_author_shape_field,
+    post_author_shape_field_with_id_then_name, post_id_field, post_id_shape_field,
+    post_query_with_shape, post_title_field, post_title_shape_field, post_type,
 };
 use ir::{Literal, ResolvedShape, ResolvedShapeField, SelectQuery};
 

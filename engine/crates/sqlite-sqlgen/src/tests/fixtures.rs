@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use schema::{FieldId, FieldRef, ObjectTypeId, ObjectTypeRef};
 
 pub fn post_type() -> ObjectTypeRef {

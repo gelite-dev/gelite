@@ -1,4 +1,11 @@
-use std::collections::HashSet;
+#![no_std]
+
+extern crate alloc;
+
+use alloc::collections::BTreeSet;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 
 const IMPLICIT_ID_FIELD_NAME: &str = "id";
 const BUILTIN_SCALAR_TYPE_NAMES: &[&str] = &["str", "int64", "float64", "bool", "uuid", "datetime"];
@@ -251,7 +258,7 @@ impl SchemaCatalog {
     }
 
     fn validate_unique_type_names(object_types: &[ObjectType]) -> Result<(), SchemaError> {
-        let mut seen_types_names = HashSet::new();
+        let mut seen_types_names = BTreeSet::new();
 
         for object_type in object_types {
             let inserted = seen_types_names.insert(object_type.name().to_string());
@@ -268,7 +275,7 @@ impl SchemaCatalog {
         object_types: &[ObjectType],
     ) -> Result<(), SchemaError> {
         for object_type in object_types {
-            let mut seen_field_names = HashSet::new();
+            let mut seen_field_names = BTreeSet::new();
 
             for field in object_type.declared_fields() {
                 let field_name = field.name();
@@ -305,7 +312,7 @@ impl SchemaCatalog {
     }
 
     fn validate_no_unknown_link_target(object_types: &[ObjectType]) -> Result<(), SchemaError> {
-        let known_type_names: HashSet<&str> = object_types
+        let known_type_names: BTreeSet<&str> = object_types
             .iter()
             .map(|object_type| object_type.name())
             .collect();

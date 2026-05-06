@@ -1,3 +1,9 @@
+#![no_std]
+
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
 use schema::{Cardinality, FieldRef, ObjectTypeRef};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

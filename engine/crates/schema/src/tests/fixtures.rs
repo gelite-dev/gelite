@@ -2,6 +2,7 @@ use crate::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
+use alloc::vec;
 
 pub fn user_type() -> ObjectType {
     ObjectType::new(

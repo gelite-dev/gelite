@@ -1,3 +1,11 @@
+#![no_std]
+
+extern crate alloc;
+
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use ir::{CompareExpr, CompareOp, Expr, SelectQuery};
 use schema::{Cardinality, FieldRef, ObjectTypeRef};
 

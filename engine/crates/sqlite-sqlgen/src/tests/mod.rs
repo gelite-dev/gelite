@@ -1,6 +1,7 @@
 mod fixtures;
 
 use crate::render_select;
+use alloc::vec;
 use fixtures::{post_id_shape_field, post_query_with_shape, post_title_shape_field};
 
 #[test]

@@ -2,6 +2,8 @@ use crate::{
     CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, Path, PathStep, SelectQuery,
     Shape, ShapeItem,
 };
+use alloc::string::ToString;
+use alloc::vec;
 
 #[test]
 fn select_query_can_store_root_type_name() {

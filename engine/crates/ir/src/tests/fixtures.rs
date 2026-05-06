@@ -1,4 +1,5 @@
 use crate::{ResolvedShape, ResolvedShapeField};
+use alloc::vec;
 use schema::{Cardinality, FieldId, FieldRef, ObjectTypeId, ObjectTypeRef};
 
 pub fn post_type() -> ObjectTypeRef {

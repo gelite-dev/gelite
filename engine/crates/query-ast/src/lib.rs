@@ -1,3 +1,10 @@
+#![no_std]
+
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
     root_type_name: String,

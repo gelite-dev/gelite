@@ -1,6 +1,8 @@
 mod fixtures;
 
 use crate::{ResolveError, resolve_select};
+use alloc::string::ToString;
+use alloc::vec;
 use fixtures::{post_only_catalog, post_with_author_catalog, post_with_title_catalog};
 use query_ast::{
     CompareExpr, CompareOp, Expr, Literal, Path, PathStep, SelectQuery, Shape, ShapeItem,
