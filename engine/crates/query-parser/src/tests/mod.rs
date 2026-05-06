@@ -1,4 +1,4 @@
-use crate::{Keyword, LexErrorKind, Position, TokenKind, lex};
+use crate::{Keyword, LexErrorKind, TokenKind, lex};
 use alloc::string::ToString;
 
 #[test]
@@ -71,22 +71,14 @@ fn lexer_tracks_columns_after_newline() {
 
     assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Select));
     assert_eq!(tokens[3].kind(), &TokenKind::Ident("title".to_string()));
-    assert_eq!(
-        tokens[3].span().start(),
-        Position {
-            byte: 18,
-            line: 2,
-            column: 5,
-        }
-    );
-    assert_eq!(
-        tokens[3].span().end(),
-        Position {
-            byte: 23,
-            line: 2,
-            column: 10,
-        }
-    );
+
+    let title_span = tokens[3].span();
+    assert_eq!(title_span.start().byte(), 18);
+    assert_eq!(title_span.start().line(), 2);
+    assert_eq!(title_span.start().column(), 5);
+    assert_eq!(title_span.end().byte(), 23);
+    assert_eq!(title_span.end().line(), 2);
+    assert_eq!(title_span.end().column(), 10);
 }
 
 #[test]
