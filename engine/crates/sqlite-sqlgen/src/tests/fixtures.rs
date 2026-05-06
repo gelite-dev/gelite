@@ -37,3 +37,25 @@ pub fn post_query_with_shape(fields: Vec<ir::ResolvedShapeField>) -> ir::SelectQ
         None,
     )
 }
+
+pub fn post_query_with_filter(filter: ir::Expr) -> ir::SelectQuery {
+    ir::SelectQuery::new(
+        post_type(),
+        ir::ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    )
+}
+
+pub fn post_query_with_order_by(order_by: Vec<ir::OrderExpr>) -> ir::SelectQuery {
+    ir::SelectQuery::new(
+        post_type(),
+        ir::ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        order_by,
+        None,
+        None,
+    )
+}
