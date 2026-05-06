@@ -672,6 +672,36 @@ The SQL generation layer should render the already-planned physical structure:
 It should not perform schema resolution, query validation, result shaping, or
 new join planning.
 
+The current `WHERE` scope is intentionally limited to one planned compare
+predicate. This does not mean the query model should stay limited to a single
+condition. `spec/ir.md` already reserves boolean expressions such as `AndExpr`,
+`OrExpr`, and `NotExpr`; those should be lowered later as a predicate tree, not
+as an unrelated list of filters.
+
+For example, a future query such as:
+
+```text
+filter .title = "Hello" and .status = "published"
+```
+
+should become a single filter expression tree:
+
+```text
+And(
+  Compare(Column(root.title), Eq, Literal("Hello")),
+  Compare(Column(root.status), Eq, Literal("published"))
+)
+```
+
+The SQL generation layer should then recursively render that tree into:
+
+```sql
+WHERE (root.title = ?) AND (root.status = ?)
+```
+
+and collect bind values in the same left-to-right traversal order as the
+placeholder generation.
+
 ## Commit Strategy
 
 Use small commits:
@@ -813,6 +843,31 @@ Later replacement:
 - centralize physical naming helpers
 - define identifier escaping rules before SQL generation
 - introduce stable alias generation based on path or counters
+
+### Filter predicates only support one compare expression
+
+Current rule:
+
+- `ir::Expr` only has `Compare`.
+- `SQLiteWhereExpr` only has `Compare`.
+- SQL generation only needs to render one comparison predicate in `WHERE`.
+
+Why this is temporary:
+
+- `spec/ir.md` includes boolean expression forms: `AndExpr`, `OrExpr`, and
+  `NotExpr`.
+- Real filters commonly need multiple predicates joined by boolean operators.
+- Modeling multiple predicates as `Vec<Filter>` would lose the logical tree
+  structure needed for parentheses, precedence, and nested boolean expressions.
+
+Later replacement:
+
+- extend `query-ast::Expr` with boolean expression variants
+- extend `ir::Expr` with resolved boolean expression variants
+- extend `SQLiteWhereExpr` or replace it with a recursive `SQLitePredicate`
+  tree
+- render predicates recursively while preserving placeholder and bind-value
+  order
 
 ### Planner still assumes valid resolver output
 
