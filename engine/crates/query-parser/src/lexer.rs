@@ -1,8 +1,147 @@
 use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec;
 use alloc::vec::Vec;
+use logos::Logos;
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
-    Lexer::new(input).lex()
+    let line_map = LineMap::new(input);
+    let mut lexer = RawTokenKind::lexer(input);
+    let mut tokens = Vec::new();
+
+    while let Some(result) = lexer.next() {
+        let raw = result.map_err(|_| {
+            let range = lexer.span();
+            LexError::new(
+                LexErrorKind::UnexpectedChar(input[range.clone()].chars().next().unwrap()),
+                line_map.position(input, range.start),
+            )
+        })?;
+
+        let range = lexer.span();
+        let span = Span::new(
+            line_map.position(input, range.start),
+            line_map.position(input, range.end),
+        );
+
+        let kind = match raw {
+            RawTokenKind::Select => TokenKind::Keyword(Keyword::Select),
+            RawTokenKind::Filter => TokenKind::Keyword(Keyword::Filter),
+            RawTokenKind::Order => TokenKind::Keyword(Keyword::Order),
+            RawTokenKind::By => TokenKind::Keyword(Keyword::By),
+            RawTokenKind::Limit => TokenKind::Keyword(Keyword::Limit),
+            RawTokenKind::Offset => TokenKind::Keyword(Keyword::Offset),
+            RawTokenKind::Asc => TokenKind::Keyword(Keyword::Asc),
+            RawTokenKind::Desc => TokenKind::Keyword(Keyword::Desc),
+            RawTokenKind::And => TokenKind::Keyword(Keyword::And),
+            RawTokenKind::Or => TokenKind::Keyword(Keyword::Or),
+            RawTokenKind::Not => TokenKind::Keyword(Keyword::Not),
+            RawTokenKind::True => TokenKind::Keyword(Keyword::True),
+            RawTokenKind::False => TokenKind::Keyword(Keyword::False),
+            RawTokenKind::Null => TokenKind::Keyword(Keyword::Null),
+
+            RawTokenKind::LBrace => TokenKind::LBrace,
+            RawTokenKind::RBrace => TokenKind::RBrace,
+            RawTokenKind::Comma => TokenKind::Comma,
+            RawTokenKind::Colon => TokenKind::Colon,
+            RawTokenKind::Dot => TokenKind::Dot,
+            RawTokenKind::Eq => TokenKind::Eq,
+
+            RawTokenKind::Ident => TokenKind::Ident(lexer.slice().to_string()),
+            RawTokenKind::Int => TokenKind::Int(lexer.slice().to_string()),
+            RawTokenKind::String => {
+                let raw = lexer.slice();
+                let value = &raw[1..raw.len() - 1];
+                TokenKind::String(value.to_string())
+            }
+            RawTokenKind::UnterminatedString => {
+                return Err(LexError::new(
+                    LexErrorKind::UnterminatedString,
+                    span.start(),
+                ));
+            }
+        };
+
+        tokens.push(Token::new(kind, span));
+    }
+
+    Ok(tokens)
+}
+
+#[derive(Logos, Debug, Clone, PartialEq)]
+#[logos(skip r"[ \t\r\n\f]+")]
+enum RawTokenKind {
+    #[token("select")]
+    Select,
+
+    #[token("filter")]
+    Filter,
+
+    #[token("order")]
+    Order,
+
+    #[token("by")]
+    By,
+
+    #[token("limit")]
+    Limit,
+
+    #[token("offset")]
+    Offset,
+
+    #[token("asc")]
+    Asc,
+
+    #[token("desc")]
+    Desc,
+
+    #[token("and")]
+    And,
+
+    #[token("or")]
+    Or,
+
+    #[token("not")]
+    Not,
+
+    #[token("true")]
+    True,
+
+    #[token("false")]
+    False,
+
+    #[token("null")]
+    Null,
+
+    #[token("{")]
+    LBrace,
+
+    #[token("}")]
+    RBrace,
+
+    #[token(",")]
+    Comma,
+
+    #[token(":")]
+    Colon,
+
+    #[token(".")]
+    Dot,
+
+    #[token("=")]
+    Eq,
+
+    #[regex(r#""[^"]*""#)]
+    String,
+
+    #[regex(r#""[^"]*"#)]
+    UnterminatedString,
+
+    #[regex(r"[0-9]+")]
+    Int,
+
+    #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
+    Ident,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +241,35 @@ impl Position {
     }
 }
 
+struct LineMap {
+    line_starts: Vec<usize>,
+}
+
+impl LineMap {
+    fn new(input: &str) -> Self {
+        let mut line_starts = vec![0];
+
+        for (byte, ch) in input.char_indices() {
+            if ch == '\n' {
+                line_starts.push(byte + ch.len_utf8());
+            }
+        }
+
+        Self { line_starts }
+    }
+
+    fn position(&self, input: &str, byte: usize) -> Position {
+        let line_index = self
+            .line_starts
+            .partition_point(|line_start| *line_start <= byte)
+            .saturating_sub(1);
+
+        let line_start = self.line_starts[line_index];
+        let column = input[line_start..byte].chars().count() + 1;
+        Position::new(byte, line_index + 1, column)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexError {
     kind: LexErrorKind,
@@ -126,184 +294,4 @@ impl LexError {
 pub enum LexErrorKind {
     UnexpectedChar(char),
     UnterminatedString,
-}
-
-struct Lexer<'a> {
-    input: &'a str,
-    cursor: usize,
-    line: usize,
-    column: usize,
-}
-
-impl<'a> Lexer<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            input,
-            cursor: 0,
-            line: 1,
-            column: 1,
-        }
-    }
-
-    fn lex(mut self) -> Result<Vec<Token>, LexError> {
-        let mut tokens = Vec::new();
-
-        while let Some(ch) = self.peek_char() {
-            match ch {
-                ch if ch.is_whitespace() => {
-                    self.advance_char();
-                }
-                ch if is_ident_start(ch) => {
-                    tokens.push(self.lex_ident_or_keyword());
-                }
-                ch if ch.is_ascii_digit() => {
-                    tokens.push(self.lex_int());
-                }
-                '"' => {
-                    tokens.push(self.lex_string()?);
-                }
-                '{' => {
-                    tokens.push(self.lex_single_char(TokenKind::LBrace));
-                }
-                '}' => {
-                    tokens.push(self.lex_single_char(TokenKind::RBrace));
-                }
-                ',' => {
-                    tokens.push(self.lex_single_char(TokenKind::Comma));
-                }
-                ':' => {
-                    tokens.push(self.lex_single_char(TokenKind::Colon));
-                }
-                '.' => {
-                    tokens.push(self.lex_single_char(TokenKind::Dot));
-                }
-                '=' => {
-                    tokens.push(self.lex_single_char(TokenKind::Eq));
-                }
-                ch => {
-                    return Err(LexError::new(
-                        LexErrorKind::UnexpectedChar(ch),
-                        self.position(),
-                    ));
-                }
-            }
-        }
-
-        Ok(tokens)
-    }
-
-    fn lex_ident_or_keyword(&mut self) -> Token {
-        let start = self.position();
-        let mut value = String::new();
-
-        while let Some(ch) = self.peek_char() {
-            if !is_ident_continue(ch) {
-                break;
-            }
-
-            value.push(ch);
-            self.advance_char();
-        }
-
-        let kind = match keyword(&value) {
-            Some(keyword) => TokenKind::Keyword(keyword),
-            None => TokenKind::Ident(value),
-        };
-
-        Token::new(kind, Span::new(start, self.position()))
-    }
-
-    fn lex_int(&mut self) -> Token {
-        let start = self.position();
-        let mut value = String::new();
-
-        while let Some(ch) = self.peek_char() {
-            if !ch.is_ascii_digit() {
-                break;
-            }
-
-            value.push(ch);
-            self.advance_char();
-        }
-
-        Token::new(TokenKind::Int(value), Span::new(start, self.position()))
-    }
-
-    fn lex_string(&mut self) -> Result<Token, LexError> {
-        let start = self.position();
-        self.advance_char();
-
-        let mut value = String::new();
-
-        while let Some(ch) = self.peek_char() {
-            if ch == '"' {
-                self.advance_char();
-                return Ok(Token::new(
-                    TokenKind::String(value),
-                    Span::new(start, self.position()),
-                ));
-            }
-
-            value.push(ch);
-            self.advance_char();
-        }
-
-        Err(LexError::new(LexErrorKind::UnterminatedString, start))
-    }
-
-    fn lex_single_char(&mut self, kind: TokenKind) -> Token {
-        let start = self.position();
-        self.advance_char();
-        Token::new(kind, Span::new(start, self.position()))
-    }
-
-    fn peek_char(&self) -> Option<char> {
-        self.input[self.cursor..].chars().next()
-    }
-
-    fn advance_char(&mut self) -> Option<char> {
-        let ch = self.peek_char()?;
-        self.cursor += ch.len_utf8();
-
-        if ch == '\n' {
-            self.line += 1;
-            self.column = 1;
-        } else {
-            self.column += 1;
-        }
-
-        Some(ch)
-    }
-
-    fn position(&self) -> Position {
-        Position::new(self.cursor, self.line, self.column)
-    }
-}
-
-fn is_ident_start(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphabetic()
-}
-
-fn is_ident_continue(ch: char) -> bool {
-    is_ident_start(ch) || ch.is_ascii_digit()
-}
-
-fn keyword(value: &str) -> Option<Keyword> {
-    match value {
-        "select" => Some(Keyword::Select),
-        "filter" => Some(Keyword::Filter),
-        "order" => Some(Keyword::Order),
-        "by" => Some(Keyword::By),
-        "limit" => Some(Keyword::Limit),
-        "offset" => Some(Keyword::Offset),
-        "asc" => Some(Keyword::Asc),
-        "desc" => Some(Keyword::Desc),
-        "and" => Some(Keyword::And),
-        "or" => Some(Keyword::Or),
-        "not" => Some(Keyword::Not),
-        "true" => Some(Keyword::True),
-        "false" => Some(Keyword::False),
-        "null" => Some(Keyword::Null),
-        _ => None,
-    }
 }

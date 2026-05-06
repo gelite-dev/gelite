@@ -101,6 +101,26 @@ fn lexer_tracks_byte_and_column_inside_unicode_string_literal() {
 }
 
 #[test]
+fn lexer_can_tokenize_multiline_string_literal() {
+    let tokens = lex("filter .body = \"hello\nworld\" title").expect("query should lex");
+
+    assert_eq!(
+        tokens[4].kind(),
+        &TokenKind::String("hello\nworld".to_string())
+    );
+
+    let string_span = tokens[4].span();
+    assert_eq!(string_span.start().line(), 1);
+    assert_eq!(string_span.start().column(), 16);
+    assert_eq!(string_span.end().line(), 2);
+    assert_eq!(string_span.end().column(), 7);
+
+    assert_eq!(tokens[5].kind(), &TokenKind::Ident("title".to_string()));
+    assert_eq!(tokens[5].span().start().line(), 2);
+    assert_eq!(tokens[5].span().start().column(), 8);
+}
+
+#[test]
 fn lexer_can_tokenize_order_limit_offset() {
     let tokens = lex("order by .title desc limit 10 offset 20").expect("query should lex");
 
