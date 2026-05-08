@@ -295,7 +295,9 @@ fn resolves_filter_compare_path_to_field_and_literal() {
     );
 
     let resolved = resolve_select(&catalog, &query).expect("select query resolved");
-    let ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve");
+    let ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
 
     match compare.left() {
         ir::ValueExpr::Field(field) => {
@@ -311,7 +313,43 @@ fn resolves_filter_compare_path_to_field_and_literal() {
         ir::ValueExpr::Literal(ir::Literal::String(value)) => {
             assert_eq!(value, "Hello");
         }
-        ir::ValueExpr::Field(_) => panic!("filter right side should resolve to a literal"),
+        _ => panic!("filter right side should resolve to a literal"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_null_literal_to_is_null_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Path::new(vec![PathStep::new("title")]),
+        CompareOp::Eq,
+        Literal::Null,
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is null expression");
+    };
+
+    match value {
+        ir::ValueExpr::Field(field) => {
+            assert_eq!(field.owner_object_type().name(), "Post");
+            assert_eq!(field.name(), "title");
+        }
+        ir::ValueExpr::Literal(_) => panic!("is null expression should reference a field"),
     }
 }
 

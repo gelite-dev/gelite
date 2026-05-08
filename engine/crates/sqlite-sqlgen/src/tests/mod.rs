@@ -56,6 +56,65 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_string_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_root_scalar_equals_int_filter() {
+    let filter = ir::Expr::Compare(ir::CompareExpr::new(
+        ir::ValueExpr::Field(post_title_field()),
+        ir::CompareOp::Eq,
+        ir::ValueExpr::Literal(ir::Literal::Int64(42)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.title = ?"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(42)]);
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_root_scalar_equals_bool_filter() {
+    let filter = ir::Expr::Compare(ir::CompareExpr::new(
+        ir::ValueExpr::Field(post_title_field()),
+        ir::CompareOp::Eq,
+        ir::ValueExpr::Literal(ir::Literal::Bool(true)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.title = ?"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Bool(true)]);
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
+    let filter = ir::Expr::IsNull(ir::ValueExpr::Field(post_title_field()));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.title IS NULL"
+    );
+
+    assert!(statement.bind_values().is_empty());
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_order_by_root_scalar_field_desc() {
     let order_by = ir::OrderExpr::new(
         ir::ValueExpr::Field(post_title_field()),

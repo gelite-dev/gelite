@@ -356,12 +356,14 @@ impl SQLiteOrder {
 
 pub enum SQLiteWhereExpr {
     Compare(SQLiteCompareExpr),
+    IsNull(SQLiteValueExpr),
 }
 
 impl SQLiteWhereExpr {
     pub fn from_ir(expr: &Expr) -> Self {
         match expr {
             Expr::Compare(compare) => SQLiteWhereExpr::Compare(SQLiteCompareExpr::from_ir(compare)),
+            Expr::IsNull(value) => SQLiteWhereExpr::IsNull(SQLiteValueExpr::from_ir(value)),
         }
     }
 }
@@ -409,6 +411,15 @@ impl SQLiteValueExpr {
             ir::ValueExpr::Literal(ir::Literal::String(value)) => {
                 SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone()))
             }
+            ir::ValueExpr::Literal(ir::Literal::Int64(value)) => {
+                SQLiteValueExpr::Literal(SQLiteLiteral::Int64(*value))
+            }
+            ir::ValueExpr::Literal(ir::Literal::Bool(value)) => {
+                SQLiteValueExpr::Literal(SQLiteLiteral::Bool(*value))
+            }
+            ir::ValueExpr::Literal(ir::Literal::Null) => {
+                SQLiteValueExpr::Literal(SQLiteLiteral::Null)
+            }
         }
     }
 }
@@ -430,6 +441,9 @@ impl SQLiteColumnRef {
 
 pub enum SQLiteLiteral {
     String(String),
+    Int64(i64),
+    Bool(bool),
+    Null,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

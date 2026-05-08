@@ -122,6 +122,7 @@ impl ResolvedShapeField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Compare(CompareExpr),
+    IsNull(ValueExpr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +190,9 @@ pub enum ValueExpr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Literal {
     String(String),
+    Int64(i64),
+    Bool(bool),
+    Null,
 }
 
 #[cfg(test)]

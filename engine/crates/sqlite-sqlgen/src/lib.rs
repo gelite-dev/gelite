@@ -71,6 +71,12 @@ fn render_where_clause(plan: &SQLiteSelectPlan) -> (Option<String>, Vec<SQLiteBi
                 bind_values,
             )
         }
+        Some(SQLiteWhereExpr::IsNull(value)) => {
+            let mut bind_values = Vec::new();
+            let value_sql = render_value_expr(value, &mut bind_values);
+
+            (Some(format!("WHERE {value_sql} IS NULL")), bind_values)
+        }
     }
 }
 
@@ -87,6 +93,18 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::String(value)) => {
             bind_values.push(SQLiteBindValue::String(value.clone()));
+            "?".to_string()
+        }
+        SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => {
+            bind_values.push(SQLiteBindValue::Int64(*value));
+            "?".to_string()
+        }
+        SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value)) => {
+            bind_values.push(SQLiteBindValue::Bool(*value));
+            "?".to_string()
+        }
+        SQLiteValueExpr::Literal(SQLiteLiteral::Null) => {
+            bind_values.push(SQLiteBindValue::Null);
             "?".to_string()
         }
     }
@@ -153,6 +171,9 @@ impl SQLiteSelectStatement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SQLiteBindValue {
     String(String),
+    Int64(i64),
+    Bool(bool),
+    Null,
 }
 
 #[cfg(test)]

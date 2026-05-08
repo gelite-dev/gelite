@@ -230,7 +230,9 @@ fn resolved_select_query_can_store_filter_compare_expr() {
         None,
     );
 
-    let Expr::Compare(compare) = query.filter().expect("select query has filter");
+    let Expr::Compare(compare) = query.filter().expect("select query has filter") else {
+        panic!("filter should be a compare expression");
+    };
     assert_eq!(compare.op(), CompareOp::Eq);
 
     match compare.left() {
@@ -243,6 +245,99 @@ fn resolved_select_query_can_store_filter_compare_expr() {
 
     match compare.right() {
         ValueExpr::Literal(Literal::String(value)) => assert_eq!(value, "Hello"),
+        ValueExpr::Literal(other) => {
+            panic!("filter right side should store a string literal, got {other:?}")
+        }
         ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+    }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_compare_int_literal() {
+    let filter = Expr::Compare(CompareExpr::new(
+        ValueExpr::Field(post_title_field()),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::Int64(42)),
+    ));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::Compare(compare) = query.filter().expect("select query has filter") else {
+        panic!("filter should be a compare expression");
+    };
+    assert_eq!(compare.op(), CompareOp::Eq);
+
+    match compare.right() {
+        ValueExpr::Literal(Literal::Int64(value)) => assert_eq!(*value, 42),
+        ValueExpr::Literal(other) => {
+            panic!("filter right side should store an int literal, got {other:?}")
+        }
+        ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+    }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_compare_bool_literal() {
+    let filter = Expr::Compare(CompareExpr::new(
+        ValueExpr::Field(post_title_field()),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::Bool(true)),
+    ));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::Compare(compare) = query.filter().expect("select query has filter") else {
+        panic!("filter should be a compare expression");
+    };
+    assert_eq!(compare.op(), CompareOp::Eq);
+
+    match compare.right() {
+        ValueExpr::Literal(Literal::Bool(value)) => assert!(*value),
+        ValueExpr::Literal(other) => {
+            panic!("filter right side should store a bool literal, got {other:?}")
+        }
+        ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+    }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_is_null_expr() {
+    let filter = Expr::IsNull(ValueExpr::Field(post_subtitle_field()));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let filter = query.filter().expect("select query has filter");
+
+    let Expr::IsNull(value) = filter else {
+        panic!("filter should be an is null expression");
+    };
+
+    match value {
+        ValueExpr::Field(field) => {
+            assert_eq!(field.owner_object_type().name(), "Post");
+            assert_eq!(field.name(), "subtitle");
+        }
+        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved field"),
     }
 }

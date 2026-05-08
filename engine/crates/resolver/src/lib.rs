@@ -126,13 +126,18 @@ fn resolve_expr(
     match expr {
         query_ast::Expr::Compare(compare) => {
             let left = resolve_path_expr(catalog, source_object_type, compare.left())?;
-            let right = resolve_literal_expr(compare.right())?;
 
-            Ok(ir::Expr::Compare(ir::CompareExpr::new(
-                left,
-                ir::CompareOp::Eq,
-                right,
-            )))
+            match compare.right() {
+                query_ast::Literal::Null => Ok(ir::Expr::IsNull(left)),
+                literal => {
+                    let right = resolve_literal_expr(literal)?;
+                    Ok(ir::Expr::Compare(ir::CompareExpr::new(
+                        left,
+                        ir::CompareOp::Eq,
+                        right,
+                    )))
+                }
+            }
         }
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "literal".to_string(),
