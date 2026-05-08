@@ -57,7 +57,7 @@ scoped crates:
 - `query-ast`
 - `ir`
 - `resolver`
-- `dev-cli`
+- `repl`
 
 ### `schema`
 
@@ -103,16 +103,16 @@ Responsibilities:
 
 This crate is the most important first implementation target.
 
-### `dev-cli`
+### `repl`
 
 Responsibilities:
 
-- temporary binary for local experiments
+- temporary binary for local query pipeline inspection
 - load a hardcoded schema catalog
-- build a hardcoded AST
-- print the resolved Semantic IR
+- parse an input query string
+- print the Query AST, resolved Semantic IR, SQLite plan details, final SQL, and bind values
 
-This is a development tool, not the final user-facing CLI.
+This is a development tool, not the final interactive shell or user-facing CLI.
 
 ## Deferred Initial Crates
 
@@ -814,7 +814,7 @@ cargo new --lib engine/crates/schema
 cargo new --lib engine/crates/query-ast
 cargo new --lib engine/crates/ir
 cargo new --lib engine/crates/resolver
-cargo new --bin engine/crates/dev-cli
+cargo new --bin engine/crates/repl
 ```
 
 Then create `engine/Cargo.toml` as a workspace manifest:
@@ -826,7 +826,7 @@ members = [
   "crates/query-ast",
   "crates/ir",
   "crates/resolver",
-  "crates/dev-cli",
+  "crates/repl",
 ]
 
 resolver = "2"
@@ -835,7 +835,7 @@ resolver = "2"
 Then wire dependencies approximately like this:
 
 - `resolver` depends on `schema`, `query-ast`, and `ir`
-- `dev-cli` depends on `schema`, `query-ast`, `ir`, and `resolver`
+- `repl` depends on `schema`, `query-parser`, `resolver`, `sqlite-plan`, and `sqlite-sqlgen`
 
 ## Recommended First Work Session
 

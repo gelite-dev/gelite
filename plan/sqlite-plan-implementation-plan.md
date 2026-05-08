@@ -47,8 +47,8 @@ The project currently has:
   - filter path resolution for scalar fields
   - order path resolution for scalar fields
   - limit and offset passthrough
-- `dev-cli`
-  - hardcoded smoke runner for `schema + query-ast -> resolver -> ir`
+- `repl`
+  - detailed smoke runner for `query-parser + resolver + sqlite-plan + sqlite-sqlgen`
 
 The next layer should consume `ir`, not `query-ast`.
 
