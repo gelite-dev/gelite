@@ -125,7 +125,7 @@ enum RawTokenKind {
     #[regex(r#""[^"]*"#)]
     UnterminatedString,
 
-    #[regex(r"[0-9]+")]
+    #[regex(r"[-+]?[0-9]+")]
     Int,
 
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]

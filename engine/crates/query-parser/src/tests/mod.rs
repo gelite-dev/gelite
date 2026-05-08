@@ -448,3 +448,50 @@ fn parser_rejects_order_without_by() {
         &crate::ParseErrorKind::UnexpectedToken { expected: "by" }
     );
 }
+
+#[test]
+fn parser_can_parse_limit() {
+    let query = parse_select("select Post { title } limit 10").expect("query should parse");
+
+    assert_eq!(query.limit(), Some(10))
+}
+
+#[test]
+fn parser_can_parse_offset() {
+    let query = parse_select("select Post { title } offset 10").expect("query should parse");
+
+    assert_eq!(query.offset(), Some(10))
+}
+
+#[test]
+fn parser_can_parse_limit_and_offset() {
+    let query =
+        parse_select("select Post { title } limit 20 offset 10").expect("query should parse");
+
+    assert_eq!(query.limit(), Some(20));
+    assert_eq!(query.offset(), Some(10));
+}
+
+#[test]
+fn parser_rejects_negative_limit() {
+    let error = parse_select("select Post { title } limit -10").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedValue {
+            expected: "non-negative integer"
+        }
+    );
+}
+
+#[test]
+fn parser_rejects_negative_offset() {
+    let error = parse_select("select Post { title } offset -10").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedValue {
+            expected: "non-negative integer"
+        }
+    );
+}

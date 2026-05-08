@@ -60,7 +60,7 @@ pub fn post_query_with_order_by(order_by: Vec<ir::OrderExpr>) -> ir::SelectQuery
     )
 }
 
-pub fn post_query_with_limit_and_offset(limit: u64, offset: u64) -> ir::SelectQuery {
+pub fn post_query_with_limit_and_offset(limit: i64, offset: i64) -> ir::SelectQuery {
     ir::SelectQuery::new(
         post_type(),
         ir::ResolvedShape::new(post_type(), vec![post_title_shape_field()]),

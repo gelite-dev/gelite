@@ -1,7 +1,9 @@
 use crate::{Keyword, LexError, Span, Token, TokenKind, lex};
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
-use query_ast::{CompareExpr, Expr, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem};
+use query_ast::{
+    CompareExpr, Expr, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+};
 
 pub fn parse_select(input: &str) -> Result<query_ast::SelectQuery, ParseError> {
     let tokens = lex(input).map_err(ParseError::from)?;
@@ -43,6 +45,7 @@ pub enum ParseErrorKind {
     Lex(LexError),
     UnexpectedEof { expected: &'static str },
     UnexpectedToken { expected: &'static str },
+    UnexpectedValue { expected: &'static str },
     Unsupported,
 }
 
@@ -68,6 +71,8 @@ impl<'a> Parser<'a> {
         let shape = self.parse_shape()?;
         let filter = self.parse_filter_clause()?;
         let order_by = self.parse_order_clause()?;
+        let limit = self.parse_limit_clause()?;
+        let offset = self.parse_offset_clause()?;
         self.ensure_eof()?;
 
         Ok(SelectQuery::new(
@@ -75,8 +80,8 @@ impl<'a> Parser<'a> {
             shape,
             filter,
             order_by,
-            None,
-            None,
+            limit,
+            offset,
         ))
     }
 
@@ -214,12 +219,45 @@ impl<'a> Parser<'a> {
         Ok(Path::new(steps))
     }
 
-    fn parse_limit_clause() -> Result<Option<u64>, ParseError> {
-        todo!()
+    fn parse_limit_clause(&mut self) -> Result<Option<i64>, ParseError> {
+        if !self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Keyword(Keyword::Limit))
+        {
+            return Ok(None);
+        }
+
+        self.expect_keyword(Keyword::Limit)?;
+
+        match self.expect_literal()? {
+            Literal::Int64(value) if value >= 0 => Ok(Some(value)),
+            _ => Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            )),
+        }
     }
 
-    fn parse_offset_clause() -> Result<Option<u64>, ParseError> {
-        todo!()
+    fn parse_offset_clause(&mut self) -> Result<Option<i64>, ParseError> {
+        if !self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Keyword(Keyword::Offset))
+        {
+            return Ok(None);
+        }
+
+        self.expect_keyword(Keyword::Offset)?;
+        match self.expect_literal()? {
+            Literal::Int64(value) if value >= 0 => Ok(Some(value)),
+            _ => Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            )),
+        }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -331,6 +369,18 @@ impl<'a> Parser<'a> {
     fn expect_literal(&mut self) -> Result<query_ast::Literal, ParseError> {
         match self.peek() {
             Some(token) => match token.kind() {
+                TokenKind::Int(value) => {
+                    let parsed = value.parse::<i64>().map_err(|_| {
+                        ParseError::new(
+                            ParseErrorKind::UnexpectedToken {
+                                expected: "i64 literal",
+                            },
+                            Some(token.span()),
+                        )
+                    })?;
+                    self.advance();
+                    Ok(query_ast::Literal::Int64(parsed))
+                }
                 TokenKind::String(value) => {
                     let value = value.clone();
                     self.advance();

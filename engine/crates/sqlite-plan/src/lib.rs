@@ -58,8 +58,8 @@ pub struct SQLiteSelectPlan {
     root_source: SQLiteObjectSource,
     selected_values: Vec<SQLiteSelectValue>,
     order_by: Vec<SQLiteOrder>,
-    limit: Option<u64>,
-    offset: Option<u64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
     filter: Option<SQLiteWhereExpr>,
     joins: Vec<SQLiteJoin>,
     result_shape: SQLiteResultShapePlan,
@@ -78,11 +78,11 @@ impl SQLiteSelectPlan {
         &self.order_by
     }
 
-    pub fn limit(&self) -> Option<u64> {
+    pub fn limit(&self) -> Option<i64> {
         self.limit
     }
 
-    pub fn offset(&self) -> Option<u64> {
+    pub fn offset(&self) -> Option<i64> {
         self.offset
     }
 

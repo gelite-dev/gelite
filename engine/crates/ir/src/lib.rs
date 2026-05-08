@@ -12,8 +12,8 @@ pub struct SelectQuery {
     shape: ResolvedShape,
     filter: Option<Expr>,
     order_by: Vec<OrderExpr>,
-    limit: Option<u64>,
-    offset: Option<u64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 impl SelectQuery {
@@ -22,8 +22,8 @@ impl SelectQuery {
         shape: ResolvedShape,
         filter: Option<Expr>,
         order_by: Vec<OrderExpr>,
-        limit: Option<u64>,
-        offset: Option<u64>,
+        limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Self {
         Self {
             root_object_type,
@@ -43,11 +43,11 @@ impl SelectQuery {
         self.filter.as_ref()
     }
 
-    pub fn limit(&self) -> Option<u64> {
+    pub fn limit(&self) -> Option<i64> {
         self.limit
     }
 
-    pub fn offset(&self) -> Option<u64> {
+    pub fn offset(&self) -> Option<i64> {
         self.offset
     }
 

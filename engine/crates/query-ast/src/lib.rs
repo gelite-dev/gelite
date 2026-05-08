@@ -11,8 +11,8 @@ pub struct SelectQuery {
     shape: Shape,
     filter: Option<Expr>,
     order_by: Vec<OrderExpr>,
-    limit: Option<u64>,
-    offset: Option<u64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +82,8 @@ impl SelectQuery {
         shape: Shape,
         filter: Option<Expr>,
         order_by: Vec<OrderExpr>,
-        limit: Option<u64>,
-        offset: Option<u64>,
+        limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Self {
         Self {
             root_type_name: root_type_name.into(),
@@ -111,11 +111,11 @@ impl SelectQuery {
         &self.order_by
     }
 
-    pub fn limit(&self) -> Option<u64> {
+    pub fn limit(&self) -> Option<i64> {
         self.limit
     }
 
-    pub fn offset(&self) -> Option<u64> {
+    pub fn offset(&self) -> Option<i64> {
         self.offset
     }
 }
