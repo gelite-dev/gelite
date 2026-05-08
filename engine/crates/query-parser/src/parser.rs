@@ -1,6 +1,7 @@
 use crate::{Keyword, LexError, Span, Token, TokenKind, lex};
+use alloc::vec::Vec;
 use alloc::{string::String, vec};
-use query_ast::{Path, PathStep, SelectQuery, Shape, ShapeItem};
+use query_ast::{CompareExpr, Expr, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
 pub fn parse_select(input: &str) -> Result<query_ast::SelectQuery, ParseError> {
     let tokens = lex(input).map_err(ParseError::from)?;
@@ -65,12 +66,13 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::Select)?;
         let root_type_name = self.expect_ident()?;
         let shape = self.parse_shape()?;
+        let filter = self.parse_filter_clause()?;
         self.ensure_eof()?;
 
         Ok(SelectQuery::new(
             root_type_name,
             shape,
-            None,
+            filter,
             vec![],
             None,
             None,
@@ -128,6 +130,62 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         Ok(ShapeItem::new(path, child_shape))
+    }
+
+    fn parse_filter_clause(&mut self) -> Result<Option<query_ast::Expr>, ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Filter) => {
+                self.advance(); // filter 소비
+                let left = self.parse_path(true)?;
+                let op = self.expect_compare_op()?;
+                let right = self.expect_literal()?;
+
+                Ok(Some(Expr::Compare(CompareExpr::new(left, op, right))))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn parse_path(&mut self, allow_leading_dot: bool) -> Result<Path, ParseError> {
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Dot)
+        {
+            if !allow_leading_dot {
+                let token = self.peek().expect("peek checked token exists");
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken { expected: "IDENT" },
+                    Some(token.span()),
+                ));
+            }
+
+            self.advance();
+        }
+
+        let mut steps = vec![];
+        steps.push(PathStep::new(self.expect_ident()?));
+
+        while self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Dot)
+        {
+            self.advance();
+            steps.push(PathStep::new(self.expect_ident()?));
+        }
+
+        Ok(Path::new(steps))
+    }
+
+    fn parse_order_clause() -> Result<Vec<OrderExpr>, ParseError> {
+        todo!()
+    }
+
+    fn parse_limit_clause() -> Result<Option<u64>, ParseError> {
+        todo!()
+    }
+
+    fn parse_offset_clause() -> Result<Option<u64>, ParseError> {
+        todo!()
     }
 
     fn peek(&self) -> Option<&Token> {

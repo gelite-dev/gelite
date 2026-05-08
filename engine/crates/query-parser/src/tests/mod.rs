@@ -1,5 +1,6 @@
 use crate::{Keyword, LexErrorKind, TokenKind, lex, parse_select};
 use alloc::string::ToString;
+use query_ast::{CompareOp, Expr, Literal};
 
 #[test]
 fn lexer_can_tokenize_select_shape() {
@@ -155,20 +156,21 @@ fn lexer_distinguishes_keyword_prefix_identifiers() {
 }
 
 #[test]
-fn lexer_can_tokenize_boolean_filter_keywords() {
-    let tokens = lex("filter not .published = true or .status = null").expect("query should lex");
+fn lexer_can_tokenize_literal_keywords() {
+    let tokens = lex("true false null").expect("query should lex");
 
-    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
-    assert_eq!(tokens[1].kind(), &TokenKind::Keyword(Keyword::Not));
-    assert_eq!(tokens[2].kind(), &TokenKind::Dot);
-    assert_eq!(tokens[3].kind(), &TokenKind::Ident("published".to_string()));
-    assert_eq!(tokens[4].kind(), &TokenKind::Eq);
-    assert_eq!(tokens[5].kind(), &TokenKind::Keyword(Keyword::True));
-    assert_eq!(tokens[6].kind(), &TokenKind::Keyword(Keyword::Or));
-    assert_eq!(tokens[7].kind(), &TokenKind::Dot);
-    assert_eq!(tokens[8].kind(), &TokenKind::Ident("status".to_string()));
-    assert_eq!(tokens[9].kind(), &TokenKind::Eq);
-    assert_eq!(tokens[10].kind(), &TokenKind::Keyword(Keyword::Null));
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::True));
+    assert_eq!(tokens[1].kind(), &TokenKind::Keyword(Keyword::False));
+    assert_eq!(tokens[2].kind(), &TokenKind::Keyword(Keyword::Null));
+}
+
+#[test]
+fn lexer_treats_boolean_operator_words_as_identifiers_until_supported() {
+    let tokens = lex("and or not").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Ident("and".to_string()));
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("or".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::Ident("not".to_string()));
 }
 
 #[test]
@@ -287,4 +289,84 @@ fn parser_can_parse_deeply_nested_shape_item() {
     let birthday_item = &human_shape.items()[0];
     assert_eq!(birthday_item.path().steps()[0].field_name(), "birthday");
     assert!(birthday_item.child_shape().is_none());
+}
+
+#[test]
+fn parser_can_parse_filter_compare_path_equals_string_literal() {
+    let query =
+        parse_select("select Post {title} filter .title = \"Hello\"").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 1);
+            assert_eq!(compare.left().steps()[0].field_name(), "title");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::String("Hello".to_string()));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_compare_nested_path_equals_string_literal() {
+    let query = parse_select("select Post { title } filter .author.name = \"Sheri\"")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 2);
+            assert_eq!(compare.left().steps()[0].field_name(), "author");
+            assert_eq!(compare.left().steps()[1].field_name(), "name");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::String("Sheri".to_string()));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_select_without_filter() {
+    let query = parse_select("select Post { title }").expect("query should parse");
+
+    assert!(query.filter().is_none());
+}
+
+#[test]
+fn parser_rejects_filter_without_path() {
+    let error =
+        parse_select("select Post { title } filter = \"Hello\"").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedToken { expected: "IDENT" }
+    );
+}
+
+#[test]
+fn parser_rejects_filter_without_comparison_operator() {
+    let error =
+        parse_select("select Post { title } filter title \"Hello\"").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedToken {
+            expected: "comparison operator"
+        }
+    );
+}
+
+#[test]
+fn parser_rejects_filter_without_literal() {
+    let error = parse_select("select Post { title } filter title =").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedEof {
+            expected: "literal"
+        }
+    );
 }

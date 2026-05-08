@@ -33,9 +33,6 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             RawTokenKind::Offset => TokenKind::Keyword(Keyword::Offset),
             RawTokenKind::Asc => TokenKind::Keyword(Keyword::Asc),
             RawTokenKind::Desc => TokenKind::Keyword(Keyword::Desc),
-            RawTokenKind::And => TokenKind::Keyword(Keyword::And),
-            RawTokenKind::Or => TokenKind::Keyword(Keyword::Or),
-            RawTokenKind::Not => TokenKind::Keyword(Keyword::Not),
             RawTokenKind::True => TokenKind::Keyword(Keyword::True),
             RawTokenKind::False => TokenKind::Keyword(Keyword::False),
             RawTokenKind::Null => TokenKind::Keyword(Keyword::Null),
@@ -94,15 +91,6 @@ enum RawTokenKind {
 
     #[token("desc")]
     Desc,
-
-    #[token("and")]
-    And,
-
-    #[token("or")]
-    Or,
-
-    #[token("not")]
-    Not,
 
     #[token("true")]
     True,
@@ -188,9 +176,6 @@ pub enum Keyword {
     Offset,
     Asc,
     Desc,
-    And,
-    Or,
-    Not,
     True,
     False,
     Null,
@@ -207,9 +192,6 @@ impl Keyword {
             Keyword::Offset => "offset",
             Keyword::Asc => "asc",
             Keyword::Desc => "desc",
-            Keyword::And => "and",
-            Keyword::Or => "or",
-            Keyword::Not => "not",
             Keyword::True => "true",
             Keyword::False => "false",
             Keyword::Null => "null",

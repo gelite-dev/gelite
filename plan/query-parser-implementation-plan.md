@@ -551,8 +551,21 @@ right = expect string literal
 return Expr::Compare(CompareExpr::new(left, CompareOp::Eq, Literal::String(right)))
 ```
 
-Do not parse boolean `and/or/not` yet even though the lexer recognizes the
-keywords.
+Do not parse boolean `and/or/not` yet. The current `query-ast::Expr` model has
+no `And`, `Or`, or `Not` variants, so the parser must not pretend that boolean
+filter composition is supported.
+
+For now, `and`, `or`, and `not` should not be reserved lexer keywords. Treating
+them as ordinary identifiers avoids exposing syntax that later stages cannot
+represent.
+
+Later replacement:
+
+- extend `query-ast::Expr` with recursive boolean expression variants
+- extend resolver and `ir::Expr` with resolved boolean expression variants
+- add parser precedence rules for `not`, `and`, and `or`
+- reserve `and`, `or`, and `not` as lexer keywords only when those stages can
+  consume them end-to-end
 
 ### Order Clause
 
