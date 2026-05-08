@@ -7,8 +7,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_plan::{
-    SQLiteCompareOp, SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr,
-    SQLiteWhereExpr,
+    SQLiteCompareOp, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan,
+    SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 pub fn render_select(plan: &sqlite_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
@@ -18,8 +18,10 @@ pub fn render_select(plan: &sqlite_plan::SQLiteSelectPlan) -> SQLiteSelectStatem
     let order_clause = render_order_clause(plan);
     let limit_clause = render_limit_clause(plan);
     let offset_clause = render_offset_clause(plan);
+    let join_clauses = render_join_clauses(plan);
 
     let mut clauses = vec![select_clause, from_clause];
+    clauses.extend(join_clauses);
     if let Some(where_clause) = where_clause {
         clauses.push(where_clause);
     }
@@ -78,6 +80,30 @@ fn render_where_clause(plan: &SQLiteSelectPlan) -> (Option<String>, Vec<SQLiteBi
             (Some(format!("WHERE {value_sql} IS NULL")), bind_values)
         }
     }
+}
+
+fn render_join_clauses(plan: &SQLiteSelectPlan) -> Vec<String> {
+    plan.joins()
+        .iter()
+        .map(|join| {
+            let join_kind = match join.kind() {
+                SQLiteJoinKind::Inner => "INNER JOIN",
+                SQLiteJoinKind::Left => "LEFT JOIN",
+            };
+
+            let on = join.on();
+
+            format!(
+                "{join_kind} {} AS {} ON {}.{} = {}.{}",
+                join.target_table(),
+                join.target_alias(),
+                on.left_alias(),
+                on.left_column(),
+                on.right_alias(),
+                on.right_column(),
+            )
+        })
+        .collect()
 }
 
 fn render_compare_op(op: SQLiteCompareOp) -> &'static str {
