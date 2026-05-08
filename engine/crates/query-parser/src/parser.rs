@@ -120,7 +120,14 @@ impl<'a> Parser<'a> {
     fn parse_shape_item(&mut self) -> Result<query_ast::ShapeItem, ParseError> {
         let field_name = self.expect_ident()?;
         let path = Path::new(vec![PathStep::new(field_name)]);
-        Ok(ShapeItem::new(path, None))
+        let child_shape = match self.peek() {
+            Some(token) if token.kind() == &TokenKind::Colon => {
+                self.advance();
+                Some(self.parse_shape()?)
+            }
+            _ => None,
+        };
+        Ok(ShapeItem::new(path, child_shape))
     }
 
     fn peek(&self) -> Option<&Token> {

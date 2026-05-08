@@ -240,3 +240,51 @@ fn parser_rejects_adjacent_shape_items_without_comma() {
     assert_eq!(span.end().column(), 23);
     assert_eq!(span.end().byte(), 22);
 }
+
+#[test]
+fn parser_can_parse_nested_shape_item() {
+    let query = parse_select("select Post { author: { name } }").expect("query should parse");
+
+    assert_eq!(query.root_type_name(), "Post");
+
+    let root_items = query.shape().items();
+    assert_eq!(root_items.len(), 1);
+
+    let author_item = &root_items[0];
+    assert_eq!(author_item.path().steps().len(), 1);
+    assert_eq!(author_item.path().steps()[0].field_name(), "author");
+
+    let author_shape = author_item
+        .child_shape()
+        .expect("author should have child shape");
+
+    let author_items = author_shape.items();
+    assert_eq!(author_items.len(), 1);
+
+    let name_item = &author_items[0];
+    assert_eq!(name_item.path().steps().len(), 1);
+    assert_eq!(name_item.path().steps()[0].field_name(), "name");
+    assert!(name_item.child_shape().is_none());
+}
+
+#[test]
+fn parser_can_parse_deeply_nested_shape_item() {
+    let query = parse_select("select Post { author: { human: { birthday } } }")
+        .expect("query should parse");
+
+    let author_item = &query.shape().items()[0];
+    assert_eq!(author_item.path().steps()[0].field_name(), "author");
+
+    let author_shape = author_item
+        .child_shape()
+        .expect("author should have child shape");
+    let human_item = &author_shape.items()[0];
+    assert_eq!(human_item.path().steps()[0].field_name(), "human");
+
+    let human_shape = human_item
+        .child_shape()
+        .expect("human should have child shape");
+    let birthday_item = &human_shape.items()[0];
+    assert_eq!(birthday_item.path().steps()[0].field_name(), "birthday");
+    assert!(birthday_item.child_shape().is_none());
+}
