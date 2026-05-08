@@ -197,3 +197,46 @@ fn parser_can_parse_select_shape() {
     assert_eq!(query.limit(), None);
     assert_eq!(query.offset(), None);
 }
+
+#[test]
+fn parser_preserves_shape_item_order() {
+    let query = parse_select("select Post { id, title }").expect("query should parse");
+
+    assert_eq!(query.root_type_name(), "Post");
+    assert_eq!(query.shape().items().len(), 2);
+
+    let item = &query.shape().items()[0];
+    assert_eq!(item.path().steps()[0].field_name(), "id");
+    assert!(item.child_shape().is_none());
+
+    let item = &query.shape().items()[1];
+    assert_eq!(item.path().steps()[0].field_name(), "title");
+    assert!(item.child_shape().is_none());
+
+    assert!(query.filter().is_none());
+    assert!(query.order_by().is_empty());
+    assert_eq!(query.limit(), None);
+    assert_eq!(query.offset(), None);
+}
+
+#[test]
+fn parser_rejects_adjacent_shape_items_without_comma() {
+    let error =
+        parse_select("select Post { id title }").expect_err("query should fail without comma");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedToken { expected: ", or }" }
+    );
+
+    let span = error
+        .span()
+        .expect("parse error should point to unexpected token");
+
+    assert_eq!(span.start().line(), 1);
+    assert_eq!(span.start().column(), 18);
+    assert_eq!(span.start().byte(), 17);
+    assert_eq!(span.end().line(), 1);
+    assert_eq!(span.end().column(), 23);
+    assert_eq!(span.end().byte(), 22);
+}

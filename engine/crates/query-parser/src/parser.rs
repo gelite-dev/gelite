@@ -78,10 +78,43 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_shape(&mut self) -> Result<query_ast::Shape, ParseError> {
+        let mut shape_items = vec![];
         self.expect_lbrace()?;
-        let shape_item = self.parse_shape_item()?;
+
+        loop {
+            match self.peek() {
+                Some(token) if token.kind() == &TokenKind::RBrace => break,
+                Some(_) => {
+                    shape_items.push(self.parse_shape_item()?);
+                    if !self.consume_comma_if_present() {
+                        match self.peek() {
+                            Some(token) if token.kind() == &TokenKind::RBrace => continue,
+                            Some(token) => {
+                                return Err(ParseError::new(
+                                    ParseErrorKind::UnexpectedToken { expected: ", or }" },
+                                    Some(token.span()),
+                                ));
+                            }
+                            None => {
+                                return Err(ParseError::new(
+                                    ParseErrorKind::UnexpectedEof { expected: "}" },
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                }
+                None => {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedEof { expected: "}" },
+                        None,
+                    ));
+                }
+            }
+        }
+
         self.expect_rbrace()?;
-        Ok(Shape::new(vec![shape_item]))
+        Ok(Shape::new(shape_items))
     }
 
     fn parse_shape_item(&mut self) -> Result<query_ast::ShapeItem, ParseError> {
@@ -227,6 +260,16 @@ impl<'a> Parser<'a> {
                 span: Some(token.span()),
             }),
             None => Ok(()),
+        }
+    }
+
+    fn consume_comma_if_present(&mut self) -> bool {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::Comma => {
+                self.advance();
+                true
+            }
+            _ => false,
         }
     }
 }
