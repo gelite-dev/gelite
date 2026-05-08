@@ -382,6 +382,18 @@ impl<'a> Parser<'a> {
                     self.advance();
                     Ok(query_ast::Literal::String(value))
                 }
+                TokenKind::Keyword(Keyword::True) => {
+                    self.advance();
+                    Ok(query_ast::Literal::Bool(true))
+                }
+                TokenKind::Keyword(Keyword::False) => {
+                    self.advance();
+                    Ok(query_ast::Literal::Bool(false))
+                }
+                TokenKind::Keyword(Keyword::Null) => {
+                    self.advance();
+                    Ok(query_ast::Literal::Null)
+                }
                 _ => Err(ParseError::new(
                     ParseErrorKind::UnexpectedToken {
                         expected: "literal",

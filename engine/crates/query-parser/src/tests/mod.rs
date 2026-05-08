@@ -347,6 +347,60 @@ fn parser_can_parse_filter_compare_path_equals_integer_literal() {
 }
 
 #[test]
+fn parser_can_parse_filter_compare_path_equals_true_literal() {
+    let query =
+        parse_select("select Post { title } filter .published = true").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 1);
+            assert_eq!(compare.left().steps()[0].field_name(), "published");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::Bool(true));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_compare_path_equals_false_literal() {
+    let query = parse_select("select Post { title } filter .published = false")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 1);
+            assert_eq!(compare.left().steps()[0].field_name(), "published");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::Bool(false));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_compare_path_equals_null_literal() {
+    let query = parse_select("select Post { title } filter .deleted_at = null")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 1);
+            assert_eq!(compare.left().steps()[0].field_name(), "deleted_at");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::Null);
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_can_parse_select_without_filter() {
     let query = parse_select("select Post { title }").expect("query should parse");
 
