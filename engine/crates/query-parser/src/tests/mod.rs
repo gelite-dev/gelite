@@ -1,6 +1,6 @@
 use crate::{Keyword, LexErrorKind, TokenKind, lex, parse_select};
 use alloc::string::ToString;
-use query_ast::{CompareOp, Expr, Literal};
+use query_ast::{CompareOp, Expr, Literal, OrderDirection};
 
 #[test]
 fn lexer_can_tokenize_select_shape() {
@@ -348,8 +348,8 @@ fn parser_rejects_filter_without_path() {
 
 #[test]
 fn parser_rejects_filter_without_comparison_operator() {
-    let error =
-        parse_select("select Post { title } filter title \"Hello\"").expect_err("query should fail");
+    let error = parse_select("select Post { title } filter title \"Hello\"")
+        .expect_err("query should fail");
 
     assert_eq!(
         error.kind(),
@@ -361,12 +361,90 @@ fn parser_rejects_filter_without_comparison_operator() {
 
 #[test]
 fn parser_rejects_filter_without_literal() {
-    let error = parse_select("select Post { title } filter title =").expect_err("query should fail");
+    let error =
+        parse_select("select Post { title } filter title =").expect_err("query should fail");
 
     assert_eq!(
         error.kind(),
         &crate::ParseErrorKind::UnexpectedEof {
             expected: "literal"
         }
+    );
+}
+
+#[test]
+fn parser_can_parse_order_by_path_desc() {
+    let query =
+        parse_select("select Post {title} order by .title desc").expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    assert_eq!(order.path().steps().len(), 1);
+    assert_eq!(order.path().steps()[0].field_name(), "title");
+    assert_eq!(order.direction(), OrderDirection::Desc);
+}
+
+#[test]
+fn parser_defaults_order_direction_to_asc() {
+    let query = parse_select("select Post {title} order by .title").expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    assert_eq!(order.path().steps().len(), 1);
+    assert_eq!(order.path().steps()[0].field_name(), "title");
+    assert_eq!(order.direction(), OrderDirection::Asc);
+}
+
+#[test]
+fn parser_can_parse_order_by_nested_path() {
+    let query =
+        parse_select("select Post {title} order by .author.birthday").expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    assert_eq!(order.path().steps().len(), 2);
+    assert_eq!(order.path().steps()[0].field_name(), "author");
+    assert_eq!(order.path().steps()[1].field_name(), "birthday");
+    assert_eq!(order.direction(), OrderDirection::Asc);
+}
+
+#[test]
+fn parser_can_parse_multiple_order_by_items() {
+    let query = parse_select("select Post {title} order by .title desc, .created_at asc")
+        .expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 2);
+
+    let order = &query.order_by()[0];
+    assert_eq!(order.path().steps().len(), 1);
+    assert_eq!(order.path().steps()[0].field_name(), "title");
+    assert_eq!(order.direction(), OrderDirection::Desc);
+
+    let order = &query.order_by()[1];
+    assert_eq!(order.path().steps().len(), 1);
+    assert_eq!(order.path().steps()[0].field_name(), "created_at");
+    assert_eq!(order.direction(), OrderDirection::Asc);
+}
+
+#[test]
+fn parser_rejects_order_by_without_path() {
+    let error = parse_select("select Post { title } order by desc").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedToken { expected: "IDENT" }
+    );
+}
+
+#[test]
+fn parser_rejects_order_without_by() {
+    let error = parse_select("select Post { title } order .title").expect_err("query should fail");
+
+    assert_eq!(
+        error.kind(),
+        &crate::ParseErrorKind::UnexpectedToken { expected: "by" }
     );
 }

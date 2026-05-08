@@ -67,13 +67,14 @@ impl<'a> Parser<'a> {
         let root_type_name = self.expect_ident()?;
         let shape = self.parse_shape()?;
         let filter = self.parse_filter_clause()?;
+        let order_by = self.parse_order_clause()?;
         self.ensure_eof()?;
 
         Ok(SelectQuery::new(
             root_type_name,
             shape,
             filter,
-            vec![],
+            order_by,
             None,
             None,
         ))
@@ -135,7 +136,7 @@ impl<'a> Parser<'a> {
     fn parse_filter_clause(&mut self) -> Result<Option<query_ast::Expr>, ParseError> {
         match self.peek() {
             Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Filter) => {
-                self.advance(); // filter 소비
+                self.expect_keyword(Keyword::Filter)?;
                 let left = self.parse_path(true)?;
                 let op = self.expect_compare_op()?;
                 let right = self.expect_literal()?;
@@ -146,6 +147,43 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_order_clause(&mut self) -> Result<Vec<OrderExpr>, ParseError> {
+        if !self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Keyword(Keyword::Order))
+        {
+            return Ok(vec![]);
+        }
+
+        let mut results = vec![];
+
+        self.expect_keyword(Keyword::Order)?;
+        self.expect_keyword(Keyword::By)?;
+
+        results.push(self.parse_order_item()?);
+        while self.consume_comma_if_present() {
+            results.push(self.parse_order_item()?);
+        }
+
+        Ok(results)
+    }
+
+    fn parse_order_item(&mut self) -> Result<OrderExpr, ParseError> {
+        let path = self.parse_path(true)?;
+        let direction = match self.peek() {
+            Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Desc) => {
+                self.advance();
+                query_ast::OrderDirection::Desc
+            }
+            Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Asc) => {
+                self.advance();
+                query_ast::OrderDirection::Asc
+            }
+            _ => query_ast::OrderDirection::Asc,
+        };
+
+        Ok(OrderExpr::new(path, direction))
+    }
     fn parse_path(&mut self, allow_leading_dot: bool) -> Result<Path, ParseError> {
         if self
             .peek()
@@ -174,10 +212,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Path::new(steps))
-    }
-
-    fn parse_order_clause() -> Result<Vec<OrderExpr>, ParseError> {
-        todo!()
     }
 
     fn parse_limit_clause() -> Result<Option<u64>, ParseError> {
