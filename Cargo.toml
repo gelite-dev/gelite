@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  "engine/crates/schema",
+  "engine/crates/query-ast",
+  "engine/crates/ir",
+  "engine/crates/resolver",
+  "engine/crates/sqlite-plan",
+  "engine/crates/sqlite-sqlgen",
+  "engine/crates/query-parser",
+  "tools/repl",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"

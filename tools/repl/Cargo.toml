@@ -1,0 +1,13 @@
+[package]
+name = "repl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+schema = { path = "../../engine/crates/schema" }
+query-ast = { path = "../../engine/crates/query-ast" }
+query-parser = { path = "../../engine/crates/query-parser" }
+ir = { path = "../../engine/crates/ir" }
+resolver = { path = "../../engine/crates/resolver" }
+sqlite-plan = { path = "../../engine/crates/sqlite-plan" }
+sqlite-sqlgen = { path = "../../engine/crates/sqlite-sqlgen" }

@@ -48,6 +48,7 @@ The project currently has:
   - order path resolution for scalar fields
   - limit and offset passthrough
 - `repl`
+  - lives under `tools/repl`
   - detailed smoke runner for `query-parser + resolver + sqlite-plan + sqlite-sqlgen`
 
 The next layer should consume `ir`, not `query-ast`.

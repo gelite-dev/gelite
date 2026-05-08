@@ -57,7 +57,6 @@ scoped crates:
 - `query-ast`
 - `ir`
 - `resolver`
-- `repl`
 
 ### `schema`
 
@@ -103,16 +102,9 @@ Responsibilities:
 
 This crate is the most important first implementation target.
 
-### `repl`
-
-Responsibilities:
-
-- temporary binary for local query pipeline inspection
-- load a hardcoded schema catalog
-- parse an input query string
-- print the Query AST, resolved Semantic IR, SQLite plan details, final SQL, and bind values
-
-This is a development tool, not the final interactive shell or user-facing CLI.
+The `repl` tool lives outside the engine crate set under `tools/repl`. It is a
+`std` binary for local query pipeline inspection, not part of the `no_std`
+engine core.
 
 ## Deferred Initial Crates
 
@@ -810,23 +802,24 @@ Run these commands from the repository root:
 
 ```bash
 mkdir -p engine/crates
+mkdir -p tools
 cargo new --lib engine/crates/schema
 cargo new --lib engine/crates/query-ast
 cargo new --lib engine/crates/ir
 cargo new --lib engine/crates/resolver
-cargo new --bin engine/crates/repl
+cargo new --bin tools/repl
 ```
 
-Then create `engine/Cargo.toml` as a workspace manifest:
+Then create the repository-root `Cargo.toml` as a workspace manifest:
 
 ```toml
 [workspace]
 members = [
-  "crates/schema",
-  "crates/query-ast",
-  "crates/ir",
-  "crates/resolver",
-  "crates/repl",
+  "engine/crates/schema",
+  "engine/crates/query-ast",
+  "engine/crates/ir",
+  "engine/crates/resolver",
+  "tools/repl",
 ]
 
 resolver = "2"
