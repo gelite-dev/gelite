@@ -196,6 +196,27 @@ pub enum Keyword {
     Null,
 }
 
+impl Keyword {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Keyword::Select => "select",
+            Keyword::Filter => "filter",
+            Keyword::Order => "order",
+            Keyword::By => "by",
+            Keyword::Limit => "limit",
+            Keyword::Offset => "offset",
+            Keyword::Asc => "asc",
+            Keyword::Desc => "desc",
+            Keyword::And => "and",
+            Keyword::Or => "or",
+            Keyword::Not => "not",
+            Keyword::True => "true",
+            Keyword::False => "false",
+            Keyword::Null => "null",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     start: Position,

@@ -1,4 +1,4 @@
-use crate::{Keyword, LexErrorKind, TokenKind, lex};
+use crate::{Keyword, LexErrorKind, TokenKind, lex, parse_select};
 use alloc::string::ToString;
 
 #[test]
@@ -179,4 +179,21 @@ fn lexer_reports_unexpected_character_byte_offset() {
     assert_eq!(error.position().line(), 1);
     assert_eq!(error.position().column(), 15);
     assert_eq!(error.position().byte(), 14);
+}
+
+#[test]
+fn parser_can_parse_select_shape() {
+    let query = parse_select("select Post { title }").expect("query should parse");
+
+    assert_eq!(query.root_type_name(), "Post");
+    assert_eq!(query.shape().items().len(), 1);
+
+    let item = &query.shape().items()[0];
+    assert_eq!(item.path().steps()[0].field_name(), "title");
+    assert!(item.child_shape().is_none());
+
+    assert!(query.filter().is_none());
+    assert!(query.order_by().is_empty());
+    assert_eq!(query.limit(), None);
+    assert_eq!(query.offset(), None);
 }
