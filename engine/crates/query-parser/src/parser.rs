@@ -46,6 +46,7 @@ pub enum ParseErrorKind {
     UnexpectedEof { expected: &'static str },
     UnexpectedToken { expected: &'static str },
     UnexpectedValue { expected: &'static str },
+    InvalidIntegerLiteral,
     Unsupported,
 }
 
@@ -371,12 +372,7 @@ impl<'a> Parser<'a> {
             Some(token) => match token.kind() {
                 TokenKind::Int(value) => {
                     let parsed = value.parse::<i64>().map_err(|_| {
-                        ParseError::new(
-                            ParseErrorKind::UnexpectedToken {
-                                expected: "i64 literal",
-                            },
-                            Some(token.span()),
-                        )
+                        ParseError::new(ParseErrorKind::InvalidIntegerLiteral, Some(token.span()))
                     })?;
                     self.advance();
                     Ok(query_ast::Literal::Int64(parsed))

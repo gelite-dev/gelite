@@ -329,6 +329,24 @@ fn parser_can_parse_filter_compare_nested_path_equals_string_literal() {
 }
 
 #[test]
+fn parser_can_parse_filter_compare_path_equals_integer_literal() {
+    let query =
+        parse_select("select Post { title } filter .view_count = 42").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_eq!(compare.left().steps().len(), 1);
+            assert_eq!(compare.left().steps()[0].field_name(), "view_count");
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_eq!(compare.right(), &Literal::Int64(42));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_can_parse_select_without_filter() {
     let query = parse_select("select Post { title }").expect("query should parse");
 
@@ -494,4 +512,12 @@ fn parser_rejects_negative_offset() {
             expected: "non-negative integer"
         }
     );
+}
+
+#[test]
+fn parser_rejects_integer_literal_outside_i64_range() {
+    let error = parse_select("select Post { title } filter .view_count = 9223372036854775808")
+        .expect_err("query should fail");
+
+    assert_eq!(error.kind(), &crate::ParseErrorKind::InvalidIntegerLiteral);
 }
