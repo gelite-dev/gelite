@@ -781,6 +781,9 @@ Only after this works should implementation move on to:
 3. SQL generation
 4. row shaping runtime
 
+For the next select expansion after SQL generation, see
+`plan/select-path-traversal-plan.md`.
+
 ## Suggested Early Tests
 
 Add tests for:
