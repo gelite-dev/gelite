@@ -4,9 +4,9 @@ use crate::{SQLiteBindValue, render_select};
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    post_author_shape_field, post_id_shape_field, post_query_with_filter,
-    post_query_with_limit_and_offset, post_query_with_order_by, post_query_with_shape,
-    post_title_path_value, post_title_shape_field,
+    post_author_name_path_value, post_author_shape_field, post_id_shape_field,
+    post_query_with_filter, post_query_with_limit_and_offset, post_query_with_order_by,
+    post_query_with_shape, post_title_path_value, post_title_shape_field,
 };
 
 #[test]
@@ -66,6 +66,30 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_string_filter() {
     assert_eq!(
         statement.bind_values(),
         &[SQLiteBindValue::String("Hello".to_string())]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_single_link_scalar_equals_string_filter() {
+    let filter = ir::Expr::Compare(ir::CompareExpr::new(
+        post_author_name_path_value(),
+        ir::CompareOp::Eq,
+        ir::ValueExpr::Literal(ir::Literal::String("Sheri".to_string())),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id WHERE author.name = ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::String("Sheri".to_string())]
     );
 }
 
@@ -130,10 +154,7 @@ fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
 
 #[test]
 fn sqlite_sqlgen_can_render_order_by_root_scalar_field_desc() {
-    let order_by = ir::OrderExpr::new(
-        post_title_path_value(),
-        ir::OrderDirection::Desc,
-    );
+    let order_by = ir::OrderExpr::new(post_title_path_value(), ir::OrderDirection::Desc);
 
     let ir = post_query_with_order_by(vec![order_by]);
     let plan = sqlite_plan::plan_select(&ir);
@@ -143,6 +164,21 @@ fn sqlite_sqlgen_can_render_order_by_root_scalar_field_desc() {
     assert_eq!(
         statement.sql(),
         "SELECT root.title FROM post AS root ORDER BY root.title DESC"
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_order_by_single_link_scalar_field() {
+    let order_by = ir::OrderExpr::new(post_author_name_path_value(), ir::OrderDirection::Asc);
+
+    let ir = post_query_with_order_by(vec![order_by]);
+    let plan = sqlite_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id ORDER BY author.name ASC"
     );
 }
 
