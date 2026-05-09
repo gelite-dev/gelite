@@ -6,7 +6,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use ir::{CompareExpr, CompareOp, Expr, SelectQuery};
+use ir::{CompareOp, Expr, SelectQuery};
 use schema::{Cardinality, FieldRef, ObjectTypeRef};
 
 pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
@@ -364,15 +364,6 @@ pub enum SQLiteWhereExpr {
     IsNull(SQLiteValueExpr),
 }
 
-impl SQLiteWhereExpr {
-    pub fn from_ir(expr: &Expr) -> Self {
-        match expr {
-            Expr::Compare(compare) => SQLiteWhereExpr::Compare(SQLiteCompareExpr::from_ir(compare)),
-            Expr::IsNull(value) => SQLiteWhereExpr::IsNull(SQLiteValueExpr::from_ir(value)),
-        }
-    }
-}
-
 pub struct SQLiteCompareExpr {
     left: SQLiteValueExpr,
     op: SQLiteCompareOp,
@@ -380,14 +371,6 @@ pub struct SQLiteCompareExpr {
 }
 
 impl SQLiteCompareExpr {
-    pub fn from_ir(compare: &CompareExpr) -> Self {
-        SQLiteCompareExpr {
-            left: SQLiteValueExpr::from_ir(compare.left()),
-            op: SQLiteCompareOp::from_ir(compare.op()),
-            right: SQLiteValueExpr::from_ir(compare.right()),
-        }
-    }
-
     pub fn left(&self) -> &SQLiteValueExpr {
         &self.left
     }
@@ -404,26 +387,6 @@ impl SQLiteCompareExpr {
 pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
-}
-
-impl SQLiteValueExpr {
-    pub fn from_ir(expr: &ir::ValueExpr) -> Self {
-        match expr {
-            ir::ValueExpr::Path(path) => SQLiteValueExpr::Column(plan_resolved_path(path).column),
-            ir::ValueExpr::Literal(ir::Literal::String(value)) => {
-                SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone()))
-            }
-            ir::ValueExpr::Literal(ir::Literal::Int64(value)) => {
-                SQLiteValueExpr::Literal(SQLiteLiteral::Int64(*value))
-            }
-            ir::ValueExpr::Literal(ir::Literal::Bool(value)) => {
-                SQLiteValueExpr::Literal(SQLiteLiteral::Bool(*value))
-            }
-            ir::ValueExpr::Literal(ir::Literal::Null) => {
-                SQLiteValueExpr::Literal(SQLiteLiteral::Null)
-            }
-        }
-    }
 }
 
 pub struct SQLiteColumnRef {
