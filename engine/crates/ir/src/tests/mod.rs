@@ -1,14 +1,15 @@
 mod fixtures;
 
 use crate::{
-    CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, ResolvedShape,
-    ResolvedShapeField, SelectQuery, ValueExpr,
+    CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, ResolvedPath,
+    ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, SelectQuery,
+    ValueExpr,
 };
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
     empty_post_shape, post_author_field, post_subtitle_field, post_title_field, post_type,
-    user_name_shape,
+    user_name_field, user_name_shape, user_type,
 };
 use schema::{Cardinality, ObjectTypeId};
 
@@ -171,6 +172,46 @@ fn resolved_shape_can_contain_optional_link_field() {
 
     assert_eq!(child_shape.source_object_type().name(), "User");
     assert_eq!(child_shape.fields()[0].output_name(), "name");
+}
+
+#[test]
+fn resolved_path_can_represent_root_scalar_field() {
+    let path = ResolvedPath::new(
+        post_type(),
+        vec![ResolvedPathStep::scalar(
+            post_title_field(),
+            Cardinality::Required,
+        )],
+    );
+
+    assert_eq!(path.root_object_type().name(), "Post");
+    assert_eq!(path.result_cardinality(), Cardinality::Required);
+    assert_eq!(path.steps().len(), 1);
+
+    let step = &path.steps()[0];
+    assert_eq!(step.field().owner_object_type().name(), "Post");
+    assert_eq!(step.field().name(), "title");
+    assert_eq!(step.cardinality(), Cardinality::Required);
+
+    match step.kind() {
+        ResolvedPathStepKind::Scalar => {}
+        ResolvedPathStepKind::Link { .. } => {
+            panic!("root scalar field path should contain a scalar step")
+        }
+    }
+}
+
+#[test]
+fn resolved_path_result_cardinality_becomes_optional_when_any_step_is_optional() {
+    let path = ResolvedPath::new(
+        post_type(),
+        vec![
+            ResolvedPathStep::link(post_author_field(), user_type(), Cardinality::Optional),
+            ResolvedPathStep::scalar(user_name_field(), Cardinality::Required),
+        ],
+    );
+
+    assert_eq!(path.result_cardinality(), Cardinality::Optional);
 }
 
 #[test]

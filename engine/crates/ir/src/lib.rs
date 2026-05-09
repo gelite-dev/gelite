@@ -120,6 +120,95 @@ impl ResolvedShapeField {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPath {
+    root_object_type: ObjectTypeRef,
+    steps: Vec<ResolvedPathStep>,
+    result_cardinality: Cardinality,
+}
+
+impl ResolvedPath {
+    pub fn new(root_object_type: ObjectTypeRef, steps: Vec<ResolvedPathStep>) -> Self {
+        fn combine_cardinality(left: Cardinality, right: Cardinality) -> Cardinality {
+            match (left, right) {
+                (Cardinality::Many, _) | (_, Cardinality::Many) => Cardinality::Many,
+                (Cardinality::Optional, _) | (_, Cardinality::Optional) => Cardinality::Optional,
+                (Cardinality::Required, Cardinality::Required) => Cardinality::Required,
+            }
+        }
+
+        let result_cardinality = steps
+            .iter()
+            .map(|step| step.cardinality())
+            .fold(Cardinality::Required, combine_cardinality);
+
+        Self {
+            root_object_type,
+            steps,
+            result_cardinality,
+        }
+    }
+
+    pub fn root_object_type(&self) -> &ObjectTypeRef {
+        &self.root_object_type
+    }
+
+    pub fn steps(&self) -> &[ResolvedPathStep] {
+        &self.steps
+    }
+
+    pub fn result_cardinality(&self) -> Cardinality {
+        self.result_cardinality
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPathStep {
+    field: FieldRef,
+    kind: ResolvedPathStepKind,
+    cardinality: Cardinality,
+}
+
+impl ResolvedPathStep {
+    pub fn scalar(field: FieldRef, cardinality: Cardinality) -> Self {
+        Self {
+            field,
+            kind: ResolvedPathStepKind::Scalar,
+            cardinality,
+        }
+    }
+
+    pub fn link(
+        field: FieldRef,
+        target_object_type: ObjectTypeRef,
+        cardinality: Cardinality,
+    ) -> Self {
+        Self {
+            field,
+            kind: ResolvedPathStepKind::Link { target_object_type },
+            cardinality,
+        }
+    }
+
+    pub fn field(&self) -> &FieldRef {
+        &self.field
+    }
+
+    pub fn kind(&self) -> &ResolvedPathStepKind {
+        &self.kind
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedPathStepKind {
+    Scalar,
+    Link { target_object_type: ObjectTypeRef },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
