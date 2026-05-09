@@ -11,3 +11,4 @@ ir = { path = "../../engine/crates/ir" }
 resolver = { path = "../../engine/crates/resolver" }
 sqlite-plan = { path = "../../engine/crates/sqlite-plan" }
 sqlite-sqlgen = { path = "../../engine/crates/sqlite-sqlgen" }
+rustyline = "18"

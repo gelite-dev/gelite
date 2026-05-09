@@ -1,6 +1,5 @@
-use std::io::{self, Write};
-
 use query_parser::parse_select;
+use rustyline::{DefaultEditor, error::ReadlineError};
 use schema::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
@@ -26,34 +25,65 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool) {
     println!("gelite repl");
     println!("Type a select query to render SQL, or :quit / :exit to leave.");
     println!("Press Enter on an empty line to run the default query.");
+    println!("Use balanced braces for multiline input.");
+    println!("Press Ctrl-C twice in a row to leave.");
     if debug {
         println!("Debug output is enabled.");
     }
 
+    let mut editor = DefaultEditor::new().expect("line editor should initialize");
+    let mut pending = String::new();
+    let mut interrupt_count = 0;
+
     loop {
-        print!("gelite> ");
-        io::stdout()
-            .flush()
-            .expect("stdout should flush before reading input");
+        let prompt = if pending.is_empty() {
+            "gelite> "
+        } else {
+            "   ...> "
+        };
 
-        let mut line = String::new();
-        match io::stdin().read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                let input = line.trim();
+        match editor.readline(prompt) {
+            Ok(line) => {
+                interrupt_count = 0;
+                let trimmed = line.trim();
 
-                if is_exit_command(input) {
+                if pending.is_empty() && is_exit_command(trimmed) {
                     break;
                 }
 
-                let query_text = if input.is_empty() {
-                    DEFAULT_QUERY
-                } else {
-                    input
-                };
+                if pending.is_empty() && trimmed.is_empty() {
+                    let _ = inspect_query(catalog, DEFAULT_QUERY, debug);
+                    continue;
+                }
 
-                let _ = inspect_query(catalog, query_text, debug);
+                if !pending.is_empty() {
+                    pending.push('\n');
+                }
+                pending.push_str(&line);
+
+                if needs_more_input(&pending) {
+                    continue;
+                }
+
+                let query_text = pending.trim().to_string();
+                pending.clear();
+
+                if !query_text.is_empty() {
+                    let _ = editor.add_history_entry(query_text.as_str());
+                    let _ = inspect_query(catalog, &query_text, debug);
+                }
             }
+            Err(ReadlineError::Interrupted) => {
+                pending.clear();
+                interrupt_count += 1;
+
+                if interrupt_count >= 2 {
+                    break;
+                }
+
+                println!("input cancelled. Press Ctrl-C again to leave.");
+            }
+            Err(ReadlineError::Eof) => break,
             Err(error) => {
                 eprintln!("failed to read input: {error}");
                 break;
@@ -64,6 +94,26 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool) {
 
 fn is_exit_command(input: &str) -> bool {
     matches!(input, ":quit" | ":q" | ":exit" | "quit" | "exit")
+}
+
+fn needs_more_input(input: &str) -> bool {
+    brace_balance(input) > 0
+}
+
+fn brace_balance(input: &str) -> i32 {
+    let mut balance = 0;
+    let mut in_string = false;
+
+    for ch in input.chars() {
+        match ch {
+            '"' => in_string = !in_string,
+            '{' if !in_string => balance += 1,
+            '}' if !in_string => balance -= 1,
+            _ => {}
+        }
+    }
+
+    balance
 }
 
 fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Result<(), ()> {
@@ -182,5 +232,24 @@ impl ReplArgs {
         };
 
         Self { debug, query }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::needs_more_input;
+
+    #[test]
+    fn multiline_input_continues_until_braces_are_balanced() {
+        assert!(needs_more_input("select Post {"));
+        assert!(needs_more_input("select Post {\n  author: { name }"));
+        assert!(!needs_more_input("select Post {\n  author: { name }\n}"));
+    }
+
+    #[test]
+    fn braces_inside_strings_do_not_start_multiline_input() {
+        assert!(!needs_more_input(
+            r#"select Post { title } filter .title = "{""#
+        ));
     }
 }
