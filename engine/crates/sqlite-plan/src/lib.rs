@@ -18,7 +18,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let order_by = ir
         .order_by()
         .iter()
-        .map(|order| SQLiteOrder::root_field(order))
+        .map(SQLiteOrder::from_ir)
         .collect();
 
     let filter = ir.filter().map(SQLiteWhereExpr::from_ir);
@@ -328,9 +328,13 @@ pub struct SQLiteOrder {
 }
 
 impl SQLiteOrder {
-    pub fn root_field(order: &ir::OrderExpr) -> Self {
+    pub fn from_ir(order: &ir::OrderExpr) -> Self {
         let field = match order.value() {
-            ir::ValueExpr::Field(field) => field,
+            ir::ValueExpr::Path(path) => path
+                .steps()
+                .last()
+                .expect("resolved path should have at least one step")
+                .field(),
             ir::ValueExpr::Literal(_) => todo!("ORDER BY literal is not supported yet"),
         };
 
@@ -404,10 +408,18 @@ pub enum SQLiteValueExpr {
 impl SQLiteValueExpr {
     pub fn from_ir(expr: &ir::ValueExpr) -> Self {
         match expr {
-            ir::ValueExpr::Field(field) => SQLiteValueExpr::Column(SQLiteColumnRef {
-                source_alias: "root".to_string(),
-                column_name: field.name().to_string(),
-            }),
+            ir::ValueExpr::Path(path) => {
+                let field = path
+                    .steps()
+                    .last()
+                    .expect("resolved path should have at least one step")
+                    .field();
+
+                SQLiteValueExpr::Column(SQLiteColumnRef {
+                    source_alias: "root".to_string(),
+                    column_name: field.name().to_string(),
+                })
+            }
             ir::ValueExpr::Literal(ir::Literal::String(value)) => {
                 SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone()))
             }

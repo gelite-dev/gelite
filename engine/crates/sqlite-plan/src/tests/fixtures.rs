@@ -18,6 +18,32 @@ pub fn post_id_field() -> FieldRef {
     FieldRef::new(FieldId::new(1), post_type(), "id")
 }
 
+pub fn post_title_path_value() -> ir::ValueExpr {
+    ir::ValueExpr::Path(
+        ir::ResolvedPath::try_new(
+            post_type(),
+            vec![ir::ResolvedPathStep::scalar(
+                post_title_field(),
+                schema::Cardinality::Required,
+            )],
+        )
+        .expect("post title path should be valid"),
+    )
+}
+
+pub fn post_id_path_value() -> ir::ValueExpr {
+    ir::ValueExpr::Path(
+        ir::ResolvedPath::try_new(
+            post_type(),
+            vec![ir::ResolvedPathStep::scalar(
+                post_id_field(),
+                schema::Cardinality::Required,
+            )],
+        )
+        .expect("post id path should be valid"),
+    )
+}
+
 pub fn user_type() -> ObjectTypeRef {
     ObjectTypeRef::new(ObjectTypeId::new(2), "User")
 }

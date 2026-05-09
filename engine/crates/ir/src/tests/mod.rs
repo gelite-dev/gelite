@@ -8,8 +8,9 @@ use crate::{
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    empty_post_shape, post_author_field, post_subtitle_field, post_title_field, post_type,
-    user_name_field, user_name_shape, user_type,
+    empty_post_shape, post_author_field, post_subtitle_field, post_subtitle_path_value,
+    post_title_field, post_title_path_value, post_type, user_name_field, user_name_shape,
+    user_type,
 };
 use schema::{Cardinality, ObjectTypeId};
 
@@ -239,8 +240,8 @@ fn resolved_select_query_can_store_limit_and_offset() {
 }
 
 #[test]
-fn resolved_select_query_can_store_order_by_field() {
-    let order = OrderExpr::new(ValueExpr::Field(post_title_field()), OrderDirection::Desc);
+fn resolved_select_query_can_store_order_by_path() {
+    let order = OrderExpr::new(post_title_path_value(), OrderDirection::Desc);
 
     let query = SelectQuery::new(
         post_type(),
@@ -255,18 +256,19 @@ fn resolved_select_query_can_store_order_by_field() {
     assert_eq!(query.order_by()[0].direction(), OrderDirection::Desc);
 
     match query.order_by()[0].value() {
-        ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "title");
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
         }
-        ValueExpr::Literal(_) => panic!("order by should reference a resolved field"),
+        ValueExpr::Literal(_) => panic!("order by should reference a resolved path"),
     }
 }
 
 #[test]
 fn resolved_select_query_can_store_filter_compare_expr() {
     let filter = Expr::Compare(CompareExpr::new(
-        ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         CompareOp::Eq,
         ValueExpr::Literal(Literal::String("Hello".to_string())),
     ));
@@ -286,11 +288,12 @@ fn resolved_select_query_can_store_filter_compare_expr() {
     assert_eq!(compare.op(), CompareOp::Eq);
 
     match compare.left() {
-        ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "title");
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
         }
-        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved field"),
+        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
     }
 
     match compare.right() {
@@ -298,14 +301,14 @@ fn resolved_select_query_can_store_filter_compare_expr() {
         ValueExpr::Literal(other) => {
             panic!("filter right side should store a string literal, got {other:?}")
         }
-        ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Path(_) => panic!("filter right side should store a literal"),
     }
 }
 
 #[test]
 fn resolved_select_query_can_store_filter_compare_int_literal() {
     let filter = Expr::Compare(CompareExpr::new(
-        ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         CompareOp::Eq,
         ValueExpr::Literal(Literal::Int64(42)),
     ));
@@ -329,14 +332,14 @@ fn resolved_select_query_can_store_filter_compare_int_literal() {
         ValueExpr::Literal(other) => {
             panic!("filter right side should store an int literal, got {other:?}")
         }
-        ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Path(_) => panic!("filter right side should store a literal"),
     }
 }
 
 #[test]
 fn resolved_select_query_can_store_filter_compare_bool_literal() {
     let filter = Expr::Compare(CompareExpr::new(
-        ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         CompareOp::Eq,
         ValueExpr::Literal(Literal::Bool(true)),
     ));
@@ -360,13 +363,13 @@ fn resolved_select_query_can_store_filter_compare_bool_literal() {
         ValueExpr::Literal(other) => {
             panic!("filter right side should store a bool literal, got {other:?}")
         }
-        ValueExpr::Field(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Path(_) => panic!("filter right side should store a literal"),
     }
 }
 
 #[test]
 fn resolved_select_query_can_store_filter_is_null_expr() {
-    let filter = Expr::IsNull(ValueExpr::Field(post_subtitle_field()));
+    let filter = Expr::IsNull(post_subtitle_path_value());
 
     let query = SelectQuery::new(
         post_type(),
@@ -384,10 +387,47 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
     };
 
     match value {
-        ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "subtitle");
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
-        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved field"),
+        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+    }
+}
+
+#[test]
+fn value_expr_can_reference_resolved_path() {
+    let path = ResolvedPath::try_new(
+        post_type(),
+        vec![ResolvedPathStep::scalar(
+            post_title_field(),
+            Cardinality::Required,
+        )],
+    )
+    .expect("root scalar field path should be valid");
+
+    let value = ValueExpr::Path(path);
+
+    match value {
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        ValueExpr::Literal(_) => panic!("value expression should reference a resolved path"),
+    }
+}
+
+#[test]
+fn value_expr_can_store_literal() {
+    let value = ValueExpr::Literal(Literal::String("Hello".to_string()));
+
+    match value {
+        ValueExpr::Literal(Literal::String(value)) => assert_eq!(value, "Hello"),
+        ValueExpr::Literal(other) => {
+            panic!("value expression should store string literal, got {other:?}")
+        }
+        ValueExpr::Path(_) => panic!("value expression should store a literal"),
     }
 }

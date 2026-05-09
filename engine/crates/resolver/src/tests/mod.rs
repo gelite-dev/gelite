@@ -300,11 +300,12 @@ fn resolves_filter_compare_path_to_field_and_literal() {
     };
 
     match compare.left() {
-        ir::ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "title");
+        ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
         }
-        ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a field"),
+        ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
     }
 
     assert_eq!(compare.op(), ir::CompareOp::Eq);
@@ -345,11 +346,12 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
     };
 
     match value {
-        ir::ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "title");
+        ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
         }
-        ir::ValueExpr::Literal(_) => panic!("is null expression should reference a field"),
+        ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
     }
 }
 
@@ -414,7 +416,7 @@ fn rejects_filter_path_with_link_field() {
 }
 
 #[test]
-fn resolves_order_path_to_field() {
+fn resolves_order_path_to_resolved_path() {
     let catalog = post_with_title_catalog();
 
     let order = query_ast::OrderExpr::new(
@@ -440,11 +442,12 @@ fn resolves_order_path_to_field() {
     assert_eq!(resolved.order_by()[0].direction(), ir::OrderDirection::Desc);
 
     match resolved.order_by()[0].value() {
-        ir::ValueExpr::Field(field) => {
-            assert_eq!(field.owner_object_type().name(), "Post");
-            assert_eq!(field.name(), "title");
+        ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
         }
-        ir::ValueExpr::Literal(_) => panic!("order by should resolve to a field"),
+        ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
     }
 }
 

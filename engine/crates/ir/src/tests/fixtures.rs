@@ -1,4 +1,4 @@
-use crate::{ResolvedShape, ResolvedShapeField};
+use crate::{ResolvedPath, ResolvedPathStep, ResolvedShape, ResolvedShapeField, ValueExpr};
 use alloc::vec;
 use schema::{Cardinality, FieldId, FieldRef, ObjectTypeId, ObjectTypeRef};
 
@@ -28,6 +28,36 @@ pub fn user_name_field() -> FieldRef {
 
 pub fn empty_post_shape() -> ResolvedShape {
     ResolvedShape::new(post_type(), vec![])
+}
+
+pub fn post_title_path() -> ResolvedPath {
+    ResolvedPath::try_new(
+        post_type(),
+        vec![ResolvedPathStep::scalar(
+            post_title_field(),
+            Cardinality::Required,
+        )],
+    )
+    .expect("post title path should be valid")
+}
+
+pub fn post_subtitle_path() -> ResolvedPath {
+    ResolvedPath::try_new(
+        post_type(),
+        vec![ResolvedPathStep::scalar(
+            post_subtitle_field(),
+            Cardinality::Optional,
+        )],
+    )
+    .expect("post subtitle path should be valid")
+}
+
+pub fn post_title_path_value() -> ValueExpr {
+    ValueExpr::Path(post_title_path())
+}
+
+pub fn post_subtitle_path_value() -> ValueExpr {
+    ValueExpr::Path(post_subtitle_path())
 }
 
 pub fn user_name_shape() -> ResolvedShape {

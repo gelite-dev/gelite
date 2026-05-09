@@ -288,7 +288,7 @@ pub enum OrderDirection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueExpr {
-    Field(FieldRef),
+    Path(ResolvedPath),
     Literal(Literal),
 }
 

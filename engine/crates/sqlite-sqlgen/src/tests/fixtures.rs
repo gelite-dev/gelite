@@ -10,6 +10,19 @@ pub fn post_title_field() -> FieldRef {
     FieldRef::new(FieldId::new(2), post_type(), "title")
 }
 
+pub fn post_title_path_value() -> ir::ValueExpr {
+    ir::ValueExpr::Path(
+        ir::ResolvedPath::try_new(
+            post_type(),
+            vec![ir::ResolvedPathStep::scalar(
+                post_title_field(),
+                schema::Cardinality::Required,
+            )],
+        )
+        .expect("post title path should be valid"),
+    )
+}
+
 pub fn post_id_field() -> FieldRef {
     FieldRef::new(FieldId::new(1), post_type(), "id")
 }

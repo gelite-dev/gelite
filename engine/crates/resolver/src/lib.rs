@@ -176,7 +176,13 @@ fn resolve_path_expr(
         .find_field_ref(source_object_type.name(), field_name)
         .expect("field ref should exist for a field already found in the catalog");
 
-    Ok(ir::ValueExpr::Field(field_ref))
+    let path = ir::ResolvedPath::try_new(
+        source_object_type.clone(),
+        alloc::vec![ir::ResolvedPathStep::scalar(field_ref, field.cardinality())],
+    )
+    .expect("resolved scalar field path should not be empty");
+
+    Ok(ir::ValueExpr::Path(path))
 }
 
 fn resolve_literal_expr(literal: &query_ast::Literal) -> Result<ir::ValueExpr, ResolveError> {

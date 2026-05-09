@@ -8,8 +8,9 @@ use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
     empty_post_query, optional_post_author_shape_field, post_author_field, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_id_field, post_id_shape_field,
-    post_query_with_shape, post_title_field, post_title_shape_field, post_type,
+    post_author_shape_field_with_id_then_name, post_id_path_value, post_id_shape_field,
+    post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
+    post_type,
 };
 use ir::{Literal, ResolvedShape, ResolvedShapeField, SelectQuery};
 
@@ -147,7 +148,7 @@ fn sqlite_select_plan_can_apply_offset() {
 #[test]
 fn sqlite_select_plan_can_order_by_root_scalar_field() {
     let order_by = ir::OrderExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::OrderDirection::Asc,
     );
 
@@ -172,7 +173,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field() {
 #[test]
 fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
     let order_by = ir::OrderExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::OrderDirection::Desc,
     );
 
@@ -197,12 +198,12 @@ fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
 #[test]
 fn sqlite_select_plan_preserves_order_by_order() {
     let title_order = ir::OrderExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::OrderDirection::Asc,
     );
 
-    let author_order = ir::OrderExpr::new(
-        ir::ValueExpr::Field(post_author_field()),
+    let id_order = ir::OrderExpr::new(
+        post_id_path_value(),
         ir::OrderDirection::Desc,
     );
 
@@ -210,7 +211,7 @@ fn sqlite_select_plan_preserves_order_by_order() {
         post_type(),
         ResolvedShape::new(post_type(), vec![]),
         None,
-        vec![title_order, author_order],
+        vec![title_order, id_order],
         None,
         None,
     );
@@ -221,14 +222,14 @@ fn sqlite_select_plan_preserves_order_by_order() {
     assert_eq!(order_by.len(), 2);
     assert_eq!(order_by[0].column_name(), "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
-    assert_eq!(order_by[1].column_name(), "author");
+    assert_eq!(order_by[1].column_name(), "id");
     assert_eq!(order_by[1].direction(), SQLiteOrderDirection::Desc);
 }
 
 #[test]
 fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
     let filter = ir::CompareExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::CompareOp::Eq,
         ir::ValueExpr::Literal(Literal::String("hello".to_string())),
     );
@@ -276,7 +277,7 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
 #[test]
 fn sqlite_select_plan_can_filter_root_scalar_field_equals_int_literal() {
     let filter = ir::CompareExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::CompareOp::Eq,
         ir::ValueExpr::Literal(Literal::Int64(42)),
     );
@@ -314,7 +315,7 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_int_literal() {
 #[test]
 fn sqlite_select_plan_can_filter_root_scalar_field_equals_bool_literal() {
     let filter = ir::CompareExpr::new(
-        ir::ValueExpr::Field(post_title_field()),
+        post_title_path_value(),
         ir::CompareOp::Eq,
         ir::ValueExpr::Literal(Literal::Bool(true)),
     );
@@ -351,7 +352,7 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_bool_literal() {
 
 #[test]
 fn sqlite_select_plan_can_filter_root_scalar_field_is_null() {
-    let expr = ir::Expr::IsNull(ir::ValueExpr::Field(post_title_field()));
+    let expr = ir::Expr::IsNull(post_title_path_value());
 
     let ir = SelectQuery::new(
         post_type(),
@@ -396,7 +397,7 @@ fn sqlite_select_plan_preserves_absent_filter() {
 #[test]
 fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
     let filter = ir::CompareExpr::new(
-        ir::ValueExpr::Field(post_id_field()),
+        post_id_path_value(),
         ir::CompareOp::Eq,
         ir::ValueExpr::Literal(Literal::String("hello".to_string())),
     );
@@ -444,7 +445,7 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
 #[test]
 fn sqlite_select_plan_can_order_by_implicit_id() {
     let order_by = ir::OrderExpr::new(
-        ir::ValueExpr::Field(post_id_field()),
+        post_id_path_value(),
         ir::OrderDirection::Asc,
     );
 
