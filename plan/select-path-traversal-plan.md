@@ -218,6 +218,50 @@ Join aliasing can start with the link field output/name, such as `author`.
 This is temporary. Later, alias generation must become collision-resistant for
 repeated paths or multiple links to the same target type.
 
+The planner must not lower a traversed path by looking only at the final field.
+For example, `Post.author.name` is not `root.name`; it is `author.name` plus the
+join that makes the `author` alias valid.
+
+The core lowering should therefore be modeled as path planning, not merely as
+column conversion:
+
+```text
+ResolvedPath -> PlannedPath { column, joins }
+```
+
+Suggested internal shape:
+
+```rust
+struct PlannedPath {
+    column: SQLiteColumnRef,
+    joins: Vec<SQLiteJoin>,
+}
+```
+
+The first supported traversal should cover any chain of required or optional
+single links that ends in a scalar field:
+
+```text
+Post.title
+=> column root.title
+=> joins []
+
+Post.author.name
+=> column author.name
+=> joins [root.author_id -> author.id]
+
+Post.author.organization.name
+=> column author_organization.name
+=> joins [
+     root.author_id -> author.id,
+     author.organization_id -> author_organization.id
+   ]
+```
+
+`multi` link traversal must not be treated as a direct foreign-key join. It
+requires a join table and should stay unsupported until the SQLite storage model
+and planner tests cover it explicitly.
+
 ## Join Deduplication
 
 The first implementation may produce duplicate joins if the same link path is
@@ -249,10 +293,17 @@ No resolver or path traversal logic should be added to SQL generation.
 4. Update resolver root scalar filter/order tests.
 5. Add resolver tests for `.author.name`.
 6. Teach resolver to resolve single-link path traversal.
-7. Update sqlite-plan to turn path traversal into joins and terminal columns.
-8. Add sqlite-plan tests for filter/order traversal joins.
-9. Update sqlite-sqlgen tests only if join rendering or ordering output changes.
-10. Add REPL smoke examples for traversed filter/order paths.
+7. Add a sqlite-plan failing test proving that `Post.author.name` must lower to
+   `author.name`, not `root.name`.
+8. Add a sqlite-plan failing test proving that filter/order path traversal adds
+   the required join.
+9. Introduce internal `PlannedPath` / `plan_resolved_path` logic that returns
+   both terminal column and joins.
+10. Update sqlite-plan to collect joins from shape, filter, and order paths.
+11. Add join deduplication by logical traversal path, not merely target table.
+12. Update sqlite-sqlgen tests only if join rendering or ordering output
+    changes.
+13. Add REPL smoke examples for traversed filter/order paths.
 
 ## Why Not `count` Or `in` First
 

@@ -7,7 +7,8 @@ use crate::{
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    empty_post_query, optional_post_author_shape_field, post_author_field, post_author_shape_field,
+    empty_post_query, optional_post_author_shape_field, post_author_field,
+    post_author_name_path_value, post_author_shape_field,
     post_author_shape_field_with_id_then_name, post_id_path_value, post_id_shape_field,
     post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
     post_type,
@@ -147,10 +148,7 @@ fn sqlite_select_plan_can_apply_offset() {
 
 #[test]
 fn sqlite_select_plan_can_order_by_root_scalar_field() {
-    let order_by = ir::OrderExpr::new(
-        post_title_path_value(),
-        ir::OrderDirection::Asc,
-    );
+    let order_by = ir::OrderExpr::new(post_title_path_value(), ir::OrderDirection::Asc);
 
     let ir = SelectQuery::new(
         post_type(),
@@ -172,10 +170,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field() {
 
 #[test]
 fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
-    let order_by = ir::OrderExpr::new(
-        post_title_path_value(),
-        ir::OrderDirection::Desc,
-    );
+    let order_by = ir::OrderExpr::new(post_title_path_value(), ir::OrderDirection::Desc);
 
     let ir = SelectQuery::new(
         post_type(),
@@ -197,15 +192,9 @@ fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
 
 #[test]
 fn sqlite_select_plan_preserves_order_by_order() {
-    let title_order = ir::OrderExpr::new(
-        post_title_path_value(),
-        ir::OrderDirection::Asc,
-    );
+    let title_order = ir::OrderExpr::new(post_title_path_value(), ir::OrderDirection::Asc);
 
-    let id_order = ir::OrderExpr::new(
-        post_id_path_value(),
-        ir::OrderDirection::Desc,
-    );
+    let id_order = ir::OrderExpr::new(post_id_path_value(), ir::OrderDirection::Desc);
 
     let ir = SelectQuery::new(
         post_type(),
@@ -271,6 +260,81 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
             }
         }
         _ => panic!("expected compare filter"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_single_link_scalar_path_equals_string_literal() {
+    let filter = ir::CompareExpr::new(
+        post_author_name_path_value(),
+        ir::CompareOp::Eq,
+        ir::ValueExpr::Literal(Literal::String("Sheri".to_string())),
+    );
+
+    let expr = ir::Expr::Compare(filter);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let filter = plan.filter();
+
+    match filter {
+        Some(SQLiteWhereExpr::Compare(compare)) => match compare.left() {
+            SQLiteValueExpr::Column(column) => {
+                assert_eq!(column.source_alias(), "author");
+                assert_eq!(column.column_name(), "name");
+            }
+            SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
+        },
+        _ => panic!("expected compare filter"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_join_filter_single_link_scalar_path() {
+    let filter = ir::CompareExpr::new(
+        post_author_name_path_value(),
+        ir::CompareOp::Eq,
+        ir::ValueExpr::Literal(Literal::String("Sheri".to_string())),
+    );
+
+    let expr = ir::Expr::Compare(filter);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 1);
+
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_table(), "user");
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[0].on().left_column(), "author_id");
+    assert_eq!(joins[0].on().right_column(), "id");
+
+    match joins[0].reason() {
+        SQLiteJoinReason::PathTraversal { path } => {
+            assert_eq!(path, &vec!["author".to_string()]);
+        }
+        SQLiteJoinReason::SelectedSingleLink { .. } => {
+            panic!("filter path join should be marked as path traversal")
+        }
     }
 }
 
@@ -444,10 +508,7 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
 
 #[test]
 fn sqlite_select_plan_can_order_by_implicit_id() {
-    let order_by = ir::OrderExpr::new(
-        post_id_path_value(),
-        ir::OrderDirection::Asc,
-    );
+    let order_by = ir::OrderExpr::new(post_id_path_value(), ir::OrderDirection::Asc);
 
     let ir = SelectQuery::new(
         post_type(),
@@ -505,6 +566,9 @@ fn sqlite_select_plan_can_join_selected_single_link() {
     match joins[0].reason() {
         SQLiteJoinReason::SelectedSingleLink { field } => {
             assert_eq!(field.name(), "author");
+        }
+        SQLiteJoinReason::PathTraversal { .. } => {
+            panic!("selected link join should be marked as selected single link")
         }
     }
 }

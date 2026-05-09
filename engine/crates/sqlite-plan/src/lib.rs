@@ -15,21 +15,26 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let selected_values = plan_shape_values(ir.shape(), "root");
     let result_shape = plan_result_shape(ir.shape(), "root", false);
 
-    let order_by = ir
-        .order_by()
-        .iter()
-        .map(SQLiteOrder::from_ir)
-        .collect();
+    let order_by = ir.order_by().iter().map(SQLiteOrder::from_ir).collect();
 
-    let filter = ir.filter().map(SQLiteWhereExpr::from_ir);
+    let (filter, filter_joins) = match ir.filter() {
+        Some(expr) => {
+            let planned = plan_where_expr(expr);
+            (Some(planned.expr), planned.joins)
+        }
+        None => (None, vec![]),
+    };
 
-    let joins = ir
+    let mut joins: Vec<SQLiteJoin> = ir
         .shape()
         .fields()
         .iter()
         .filter(|field| field.child_shape().is_some())
         .map(SQLiteJoin::selected_single_link)
         .collect();
+
+    joins.extend(filter_joins);
+    joins = dedup_joins(joins);
 
     SQLiteSelectPlan {
         root_source: SQLiteObjectSource {
@@ -329,18 +334,14 @@ pub struct SQLiteOrder {
 
 impl SQLiteOrder {
     pub fn from_ir(order: &ir::OrderExpr) -> Self {
-        let field = match order.value() {
-            ir::ValueExpr::Path(path) => path
-                .steps()
-                .last()
-                .expect("resolved path should have at least one step")
-                .field(),
-            ir::ValueExpr::Literal(_) => todo!("ORDER BY literal is not supported yet"),
+        let column = match order.value() {
+            ir::ValueExpr::Path(path) => plan_resolved_path(path).column,
+            ir::ValueExpr::Literal(_) => panic!("ORDER BY literal is not supported yet"),
         };
 
         Self {
-            source_alias: "root".to_string(),
-            column_name: field.name().to_string(),
+            source_alias: column.source_alias,
+            column_name: column.column_name,
             direction: SQLiteOrderDirection::from_ir(order.direction()),
         }
     }
@@ -408,18 +409,7 @@ pub enum SQLiteValueExpr {
 impl SQLiteValueExpr {
     pub fn from_ir(expr: &ir::ValueExpr) -> Self {
         match expr {
-            ir::ValueExpr::Path(path) => {
-                let field = path
-                    .steps()
-                    .last()
-                    .expect("resolved path should have at least one step")
-                    .field();
-
-                SQLiteValueExpr::Column(SQLiteColumnRef {
-                    source_alias: "root".to_string(),
-                    column_name: field.name().to_string(),
-                })
-            }
+            ir::ValueExpr::Path(path) => SQLiteValueExpr::Column(plan_resolved_path(path).column),
             ir::ValueExpr::Literal(ir::Literal::String(value)) => {
                 SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone()))
             }
@@ -451,6 +441,131 @@ impl SQLiteColumnRef {
     }
 }
 
+struct PlannedPath {
+    column: SQLiteColumnRef,
+    joins: Vec<SQLiteJoin>,
+}
+
+fn plan_resolved_path(path: &ir::ResolvedPath) -> PlannedPath {
+    let mut current_alias = "root".to_string();
+    let mut joins = vec![];
+    let mut alias_parts = Vec::new();
+    let mut column = None;
+
+    for (index, step) in path.steps().iter().enumerate() {
+        let is_last = index == path.steps().len() - 1;
+
+        match step.kind() {
+            ir::ResolvedPathStepKind::Link { target_object_type } => {
+                if is_last {
+                    todo!("link-only paths cannot be lowered to SQLite columns");
+                }
+
+                let source_alias = current_alias.clone();
+
+                alias_parts.push(step.field().name().to_string());
+                let target_alias = alias_parts.join("_");
+
+                let link_field = step.field();
+
+                joins.push(SQLiteJoin::path_traversal(
+                    source_alias,
+                    link_field,
+                    target_object_type,
+                    target_alias.clone(),
+                    alias_parts.clone(),
+                    step.cardinality(),
+                ));
+
+                current_alias = target_alias;
+            }
+            ir::ResolvedPathStepKind::Scalar => {
+                if !is_last {
+                    todo!("scalar path step before terminal position is not supported");
+                }
+
+                column = Some(SQLiteColumnRef {
+                    source_alias: current_alias.clone(),
+                    column_name: step.field().name().to_string(),
+                });
+            }
+        }
+    }
+
+    PlannedPath {
+        column: column.expect("resolved path should end in a scalar field"),
+        joins,
+    }
+}
+
+struct PlannedValueExpr {
+    value: SQLiteValueExpr,
+    joins: Vec<SQLiteJoin>,
+}
+
+fn plan_value_expr(expr: &ir::ValueExpr) -> PlannedValueExpr {
+    match expr {
+        ir::ValueExpr::Path(path) => {
+            let planned_path = plan_resolved_path(path);
+
+            PlannedValueExpr {
+                value: SQLiteValueExpr::Column(planned_path.column),
+                joins: planned_path.joins,
+            }
+        }
+        ir::ValueExpr::Literal(ir::Literal::String(value)) => PlannedValueExpr {
+            value: SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone())),
+            joins: vec![],
+        },
+        ir::ValueExpr::Literal(ir::Literal::Int64(value)) => PlannedValueExpr {
+            value: SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value.clone())),
+            joins: vec![],
+        },
+        ir::ValueExpr::Literal(ir::Literal::Bool(value)) => PlannedValueExpr {
+            value: SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value.clone())),
+            joins: vec![],
+        },
+        ir::ValueExpr::Literal(ir::Literal::Null) => PlannedValueExpr {
+            value: SQLiteValueExpr::Literal(SQLiteLiteral::Null),
+            joins: vec![],
+        },
+    }
+}
+
+struct PlannedWhereExpr {
+    expr: SQLiteWhereExpr,
+    joins: Vec<SQLiteJoin>,
+}
+
+fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
+    match expr {
+        Expr::Compare(compare) => {
+            let left = plan_value_expr(compare.left());
+            let right = plan_value_expr(compare.right());
+
+            let mut joins = left.joins;
+            joins.extend(right.joins);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::Compare(SQLiteCompareExpr {
+                    left: left.value,
+                    op: SQLiteCompareOp::from_ir(compare.op()),
+                    right: right.value,
+                }),
+                joins,
+            }
+        }
+        Expr::IsNull(value) => {
+            let value = plan_value_expr(value);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::IsNull(value.value),
+                joins: value.joins,
+            }
+        }
+    }
+}
+
 pub enum SQLiteLiteral {
     String(String),
     Int64(i64),
@@ -473,6 +588,7 @@ impl SQLiteCompareOp {
 
 pub enum SQLiteJoinReason {
     SelectedSingleLink { field: FieldRef },
+    PathTraversal { path: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,7 +598,7 @@ pub enum SQLiteJoinKind {
 }
 
 impl SQLiteJoinKind {
-    pub fn for_selected_single_link(cardinality: schema::Cardinality) -> Self {
+    pub fn for_single_link(cardinality: schema::Cardinality) -> Self {
         match cardinality {
             Cardinality::Required => Self::Inner,
             Cardinality::Optional => Self::Left,
@@ -535,7 +651,7 @@ impl SQLiteJoin {
         let field = shape_field.field().clone();
 
         Self {
-            kind: SQLiteJoinKind::for_selected_single_link(shape_field.cardinality()),
+            kind: SQLiteJoinKind::for_single_link(shape_field.cardinality()),
             source_alias: "root".to_string(),
             target_table: child_shape
                 .source_object_type()
@@ -550,6 +666,32 @@ impl SQLiteJoin {
                 right_column: "id".to_string(),
             },
             reason: SQLiteJoinReason::SelectedSingleLink { field },
+        }
+    }
+
+    fn path_traversal(
+        source_alias: impl Into<String>,
+        link_field: &FieldRef,
+        target_object_type: &ObjectTypeRef,
+        target_alias: impl Into<String>,
+        path: Vec<String>,
+        cardinality: Cardinality,
+    ) -> Self {
+        let source_alias = source_alias.into();
+        let target_alias = target_alias.into();
+
+        Self {
+            kind: SQLiteJoinKind::for_single_link(cardinality),
+            source_alias: source_alias.clone(),
+            target_table: target_object_type.name().to_ascii_lowercase().to_string(),
+            target_alias: target_alias.clone(),
+            on: SQLiteJoinCondition {
+                left_alias: source_alias,
+                left_column: format!("{}_id", link_field.name()),
+                right_alias: target_alias,
+                right_column: "id".to_string(),
+            },
+            reason: SQLiteJoinReason::PathTraversal { path },
         }
     }
 
@@ -576,6 +718,32 @@ impl SQLiteJoin {
     pub fn reason(&self) -> &SQLiteJoinReason {
         &self.reason
     }
+
+    fn has_same_identity(&self, other: &SQLiteJoin) -> bool {
+        self.kind == other.kind
+            && self.source_alias == other.source_alias
+            && self.target_table == other.target_table
+            && self.target_alias == other.target_alias
+            && self.on.left_alias == other.on.left_alias
+            && self.on.left_column == other.on.left_column
+            && self.on.right_alias == other.on.right_alias
+            && self.on.right_column == other.on.right_column
+    }
+}
+
+fn dedup_joins(joins: Vec<SQLiteJoin>) -> Vec<SQLiteJoin> {
+    let mut deduped: Vec<SQLiteJoin> = Vec::new();
+
+    for join in joins {
+        if !deduped
+            .iter()
+            .any(|existing| existing.has_same_identity(&join))
+        {
+            deduped.push(join);
+        }
+    }
+
+    deduped
 }
 
 #[cfg(test)]

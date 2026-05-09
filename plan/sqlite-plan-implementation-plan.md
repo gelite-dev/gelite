@@ -845,6 +845,76 @@ Later replacement:
 - define identifier escaping rules before SQL generation
 - introduce stable alias generation based on path or counters
 
+### Resolved path lowering must plan columns and joins together
+
+Current risk:
+
+- `SQLiteValueExpr::from_ir` can lower `ir::ValueExpr::Path` into a
+  `SQLiteColumnRef`.
+- If it only reads the terminal field and always uses source alias `"root"`,
+  traversed paths are lowered incorrectly.
+
+Example:
+
+```text
+Post.author.name
+```
+
+Incorrect lowering:
+
+```text
+root.name
+```
+
+Correct lowering:
+
+```text
+author.name
+```
+
+with the corresponding join:
+
+```sql
+INNER JOIN user AS author ON root.author_id = author.id
+```
+
+Planned replacement:
+
+- introduce an internal path planning helper, tentatively
+  `plan_resolved_path`
+- make it return both the terminal `SQLiteColumnRef` and the `SQLiteJoin`
+  values required to make that column alias valid
+- use it from filter and order planning instead of letting
+  `SQLiteValueExpr::from_ir` independently invent aliases
+- collect joins from selected shapes, filters, and order clauses in
+  `plan_select`
+
+Suggested internal type:
+
+```rust
+struct PlannedPath {
+    column: SQLiteColumnRef,
+    joins: Vec<SQLiteJoin>,
+}
+```
+
+Initial traversal rules:
+
+- a one-step scalar path lowers to `root.<field>`
+- a chain of required or optional single-link steps followed by a scalar lowers
+  to path-derived aliases such as `author.name` or `author_organization.name`
+- `required` single-link traversal uses an inner join
+- `optional` single-link traversal uses a left join
+- `multi` link traversal is unsupported until join-table lowering is designed
+
+Test order:
+
+1. prove a single-link filter path lowers to the non-root terminal alias
+2. prove the same filter path adds the required join
+3. repeat the same contracts for order paths
+4. add deduplication tests when the same path is used by shape, filter, and
+   order
+
 ### Filter predicates only support one compare expression
 
 Current rule:

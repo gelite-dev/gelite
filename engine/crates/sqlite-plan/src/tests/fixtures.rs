@@ -44,6 +44,23 @@ pub fn post_id_path_value() -> ir::ValueExpr {
     )
 }
 
+pub fn post_author_name_path_value() -> ir::ValueExpr {
+    ir::ValueExpr::Path(
+        ir::ResolvedPath::try_new(
+            post_type(),
+            vec![
+                ir::ResolvedPathStep::link(
+                    post_author_field(),
+                    user_type(),
+                    schema::Cardinality::Required,
+                ),
+                ir::ResolvedPathStep::scalar(user_name_field(), schema::Cardinality::Required),
+            ],
+        )
+        .expect("post author name path should be valid"),
+    )
+}
+
 pub fn user_type() -> ObjectTypeRef {
     ObjectTypeRef::new(ObjectTypeId::new(2), "User")
 }
