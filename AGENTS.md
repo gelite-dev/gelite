@@ -108,6 +108,77 @@ Assisted-by: Codex:gpt-5.5
 
 에이전트는 새로운 기능을 제안하거나 구현 범위를 정할 때, 먼저 현재 작업이 어느 plan 단계에 속하는지 설명해야 한다.
 
+## 문서 작성 지침
+
+이 프로젝트의 설계 문서, 구현 문서, 주석성 문서, 장기 계획 문서는
+기본적으로 명확하고 구체적인 영어로 작성한다.
+
+문서는 단순한 소개나 홍보용 설명이 아니라, 나중에 코드를 읽는 사람이
+현재 구조를 정확히 복원할 수 있도록 돕는 기술 기록이어야 한다.
+
+문서에는 가능한 한 다음 내용을 포함한다.
+
+- 해당 컴포넌트가 맡는 책임
+- 해당 컴포넌트가 맡지 않는 책임
+- public API나 타입이 보장하는 불변식
+- 현재 의도적으로 지원하지 않는 범위
+- 임시 규칙과 나중에 대체해야 할 설계
+- 테스트가 어떤 계약을 검증하는지
+- 주요 설계 선택에서 얻은 것과 포기한 것
+- 실제 코드의 타입, 함수, 크레이트 이름
+
+문서에는 추상적인 품질 표현보다 구체적인 메커니즘을 우선한다.
+
+나쁜 예:
+
+```text
+This component improves scalability and maintainability.
+```
+
+좋은 예:
+
+```text
+The resolver returns `ir::ResolvedPath` instead of a terminal `FieldRef` so
+SQLite planning can recover both the final column and the joins required by
+link traversal.
+```
+
+문서를 작성할 때는 AI가 생성한 문서처럼 보이기 쉬운 신호를 피한다.
+Wikipedia의 "Signs of AI writing" 문서는 이런 신호가 확정적인 판별
+규칙은 아니지만, 과장되고 일반적인 문체, 피상적인 분석, 템플릿 같은
+문장 구조가 AI 생성 텍스트의 흔한 특징이라고 설명한다.
+
+따라서 이 저장소의 문서에서는 다음 방식을 피한다.
+
+- 근거 없이 중요성을 부풀리는 표현
+  - 예: `plays a crucial role`, `marks a significant step`,
+    `serves as a testament`, `underscores the importance`
+- 구체적인 구현 설명 없이 `scalable`, `robust`, `maintainable`,
+  `flexible`, `powerful` 같은 평가어를 사용하는 문장
+- `many developers believe`, `best practices suggest`, `widely recognized`
+  같은 출처 없는 일반화
+- 문단 끝마다 제목을 반복하는 요약 문장
+- `not only X, but also Y` 같은 공식적인 대비 문장 남용
+- 억지로 세 항목 목록을 맞추는 구성
+- 실제 내용보다 그럴듯한 개요를 앞세우는 문장
+  - 예: `This section explores...`, `In conclusion...`,
+    `Overall...`, `This document aims to...`
+- 장식적인 bold, 과도한 Title Case, 불필요한 표, 시각적 구분선
+- 근거 없는 미래 전망이나 "future potential" 단락
+
+대신 다음 방식을 선호한다.
+
+- 추상 명사보다 실제 타입과 함수 이름을 사용한다.
+- 긴 개요보다 작고 검증 가능한 설명을 쓴다.
+- 예시는 현재 코드나 가까운 다음 단계에 연결한다.
+- "현재 안 되는 것"을 숨기지 말고 명시한다.
+- 임시 규칙은 왜 임시인지와 어떤 조건에서 교체할지 적는다.
+- 문서의 각 문단은 하나의 기술적 목적만 가진다.
+- 코드 주석은 코드만 보면 알 수 없는 경계, 불변식, 이유를 설명할 때만 쓴다.
+
+영어 문서는 자연스럽고 평이해야 한다. 독자를 설득하려고 하지 말고,
+코드와 설계의 실제 상태를 정확히 기록한다.
+
 ## 현재 저장소에 대한 기본 해석
 
 현재 저장소는 "새 DB 엔진 전체"를 한 번에 만드는 단계가 아니라, 문서 스택이 실제 코드 구조로 이어지는지 검증하는 초기 단계에 가깝다.
