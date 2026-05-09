@@ -1,4 +1,14 @@
 #![no_std]
+//! Semantic resolver for query AST values.
+//!
+//! The resolver is the compiler stage that turns unresolved syntax from
+//! `query-ast` into backend-independent Semantic IR. It checks object type
+//! names, field names, nested shape rules, link traversal rules, and the small
+//! literal subset currently supported by the select pipeline.
+//!
+//! This crate must not know SQLite table names or SQL syntax. Its output is
+//! `ir`, and backend-specific choices belong to `sqlite-plan` and
+//! `sqlite-sqlgen`.
 
 extern crate alloc;
 
@@ -7,6 +17,12 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use query_ast::Path;
 
+/// Resolves a parsed select query against a validated schema catalog.
+///
+/// The current implementation supports explicit shape fields, nested shapes on
+/// declared links, equality filters, `null` comparisons, order expressions, and
+/// limit/offset propagation. It rejects unsupported expression and path forms
+/// before the query reaches backend-specific planning.
 pub fn resolve_select(
     catalog: &schema::SchemaCatalog,
     query: &query_ast::SelectQuery,
@@ -233,6 +249,10 @@ fn resolve_order_expr(
     Ok(ir::OrderExpr::new(value, direction))
 }
 
+/// Semantic errors reported by the resolver.
+///
+/// These errors are intentionally independent from parser and SQLite errors so
+/// callers can distinguish syntax failures from schema or type failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveError {
     UnknownObjectType { name: String },

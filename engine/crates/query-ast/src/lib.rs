@@ -1,10 +1,27 @@
 #![no_std]
+//! Syntax tree for the MVP query language.
+//!
+//! This crate stores query structure exactly after parsing and before semantic
+//! resolution. Names are still strings, paths are still field-name sequences,
+//! and no schema catalog has been consulted yet. That separation is important:
+//! parser tests can focus on source syntax, while the resolver owns type,
+//! field, relation, and cardinality checks.
+//!
+//! The implemented AST currently covers `select` queries with explicit result
+//! shapes, simple comparison filters, ordering, limit, and offset. Insert,
+//! update, and delete are specified in `spec/query.md` but are not represented
+//! here yet.
 
 extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
+/// Parsed `select` query before schema resolution.
+///
+/// `root_type_name` is an unresolved object type name. The resolver turns it
+/// into `schema::ObjectTypeRef` and validates the shape, filter, and ordering
+/// against the schema catalog.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
     root_type_name: String,
@@ -15,27 +32,43 @@ pub struct SelectQuery {
     offset: Option<i64>,
 }
 
+/// Explicit result shape requested by a select query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shape {
     items: Vec<ShapeItem>,
 }
 
+/// One output field in a [`Shape`].
+///
+/// A child shape means the item syntactically selected a nested object, as in
+/// `author: { name }`. The parser does not know whether the path is a link; the
+/// resolver validates that.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShapeItem {
     path: Path,
     child_shape: Option<Shape>,
 }
 
+/// Unresolved field path.
+///
+/// Filter and order paths may contain multiple steps such as `.author.name`.
+/// Shape items currently use one-step paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Path {
     steps: Vec<PathStep>,
 }
 
+/// One unresolved field name in a [`Path`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathStep {
     field_name: String,
 }
 
+/// Parsed expression forms currently accepted by the AST.
+///
+/// The resolver supports comparison expressions for filters. Bare literals and
+/// bare paths are present as syntax-level values but are not valid top-level
+/// filter expressions in the current pipeline.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Literal),
@@ -43,6 +76,7 @@ pub enum Expr {
     Compare(CompareExpr),
 }
 
+/// Binary comparison expression parsed from a filter clause.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompareExpr {
     left: Path,
@@ -50,11 +84,13 @@ pub struct CompareExpr {
     right: Literal,
 }
 
+/// Comparison operators implemented by the current parser and resolver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
 }
 
+/// Literal values accepted by the query parser.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
@@ -64,12 +100,14 @@ pub enum Literal {
     Null,
 }
 
+/// Parsed ordering item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderExpr {
     path: Path,
     direction: OrderDirection,
 }
 
+/// Sort direction for an ordering item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderDirection {
     Asc,

@@ -1,4 +1,18 @@
 #![no_std]
+//! Backend-independent Semantic IR for resolved queries.
+//!
+//! The IR is the boundary between language semantics and backend-specific
+//! execution planning. It contains resolved schema references, result shapes,
+//! path steps, expression nodes, and cardinality metadata, but it does not know
+//! SQLite table names, column names, join aliases, or SQL syntax.
+//!
+//! The resolver builds these types from `query-ast` and `schema`. Downstream
+//! crates such as `sqlite-plan` must be able to lower the IR without looking
+//! back at raw query text.
+//!
+//! The implemented subset currently represents `select` queries. Insert,
+//! update, and delete are part of the MVP query spec but are deferred until the
+//! select pipeline is stable.
 
 extern crate alloc;
 
@@ -6,6 +20,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use schema::{Cardinality, FieldRef, ObjectTypeRef};
 
+/// Resolved select query.
+///
+/// The root object type, output shape, filter, and order expressions have all
+/// been checked against the schema catalog before this value is constructed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectQuery {
     root_object_type: ObjectTypeRef,
@@ -60,6 +78,11 @@ impl SelectQuery {
     }
 }
 
+/// Resolved result shape for one object source.
+///
+/// Fields are ordered in the same order requested by the query. Nested shapes
+/// preserve link cardinality so runtime shaping can distinguish optional,
+/// required, and multi-valued relations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedShape {
     source_object_type: ObjectTypeRef,
@@ -83,6 +106,11 @@ impl ResolvedShape {
     }
 }
 
+/// One resolved output field in a [`ResolvedShape`].
+///
+/// Scalar fields have no child shape. Link fields selected in output must have
+/// a child shape, because relations are returned as nested objects rather than
+/// as raw foreign key columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedShapeField {
     output_name: String,
@@ -119,6 +147,11 @@ impl ResolvedShapeField {
     }
 }
 
+/// Resolved field path from a root object type.
+///
+/// The path stores each schema field reference and the combined result
+/// cardinality. A path through an optional link is optional; a path through a
+/// multi link is many.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPath {
     root_object_type: ObjectTypeRef,
@@ -172,11 +205,13 @@ impl ResolvedPath {
     }
 }
 
+/// Errors that can occur while constructing a resolved path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedPathError {
     EmptyPath,
 }
 
+/// One resolved step in a [`ResolvedPath`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPathStep {
     field: FieldRef,
@@ -218,18 +253,24 @@ impl ResolvedPathStep {
     }
 }
 
+/// Semantic kind of a resolved path step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedPathStepKind {
     Scalar,
     Link { target_object_type: ObjectTypeRef },
 }
 
+/// Resolved boolean expression.
+///
+/// `IsNull` is used when the source query writes `field = null`. Keeping it as
+/// a separate node lets SQL generation render `IS NULL` instead of `= ?`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
 }
 
+/// Resolved comparison expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompareExpr {
     left: ValueExpr,
@@ -255,11 +296,13 @@ impl CompareExpr {
     }
 }
 
+/// Comparison operators implemented by the current IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
 }
 
+/// Resolved ordering expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderExpr {
     value: ValueExpr,
@@ -280,18 +323,23 @@ impl OrderExpr {
     }
 }
 
+/// Sort direction for a resolved order expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderDirection {
     Asc,
     Desc,
 }
 
+/// Scalar value expression used in filters and ordering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueExpr {
     Path(ResolvedPath),
     Literal(Literal),
 }
 
+/// Literal values represented by the current IR.
+///
+/// The query AST accepts floats, but the resolver does not lower them yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Literal {
     String(String),

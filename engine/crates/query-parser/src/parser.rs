@@ -5,6 +5,10 @@ use query_ast::{
     CompareExpr, Expr, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
 };
 
+/// Parses one MVP `select` statement from source text.
+///
+/// The parser checks syntax only. Schema names, field names, link traversal,
+/// and type compatibility are validated by the resolver.
 pub fn parse_select(input: &str) -> Result<query_ast::SelectQuery, ParseError> {
     let tokens = lex(input).map_err(ParseError::from)?;
     parse_select_tokens(&tokens)
@@ -14,6 +18,7 @@ fn parse_select_tokens(tokens: &[Token]) -> Result<query_ast::SelectQuery, Parse
     Parser::new(tokens).parse_select_stmt()
 }
 
+/// Parser error with an optional source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     kind: ParseErrorKind,
@@ -40,6 +45,7 @@ impl From<LexError> for ParseError {
     }
 }
 
+/// Parser error category.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseErrorKind {
     Lex(LexError),

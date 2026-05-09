@@ -1,4 +1,14 @@
 #![no_std]
+//! SQL renderer for SQLite select plans.
+//!
+//! This crate serializes `sqlite-plan` structures into SQL text and bind
+//! values. It does not resolve schema names, choose joins, or inspect query AST
+//! nodes. Those responsibilities belong to earlier compiler stages.
+//!
+//! The renderer currently emits `SELECT`, `FROM`, `JOIN`, `WHERE`, `ORDER BY`,
+//! `LIMIT`, and `OFFSET` clauses for the select subset implemented by
+//! `sqlite-plan`. Literal values are emitted as bind placeholders instead of
+//! being interpolated into SQL strings.
 
 extern crate alloc;
 
@@ -11,6 +21,7 @@ use sqlite_plan::{
     SQLiteValueExpr, SQLiteWhereExpr,
 };
 
+/// Renders a structured SQLite select plan into SQL text and bind values.
 pub fn render_select(plan: &sqlite_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
     let select_clause = render_select_clause(plan);
     let from_clause = render_from_clause(plan);
@@ -179,6 +190,7 @@ fn render_offset_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     }
 }
 
+/// Rendered SQLite select statement.
 pub struct SQLiteSelectStatement {
     sql: String,
     bind_values: Vec<SQLiteBindValue>,
@@ -194,6 +206,7 @@ impl SQLiteSelectStatement {
     }
 }
 
+/// Bind value produced while rendering SQL placeholders.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SQLiteBindValue {
     String(String),

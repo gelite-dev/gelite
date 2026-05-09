@@ -1,4 +1,18 @@
 #![no_std]
+//! SQLite-specific execution plan for resolved select queries.
+//!
+//! This crate is the first backend-specific compiler layer. It lowers Semantic
+//! IR into structured SQLite access information: root table, aliases, selected
+//! columns, joins, predicates, ordering, and result-shaping metadata.
+//!
+//! The plan is not SQL text. Keeping this layer structured lets tests inspect
+//! physical decisions before `sqlite-sqlgen` serializes them. It also keeps
+//! SQLite naming and join rules out of the backend-independent IR.
+//!
+//! The current planner handles one object table per object type, direct scalar
+//! columns, single-link joins, path traversal through single links, equality
+//! predicates, `IS NULL`, ordering, limit, and offset. Multi-link planning and
+//! follow-up fetch plans are specified but not implemented yet.
 
 extern crate alloc;
 
@@ -9,6 +23,7 @@ use alloc::vec::Vec;
 use ir::{CompareOp, Expr, SelectQuery};
 use schema::{Cardinality, FieldRef, ObjectTypeRef};
 
+/// Lowers a resolved select query to a structured SQLite select plan.
 pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let root_object_type = ir.root_object_type().clone();
 
@@ -62,12 +77,17 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     }
 }
 
+/// Role of a selected SQLite value in result shaping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteValueRole {
     ObjectId,
     Scalar,
 }
 
+/// Structured SQLite plan for a select query.
+///
+/// It records all physical values and joins needed to render SQL and later
+/// reconstruct the logical result shape.
 pub struct SQLiteSelectPlan {
     root_source: SQLiteObjectSource,
     selected_values: Vec<SQLiteSelectValue>,
@@ -113,6 +133,7 @@ impl SQLiteSelectPlan {
     }
 }
 
+/// One column selected by the generated SQL.
 pub struct SQLiteSelectValue {
     source_alias: String,
     column_name: String,
@@ -236,6 +257,7 @@ fn plan_result_shape(
     }
 }
 
+/// Result-shaping plan for one object level.
 pub struct SQLiteResultShapePlan {
     identity_value: Option<SQLiteResultValueRef>,
     fields: Vec<SQLiteResultField>,
@@ -250,6 +272,7 @@ impl SQLiteResultShapePlan {
     }
 }
 
+/// One output field in a result-shaping plan.
 pub struct SQLiteResultField {
     output_name: String,
     cardinality: schema::Cardinality,
@@ -275,6 +298,7 @@ impl SQLiteResultField {
     }
 }
 
+/// Reference to a selected value used while shaping rows into objects.
 pub struct SQLiteResultValueRef {
     source_alias: String,
     column_name: String,
@@ -295,6 +319,7 @@ impl SQLiteResultValueRef {
     }
 }
 
+/// Physical root table for a SQLite query.
 pub struct SQLiteObjectSource {
     object_type: ObjectTypeRef,
     table_name: String,
@@ -320,6 +345,7 @@ impl SQLiteObjectSource {
     }
 }
 
+/// SQLite sort direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteOrderDirection {
     Asc,
@@ -335,6 +361,7 @@ impl SQLiteOrderDirection {
     }
 }
 
+/// Planned SQLite ordering item.
 pub struct SQLiteOrder {
     source_alias: String,
     column_name: String,
@@ -355,11 +382,13 @@ impl SQLiteOrder {
     }
 }
 
+/// Backend-specific predicate expression.
 pub enum SQLiteWhereExpr {
     Compare(SQLiteCompareExpr),
     IsNull(SQLiteValueExpr),
 }
 
+/// Backend-specific comparison expression.
 pub struct SQLiteCompareExpr {
     left: SQLiteValueExpr,
     op: SQLiteCompareOp,
@@ -380,11 +409,13 @@ impl SQLiteCompareExpr {
     }
 }
 
+/// Backend-specific value expression.
 pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
 }
 
+/// Physical column reference.
 pub struct SQLiteColumnRef {
     source_alias: String,
     column_name: String,
@@ -547,6 +578,7 @@ fn plan_order_expr(order: &ir::OrderExpr) -> PlannedOrder {
     }
 }
 
+/// Literal values supported by SQLite SQL generation.
 pub enum SQLiteLiteral {
     String(String),
     Int64(i64),
@@ -554,6 +586,7 @@ pub enum SQLiteLiteral {
     Null,
 }
 
+/// SQLite comparison operators currently emitted by the planner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteCompareOp {
     Eq,
@@ -567,11 +600,16 @@ impl SQLiteCompareOp {
     }
 }
 
+/// Logical reason a join exists in the plan.
+///
+/// This is used for tests and future explain output; SQL generation only needs
+/// the physical join fields.
 pub enum SQLiteJoinReason {
     SelectedSingleLink { field: FieldRef },
     PathTraversal { path: Vec<String> },
 }
 
+/// SQLite join kind chosen from relation cardinality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteJoinKind {
     Inner,
@@ -590,6 +628,7 @@ impl SQLiteJoinKind {
     }
 }
 
+/// Equality condition connecting two aliases in a join.
 pub struct SQLiteJoinCondition {
     left_alias: String,
     left_column: String,

@@ -4,6 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use logos::Logos;
 
+/// Tokenizes query source and attaches byte, line, and column spans.
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     let line_map = LineMap::new(input);
     let mut lexer = RawTokenKind::lexer(input);
@@ -132,6 +133,7 @@ enum RawTokenKind {
     Ident,
 }
 
+/// Lexed token with its source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     kind: TokenKind,
@@ -152,6 +154,7 @@ impl Token {
     }
 }
 
+/// Token categories recognized by the MVP query lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     Keyword(Keyword),
@@ -166,6 +169,7 @@ pub enum TokenKind {
     Eq,
 }
 
+/// Reserved keywords recognized by the parser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Select,
@@ -199,6 +203,7 @@ impl Keyword {
     }
 }
 
+/// Half-open source span from start position to end position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     start: Position,
@@ -219,6 +224,7 @@ impl Span {
     }
 }
 
+/// Source position tracked as byte offset plus one-based line and column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
     byte: usize,
@@ -273,6 +279,7 @@ impl LineMap {
     }
 }
 
+/// Lexer error with source position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexError {
     kind: LexErrorKind,
@@ -293,6 +300,7 @@ impl LexError {
     }
 }
 
+/// Lexer error category.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LexErrorKind {
     UnexpectedChar(char),

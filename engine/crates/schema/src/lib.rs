@@ -1,4 +1,22 @@
 #![no_std]
+//! Schema catalog types for the Gelite MVP.
+//!
+//! This crate models the semantic schema after parsing and validation. It is
+//! deliberately independent from the query parser, resolver, SQLite planner,
+//! and runtime. The resolver consumes [`SchemaCatalog`] as the source of truth
+//! for object types, scalar fields, declared links, field cardinality, and the
+//! implicit `id` field that exists on every object type.
+//!
+//! The current catalog is built directly from Rust values. A later schema
+//! parser can produce the same structures, but the invariants should stay here:
+//! type names are unique, field names are unique within an object type, `id`
+//! cannot be declared explicitly, link targets must exist, and built-in scalar
+//! type names cannot be reused as object type names.
+//!
+//! The catalog keeps definition order stable. The generated object and field
+//! references are deterministic within one catalog: object ids are derived from
+//! object definition order, and field ids are derived from implicit fields
+//! followed by declared fields.
 
 extern crate alloc;
 
@@ -10,6 +28,10 @@ use alloc::vec::Vec;
 const IMPLICIT_ID_FIELD_NAME: &str = "id";
 const BUILTIN_SCALAR_TYPE_NAMES: &[&str] = &["str", "int64", "float64", "bool", "uuid", "datetime"];
 
+/// Built-in scalar types supported by the schema MVP.
+///
+/// These names are reserved for scalar fields and cannot be used as object type
+/// names. The SQLite storage spec maps them to fixed SQLite affinities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalarType {
     Str,
@@ -20,12 +42,23 @@ pub enum ScalarType {
     DateTime,
 }
 
+/// A field declared on an object type, or an implicit scalar field exposed by
+/// the catalog.
+///
+/// A [`Field::Scalar`] stores a value on the owning object. A [`Field::Link`]
+/// stores a relation to another object type and is the only kind of field that
+/// can be traversed by query paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Field {
     Scalar(ScalarField),
     Link(LinkField),
 }
 
+/// Cardinality used by query resolution and IR.
+///
+/// Scalar fields can only be [`Cardinality::Optional`] or
+/// [`Cardinality::Required`]. Link fields may also be [`Cardinality::Many`],
+/// which represents an unordered collection in the MVP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cardinality {
     Optional,
@@ -33,12 +66,17 @@ pub enum Cardinality {
     Many,
 }
 
+/// Cardinality for scalar fields, where `multi` is intentionally impossible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleCardinality {
     Optional,
     Required,
 }
 
+/// A scalar field stored as a direct value on the owning object.
+///
+/// The implicit `id` field is represented as a scalar field with
+/// [`ScalarType::Uuid`], required cardinality, and `is_implicit = true`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScalarField {
     name: String,
@@ -47,6 +85,10 @@ pub struct ScalarField {
     is_implicit: bool,
 }
 
+/// A declared schema link from one object type to another.
+///
+/// The target is stored by name in the catalog input so validation can reject
+/// unknown targets before query resolution starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkField {
     name: String,
@@ -54,6 +96,10 @@ pub struct LinkField {
     cardinality: Cardinality,
 }
 
+/// An object type with declared fields and catalog-injected implicit fields.
+///
+/// [`ObjectType::declared_fields`] returns only fields written by the schema
+/// author. [`ObjectType::find_field`] also sees implicit fields such as `id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectType {
     name: String,
@@ -61,18 +107,28 @@ pub struct ObjectType {
     implicit_fields: Vec<Field>,
 }
 
+/// Deterministic object type identifier within a [`SchemaCatalog`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObjectTypeId(u64);
 
+/// Resolved reference to an object type.
+///
+/// Query IR uses this instead of raw type names so later compiler stages do not
+/// need to repeat name lookup.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectTypeRef {
     id: ObjectTypeId,
     name: String,
 }
 
+/// Deterministic field identifier within the owning object type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FieldId(u64);
 
+/// Resolved reference to a field on a specific object type.
+///
+/// The same field name on two different object types yields different
+/// references because the owner object reference is part of the value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldRef {
     id: FieldId,
@@ -80,6 +136,10 @@ pub struct FieldRef {
     name: String,
 }
 
+/// Validated semantic schema catalog used by the resolver.
+///
+/// Construction goes through [`SchemaCatalog::try_new`] so invalid schema
+/// shapes are rejected before the query pipeline sees them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaCatalog {
     object_types: Vec<ObjectType>,
@@ -145,6 +205,10 @@ impl FieldRef {
 }
 
 impl ScalarField {
+    /// Creates a declared scalar field.
+    ///
+    /// This constructor cannot create the implicit `id` field. The catalog adds
+    /// that field when each [`ObjectType`] is created.
     pub fn new(
         name: impl Into<String>,
         scalar_type: ScalarType,
@@ -160,6 +224,10 @@ impl ScalarField {
 }
 
 impl LinkField {
+    /// Creates a declared link field.
+    ///
+    /// The target type name is validated when the containing objects are put
+    /// into a [`SchemaCatalog`].
     pub fn new(
         name: impl Into<String>,
         target_type_name: impl Into<String>,
@@ -212,6 +280,7 @@ impl Field {
 }
 
 impl ObjectType {
+    /// Creates an object type and injects the implicit required UUID `id` field.
     pub fn new(name: impl Into<String>, declared_fields: Vec<Field>) -> Self {
         Self {
             name: name.into(),
@@ -248,6 +317,7 @@ impl ObjectType {
 }
 
 impl SchemaCatalog {
+    /// Builds a catalog and validates the schema invariants enforced today.
     pub fn try_new(object_types: Vec<ObjectType>) -> Result<Self, SchemaError> {
         Self::validate_unique_type_names(&object_types)?;
         Self::validate_unique_field_names_within_type(&object_types)?;
@@ -402,6 +472,7 @@ impl SchemaCatalog {
     }
 }
 
+/// Validation errors reported while constructing a [`SchemaCatalog`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaError {
     DuplicateTypeName {
