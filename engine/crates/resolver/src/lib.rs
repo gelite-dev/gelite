@@ -154,35 +154,58 @@ fn resolve_path_expr(
     path: &Path,
 ) -> Result<ir::ValueExpr, ResolveError> {
     let steps = path.steps();
+    let mut current_object_type = source_object_type.clone();
+    let mut resolved_steps = Vec::new();
 
-    if steps.len() != 1 {
-        return Err(ResolveError::UnsupportedPath);
+    for (index, step) in steps.iter().enumerate() {
+        let is_last = index == steps.len() - 1;
+        let field_name = step.field_name();
+
+        let field = catalog
+            .find_field(current_object_type.name(), field_name)
+            .ok_or_else(|| ResolveError::UnknownField {
+                object_type: current_object_type.name().to_string(),
+                field: field_name.to_string(),
+            })?;
+
+        let field_ref = catalog
+            .find_field_ref(current_object_type.name(), field_name)
+            .expect("field ref should exist for a field already found in the catalog");
+
+        match field {
+            schema::Field::Scalar(_) => {
+                if !is_last {
+                    return Err(ResolveError::UnsupportedPath);
+                }
+
+                resolved_steps.push(ir::ResolvedPathStep::scalar(field_ref, field.cardinality()));
+            }
+            schema::Field::Link(link) => {
+                if is_last {
+                    return Err(ResolveError::UnsupportedPath);
+                }
+
+                let target_object_type = catalog
+                    .find_type_ref(link.target_type_name())
+                    .ok_or_else(|| ResolveError::UnknownObjectType {
+                        name: link.target_type_name().to_string(),
+                    })?;
+
+                resolved_steps.push(ir::ResolvedPathStep::link(
+                    field_ref,
+                    target_object_type.clone(),
+                    field.cardinality(),
+                ));
+
+                current_object_type = target_object_type;
+            }
+        }
     }
 
-    let field_name = steps[0].field_name();
+    let resolved_path = ir::ResolvedPath::try_new(source_object_type.clone(), resolved_steps)
+        .map_err(|_| ResolveError::UnsupportedPath)?;
 
-    let field = catalog
-        .find_field(source_object_type.name(), field_name)
-        .ok_or_else(|| ResolveError::UnknownField {
-            object_type: source_object_type.name().to_string(),
-            field: field_name.to_string(),
-        })?;
-
-    if !field.is_scalar() {
-        return Err(ResolveError::UnsupportedPath);
-    }
-
-    let field_ref = catalog
-        .find_field_ref(source_object_type.name(), field_name)
-        .expect("field ref should exist for a field already found in the catalog");
-
-    let path = ir::ResolvedPath::try_new(
-        source_object_type.clone(),
-        alloc::vec![ir::ResolvedPathStep::scalar(field_ref, field.cardinality())],
-    )
-    .expect("resolved scalar field path should not be empty");
-
-    Ok(ir::ValueExpr::Path(path))
+    Ok(ir::ValueExpr::Path(resolved_path))
 }
 
 fn resolve_literal_expr(literal: &query_ast::Literal) -> Result<ir::ValueExpr, ResolveError> {

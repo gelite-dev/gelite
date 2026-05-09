@@ -395,7 +395,7 @@ fn rejects_filter_path_with_link_field() {
     let filter = Expr::Compare(CompareExpr::new(
         Path::new(vec![PathStep::new("author")]),
         CompareOp::Eq,
-        Literal::String("Ada".to_string()),
+        Literal::String("Sheri".to_string()),
     ));
 
     let query = SelectQuery::new(
@@ -497,4 +497,138 @@ fn passes_limit_and_offset_through() {
 
     assert_eq!(resolved.limit(), Some(10));
     assert_eq!(resolved.offset(), Some(20));
+}
+
+#[test]
+fn resolves_filter_path_through_single_link_to_scalar_field() {
+    let catalog = post_with_author_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Path::new(vec![PathStep::new("author"), PathStep::new("name")]),
+        CompareOp::Eq,
+        Literal::String("Sheri".to_string()),
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    assert_eq!(compare.op(), ir::CompareOp::Eq);
+
+    match compare.left() {
+        ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 2);
+            assert_eq!(path.result_cardinality(), schema::Cardinality::Required);
+
+            let link_step = &path.steps()[0];
+            assert_eq!(link_step.field().owner_object_type().name(), "Post");
+            assert_eq!(link_step.field().name(), "author");
+            assert_eq!(link_step.cardinality(), schema::Cardinality::Required);
+
+            match link_step.kind() {
+                ir::ResolvedPathStepKind::Link { target_object_type } => {
+                    assert_eq!(target_object_type.name(), "User");
+                }
+                ir::ResolvedPathStepKind::Scalar => {
+                    panic!("first path step should resolve to a link")
+                }
+            }
+
+            let scalar_step = &path.steps()[1];
+            assert_eq!(scalar_step.field().owner_object_type().name(), "User");
+            assert_eq!(scalar_step.field().name(), "name");
+            assert_eq!(scalar_step.cardinality(), schema::Cardinality::Required);
+
+            match scalar_step.kind() {
+                ir::ResolvedPathStepKind::Scalar => {}
+                ir::ResolvedPathStepKind::Link { .. } => {
+                    panic!("terminal path step should resolve to a scalar")
+                }
+            }
+        }
+        ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
+    }
+
+    match compare.right() {
+        ir::ValueExpr::Literal(ir::Literal::String(value)) => {
+            assert_eq!(value, "Sheri");
+        }
+        _ => panic!("filter right side should resolve to a string literal"),
+    }
+}
+
+#[test]
+fn resolves_order_path_through_single_link_to_scalar_field() {
+    let catalog = post_with_author_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        Path::new(vec![PathStep::new("author"), PathStep::new("name")]),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    assert_eq!(resolved.order_by().len(), 1);
+    assert_eq!(resolved.order_by()[0].direction(), ir::OrderDirection::Asc);
+
+    match resolved.order_by()[0].value() {
+        ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 2);
+            assert_eq!(path.result_cardinality(), schema::Cardinality::Required);
+
+            let link_step = &path.steps()[0];
+            assert_eq!(link_step.field().owner_object_type().name(), "Post");
+            assert_eq!(link_step.field().name(), "author");
+            assert_eq!(link_step.cardinality(), schema::Cardinality::Required);
+
+            match link_step.kind() {
+                ir::ResolvedPathStepKind::Link { target_object_type } => {
+                    assert_eq!(target_object_type.name(), "User");
+                }
+                ir::ResolvedPathStepKind::Scalar => {
+                    panic!("first path step should resolve to a link")
+                }
+            }
+
+            let scalar_step = &path.steps()[1];
+            assert_eq!(scalar_step.field().owner_object_type().name(), "User");
+            assert_eq!(scalar_step.field().name(), "name");
+            assert_eq!(scalar_step.cardinality(), schema::Cardinality::Required);
+
+            match scalar_step.kind() {
+                ir::ResolvedPathStepKind::Scalar => {}
+                ir::ResolvedPathStepKind::Link { .. } => {
+                    panic!("terminal path step should resolve to a scalar")
+                }
+            }
+        }
+        ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
+    }
 }
