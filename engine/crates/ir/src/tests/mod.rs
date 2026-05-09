@@ -2,8 +2,8 @@ mod fixtures;
 
 use crate::{
     CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, ResolvedPath,
-    ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, SelectQuery,
-    ValueExpr,
+    ResolvedPathError, ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField,
+    SelectQuery, ValueExpr,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -176,13 +176,14 @@ fn resolved_shape_can_contain_optional_link_field() {
 
 #[test]
 fn resolved_path_can_represent_root_scalar_field() {
-    let path = ResolvedPath::new(
+    let path = ResolvedPath::try_new(
         post_type(),
         vec![ResolvedPathStep::scalar(
             post_title_field(),
             Cardinality::Required,
         )],
-    );
+    )
+    .expect("root scalar field path should be valid");
 
     assert_eq!(path.root_object_type().name(), "Post");
     assert_eq!(path.result_cardinality(), Cardinality::Required);
@@ -203,15 +204,23 @@ fn resolved_path_can_represent_root_scalar_field() {
 
 #[test]
 fn resolved_path_result_cardinality_becomes_optional_when_any_step_is_optional() {
-    let path = ResolvedPath::new(
+    let path = ResolvedPath::try_new(
         post_type(),
         vec![
             ResolvedPathStep::link(post_author_field(), user_type(), Cardinality::Optional),
             ResolvedPathStep::scalar(user_name_field(), Cardinality::Required),
         ],
-    );
+    )
+    .expect("path through an optional link should be valid");
 
     assert_eq!(path.result_cardinality(), Cardinality::Optional);
+}
+
+#[test]
+fn resolved_path_rejects_empty_steps() {
+    let error = ResolvedPath::try_new(post_type(), vec![]).expect_err("empty path is invalid");
+
+    assert_eq!(error, ResolvedPathError::EmptyPath);
 }
 
 #[test]

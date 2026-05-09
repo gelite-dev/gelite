@@ -127,7 +127,18 @@ pub struct ResolvedPath {
 }
 
 impl ResolvedPath {
-    pub fn new(root_object_type: ObjectTypeRef, steps: Vec<ResolvedPathStep>) -> Self {
+    pub fn try_new(
+        root_object_type: ObjectTypeRef,
+        steps: Vec<ResolvedPathStep>,
+    ) -> Result<Self, ResolvedPathError> {
+        if steps.is_empty() {
+            return Err(ResolvedPathError::EmptyPath);
+        }
+
+        Ok(Self::new(root_object_type, steps))
+    }
+
+    fn new(root_object_type: ObjectTypeRef, steps: Vec<ResolvedPathStep>) -> Self {
         fn combine_cardinality(left: Cardinality, right: Cardinality) -> Cardinality {
             match (left, right) {
                 (Cardinality::Many, _) | (_, Cardinality::Many) => Cardinality::Many,
@@ -159,6 +170,11 @@ impl ResolvedPath {
     pub fn result_cardinality(&self) -> Cardinality {
         self.result_cardinality
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedPathError {
+    EmptyPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
