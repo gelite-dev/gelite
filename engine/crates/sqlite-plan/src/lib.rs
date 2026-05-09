@@ -15,7 +15,15 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let selected_values = plan_shape_values(ir.shape(), "root");
     let result_shape = plan_result_shape(ir.shape(), "root", false);
 
-    let order_by = ir.order_by().iter().map(SQLiteOrder::from_ir).collect();
+    let planned_orders: Vec<PlannedOrder> = ir.order_by().iter().map(plan_order_expr).collect();
+
+    let mut order_by = Vec::new();
+    let mut order_joins = Vec::new();
+
+    for planned in planned_orders {
+        order_by.push(planned.order);
+        order_joins.extend(planned.joins);
+    }
 
     let (filter, filter_joins) = match ir.filter() {
         Some(expr) => {
@@ -34,6 +42,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
         .collect();
 
     joins.extend(filter_joins);
+    joins.extend(order_joins);
     joins = dedup_joins(joins);
 
     SQLiteSelectPlan {
@@ -333,19 +342,6 @@ pub struct SQLiteOrder {
 }
 
 impl SQLiteOrder {
-    pub fn from_ir(order: &ir::OrderExpr) -> Self {
-        let column = match order.value() {
-            ir::ValueExpr::Path(path) => plan_resolved_path(path).column,
-            ir::ValueExpr::Literal(_) => panic!("ORDER BY literal is not supported yet"),
-        };
-
-        Self {
-            source_alias: column.source_alias,
-            column_name: column.column_name,
-            direction: SQLiteOrderDirection::from_ir(order.direction()),
-        }
-    }
-
     pub fn source_alias(&self) -> &str {
         &self.source_alias
     }
@@ -526,6 +522,28 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
                 joins: value.joins,
             }
         }
+    }
+}
+
+struct PlannedOrder {
+    order: SQLiteOrder,
+    joins: Vec<SQLiteJoin>,
+}
+
+fn plan_order_expr(order: &ir::OrderExpr) -> PlannedOrder {
+    let planned_value = plan_value_expr(order.value());
+
+    let SQLiteValueExpr::Column(column) = planned_value.value else {
+        panic!("ORDER BY must resolve to a column")
+    };
+
+    PlannedOrder {
+        order: SQLiteOrder {
+            source_alias: column.source_alias,
+            column_name: column.column_name,
+            direction: SQLiteOrderDirection::from_ir(order.direction()),
+        },
+        joins: planned_value.joins,
     }
 }
 

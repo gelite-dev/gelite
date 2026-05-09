@@ -191,6 +191,66 @@ fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
 }
 
 #[test]
+fn sqlite_select_plan_can_order_by_single_link_scalar_path() {
+    let order_by = ir::OrderExpr::new(post_author_name_path_value(), ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].source_alias(), "author");
+    assert_eq!(order_by[0].column_name(), "name");
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
+}
+
+#[test]
+fn sqlite_select_plan_can_join_order_single_link_scalar_path() {
+    let order_by = ir::OrderExpr::new(post_author_name_path_value(), ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 1);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_table(), "user");
+    assert_eq!(joins[0].target_alias(), "author");
+
+    let on = joins[0].on();
+    assert_eq!(on.left_alias(), "root");
+    assert_eq!(on.left_column(), "author_id");
+    assert_eq!(on.right_alias(), "author");
+    assert_eq!(on.right_column(), "id");
+
+    match joins[0].reason() {
+        SQLiteJoinReason::PathTraversal { path } => {
+            assert_eq!(path, &vec!["author".to_string()]);
+        }
+        SQLiteJoinReason::SelectedSingleLink { .. } => {
+            panic!("order path join should be marked as path traversal")
+        }
+    }
+}
+
+#[test]
 fn sqlite_select_plan_preserves_order_by_order() {
     let title_order = ir::OrderExpr::new(post_title_path_value(), ir::OrderDirection::Asc);
 
