@@ -125,6 +125,16 @@ The initial target is not:
 9. Add CLI workflows
 10. Add Solid playground and admin UI
 
+## 0.x File Extension Decision
+
+Use `.geli` for schema source files and `.geliql` for query, script, and future
+migration files.
+
+The split mirrors Gel's distinction between schema source and EdgeQL script
+files without reusing Gel's extensions. The project is still in the 0.x phase,
+so these extensions are practical conventions rather than permanent
+compatibility promises.
+
 ## MVP Scope
 
 The first milestone should support:

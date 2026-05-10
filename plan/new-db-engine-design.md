@@ -280,6 +280,37 @@ The frontend should start as tooling for developers, not as a consumer app.
 - Favor debuggability over early optimization
 - Prefer a small coherent language to a broad inconsistent one
 
+## Source File Conventions
+
+Gelite uses project-specific file extensions during the 0.x series:
+
+- `.geli` for declarative schema source files
+- `.geliql` for query, script, and future migration files
+
+This follows Gel's separation between schema source files and EdgeQL migration
+or script files, but does not reuse Gel's `.gel` and `.edgeql` extensions.
+Gelite is not a Gel-compatible implementation, and the 0.x language may change
+as the parser, resolver, and storage layers become more precise.
+
+The initial schema convention should stay simple:
+
+```text
+schema.geli
+```
+
+When migration workflows are introduced, the project can move toward a
+directory layout such as:
+
+```text
+dbschema/default.geli
+dbschema/migrations/00001.geliql
+queries/list_posts.geliql
+```
+
+The extension choice is not a semantic guarantee before 1.0. If the language
+changes enough to require a different convention, the extension may be changed
+while the project is still in the 0.x line.
+
 ## Recommended First Deliverable
 
 The first end-to-end deliverable should be:

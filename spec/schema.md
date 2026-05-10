@@ -20,6 +20,13 @@ The MVP schema does not support:
 
 ## Source File Shape
 
+Schema source files use the `.geli` extension during the 0.x series.
+
+The extension is intentionally project-specific. Gel uses `.gel` for schema
+source files and `.edgeql` for EdgeQL scripts and migrations, but Gelite is not
+claiming Gel compatibility. The `.geli` extension identifies this project's
+schema language while the syntax is still allowed to change before 1.0.
+
 A schema file is a sequence of top-level `type` declarations.
 
 Example:
