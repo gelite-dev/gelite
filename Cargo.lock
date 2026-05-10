@@ -263,6 +263,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlite-schema"
+version = "0.1.0"
+dependencies = [
+ "schema",
+]
+
+[[package]]
 name = "sqlite-sqlgen"
 version = "0.1.0"
 dependencies = [
