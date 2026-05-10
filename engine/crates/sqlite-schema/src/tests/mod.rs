@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use crate::plan_initial_schema;
+use crate::{SQLiteAffinity, plan_initial_schema};
 use alloc::vec;
 use alloc::vec::Vec;
 use schema::SchemaCatalog;
@@ -25,4 +25,118 @@ fn initial_schema_plan_creates_metadata_tables() {
             "_engine_catalog_fields",
         ]
     );
+}
+
+#[test]
+fn initial_schema_plan_defines_catalog_objects_metadata_table() {
+    let catalog = SchemaCatalog::try_new(vec![]).unwrap();
+    let plan = plan_initial_schema(&catalog);
+
+    assert_eq!(plan.metadata_tables()[1].name(), "_engine_catalog_objects");
+    assert_eq!(plan.metadata_tables()[1].columns().len(), 2);
+
+    let columns = plan.metadata_tables()[1].columns();
+    assert_eq!(columns[0].name(), "object_id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+    assert_eq!(columns[0].is_unique(), true);
+
+    assert_eq!(columns[1].name(), "name");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_primary_key(), false);
+    assert_eq!(columns[1].is_unique(), true);
+}
+
+#[test]
+fn initial_schema_plan_defines_schema_versions_metadata_table() {
+    let catalog = SchemaCatalog::try_new(vec![]).unwrap();
+    let plan = plan_initial_schema(&catalog);
+
+    assert_eq!(plan.metadata_tables()[0].name(), "_engine_schema_versions");
+    assert_eq!(plan.metadata_tables()[0].columns().len(), 4);
+
+    let columns = plan.metadata_tables()[0].columns();
+    assert_eq!(columns[0].name(), "version_id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+    assert_eq!(columns[0].is_unique(), true);
+
+    assert_eq!(columns[1].name(), "checksum");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_primary_key(), false);
+    assert_eq!(columns[1].is_unique(), false);
+
+    assert_eq!(columns[2].name(), "applied_at");
+    assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[2].is_nullable(), false);
+    assert_eq!(columns[2].is_primary_key(), false);
+    assert_eq!(columns[2].is_unique(), false);
+
+    assert_eq!(columns[3].name(), "schema_snapshot");
+    assert_eq!(columns[3].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[3].is_nullable(), false);
+    assert_eq!(columns[3].is_primary_key(), false);
+    assert_eq!(columns[3].is_unique(), false);
+}
+
+#[test]
+fn initial_schema_plan_defines_catalog_fields_metadata_table() {
+    let catalog = SchemaCatalog::try_new(vec![]).unwrap();
+    let plan = plan_initial_schema(&catalog);
+
+    assert_eq!(plan.metadata_tables()[2].name(), "_engine_catalog_fields");
+    assert_eq!(plan.metadata_tables()[2].columns().len(), 8);
+
+    let columns = plan.metadata_tables()[2].columns();
+    assert_eq!(columns[0].name(), "field_id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+    assert_eq!(columns[0].is_unique(), true);
+
+    assert_eq!(columns[1].name(), "object_id");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_primary_key(), false);
+    assert_eq!(columns[1].is_unique(), false);
+
+    assert_eq!(columns[2].name(), "name");
+    assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[2].is_nullable(), false);
+    assert_eq!(columns[2].is_primary_key(), false);
+    assert_eq!(columns[2].is_unique(), false);
+
+    assert_eq!(columns[3].name(), "field_kind");
+    assert_eq!(columns[3].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[3].is_nullable(), false);
+    assert_eq!(columns[3].is_primary_key(), false);
+    assert_eq!(columns[3].is_unique(), false);
+
+    assert_eq!(columns[4].name(), "cardinality");
+    assert_eq!(columns[4].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[4].is_nullable(), false);
+    assert_eq!(columns[4].is_primary_key(), false);
+    assert_eq!(columns[4].is_unique(), false);
+
+    assert_eq!(columns[5].name(), "scalar_type");
+    assert_eq!(columns[5].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[5].is_nullable(), true);
+    assert_eq!(columns[5].is_primary_key(), false);
+    assert_eq!(columns[5].is_unique(), false);
+
+    assert_eq!(columns[6].name(), "target_object_id");
+    assert_eq!(columns[6].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[6].is_nullable(), true);
+    assert_eq!(columns[6].is_primary_key(), false);
+    assert_eq!(columns[6].is_unique(), false);
+
+    assert_eq!(columns[7].name(), "is_implicit");
+    assert_eq!(columns[7].affinity(), SQLiteAffinity::Integer);
+    assert_eq!(columns[7].is_nullable(), false);
+    assert_eq!(columns[7].is_primary_key(), false);
+    assert_eq!(columns[7].is_unique(), false);
 }
