@@ -38,10 +38,11 @@ Do not make `resolver` depend on `sqlite-schema`.
 Do not make `sqlite-plan` or `sqlite-sqlgen` depend on `sqlite-schema` until a
 shared naming module exists.
 
-The first version of `sqlite-schema` should stay `no_std` if it only builds
-structured DDL plans and SQL strings. Once it applies SQL to a SQLite
-connection, that execution part must move to a `std` boundary or a separate
-adapter.
+The first version of `sqlite-schema` should stay `no_std` while it builds
+structured DDL plans and SQL strings. Schema execution no longer has to move
+to a `std` boundary by default. The project now expects to evaluate
+`vlcn-io/sqlite-rs-embedded` as the SQLite binding for engine-integrated,
+`no_std`-compatible execution.
 
 ## Responsibility Boundary
 
@@ -72,14 +73,15 @@ adapter.
 - `ir` construction
 - select planning
 - final query SQL rendering
-- SQLite connection lifecycle
+- SQLite connection ownership
 - row decoding for query results
 
-Those belong to parser, resolver, planner, sqlgen, runner, and runtime layers.
+Those belong to parser, resolver, planner, sqlgen, and the engine runtime
+layer.
 
 ## Why This Comes Before The Runner
 
-The query runner will eventually execute this pipeline:
+The engine runtime will eventually execute this pipeline:
 
 ```text
 query text
@@ -100,7 +102,7 @@ schema::SchemaCatalog
 -> object tables + metadata tables
 ```
 
-After that, the runner can replace fixture catalogs with metadata-backed
+After that, the runtime can replace fixture catalogs with metadata-backed
 catalog loading.
 
 ## Existing Crates That Need Changes
@@ -226,7 +228,7 @@ pub struct SQLiteSchemaPlan {
 ```
 
 This structure keeps DDL and catalog metadata together without requiring a
-SQLite driver.
+SQLite binding.
 
 The first SQL rendering API can be:
 
@@ -237,7 +239,8 @@ pub fn render_initial_schema(plan: &SQLiteSchemaPlan) -> Vec<String>
 This returns DDL and metadata insert SQL in deterministic order. It should not
 execute them.
 
-Execution can be added later in a `std` crate or feature:
+Execution can be added later through the engine runtime, using a
+`no_std`-compatible SQLite binding if the binding proves suitable:
 
 ```rust
 pub fn apply_initial_schema(
@@ -246,8 +249,9 @@ pub fn apply_initial_schema(
 ) -> Result<(), SQLiteSchemaApplyError>
 ```
 
-Do not add this executor abstraction until the project chooses `rusqlite` or
-`sqlx`.
+Do not add this executor abstraction until the project has tested the
+`sqlite-rs-embedded` API surface against schema apply, prepared statements, bind
+values, stepping, and result access.
 
 ## Initial Schema Plan Details
 
@@ -516,8 +520,7 @@ This test is the bridge to query execution without fixture catalogs.
 8. Implement multi-link join table planning.
 9. Implement catalog metadata row planning.
 10. Add SQL rendering for the initial schema plan.
-11. Decide whether execution belongs in `sqlite-schema` behind `std` or in a
-    separate runner crate.
+11. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
 12. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
@@ -525,10 +528,19 @@ This test is the bridge to query execution without fixture catalogs.
 
 ### SQLite driver
 
-The project has not chosen `rusqlite` or `sqlx`.
+The current direction is to evaluate
+`https://github.com/vlcn-io/sqlite-rs-embedded` before adding a `std` SQLite
+driver.
 
-`sqlite-schema` should avoid depending on either until pure planning and
-rendering are tested.
+The repository describes the binding as `no_std` and WASM-compatible SQLite
+bindings that stay close to the SQLite C API. That matches the engine goal
+better than putting all execution behind a separate `std` runner crate, but it
+also means the project must wrap the unsafe and low-level API carefully.
+
+`sqlite-schema` should still avoid depending directly on the SQLite binding
+until pure planning and rendering are tested. The execution wrapper should live
+in an engine runtime crate so planning remains inspectable without opening a
+connection.
 
 ### DDL SQL ownership
 
@@ -559,7 +571,8 @@ format and checksum rule.
 ### Transaction boundary
 
 Applying schema changes should happen in one transaction where SQLite allows
-it. This belongs to the future execution layer, not the pure planning layer.
+it. This belongs to the engine runtime execution layer, not the pure planning
+layer.
 
 ## Deferred Work
 
@@ -567,7 +580,7 @@ it. This belongs to the future execution layer, not the pure planning layer.
 - non-initial migrations
 - table rebuild migrations
 - schema parser for `.geli`
-- catalog loading from live SQLite connections
+- catalog loading through the engine SQLite runtime
 - migration checksum generation
 - schema snapshot serialization
 - rollback strategy for failed schema apply
