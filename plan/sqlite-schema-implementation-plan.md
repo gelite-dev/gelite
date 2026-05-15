@@ -468,6 +468,54 @@ Assert:
 
 This test prevents conflating optional links with missing storage.
 
+### 4a. `initial_schema_plan_marks_required_unique_single_link_column`
+
+Add this after scalar uniqueness and basic single-link storage are stable.
+
+Input:
+
+```text
+type User {
+  required name: str
+}
+
+type Profile {
+  required unique link user: User
+}
+```
+
+Assert:
+
+- `profile` table has `user_id TEXT NOT NULL UNIQUE`
+- `user_id` references `user(id)`
+
+This test fixes the first schema-enforced one-to-one relation form. The
+constraint means each `Profile` must reference one `User`, and the same `User`
+cannot be referenced by more than one `Profile`.
+
+### 4b. `initial_schema_plan_marks_optional_unique_single_link_column`
+
+Input:
+
+```text
+type User {
+  required name: str
+}
+
+type Profile {
+  unique link user: User
+}
+```
+
+Assert:
+
+- `profile` table has `user_id TEXT NULL UNIQUE`
+- `user_id` references `user(id)`
+
+This uses the same null semantics as optional unique scalar fields: duplicate
+non-null target ids are rejected, but multiple rows without a target are
+allowed.
+
 ### 5. `initial_schema_plan_creates_multi_link_join_table`
 
 Input:
@@ -556,11 +604,13 @@ This test is the bridge to query execution without fixture catalogs.
 5. Implement object table planning for scalar fields.
 6. Add the minimal `schema` getters needed by the tests.
 7. Implement single-link column and foreign key planning.
-8. Implement multi-link join table planning.
-9. Implement catalog metadata row planning.
-10. Add SQL rendering for the initial schema plan.
-11. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
-12. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
+8. Implement scalar unique column planning.
+9. Implement unique single-link column planning for one-to-one constraints.
+10. Implement multi-link join table planning.
+11. Implement catalog metadata row planning.
+12. Add SQL rendering for the initial schema plan.
+13. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
+14. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
 ## Open Decisions
