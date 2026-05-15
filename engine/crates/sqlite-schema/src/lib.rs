@@ -26,6 +26,7 @@ const CATALOG_FIELDS_TABLE: &str = "_engine_catalog_fields";
 pub struct SQLiteSchemaPlan {
     metadata_tables: Vec<SQLiteTablePlan>,
     object_tables: Vec<SQLiteTablePlan>,
+    relation_tables: Vec<SQLiteTablePlan>,
 }
 
 impl SQLiteSchemaPlan {
@@ -35,6 +36,24 @@ impl SQLiteSchemaPlan {
 
     pub fn object_tables(&self) -> &[SQLiteTablePlan] {
         &self.object_tables
+    }
+
+    pub fn relation_tables(&self) -> &[SQLiteTablePlan] {
+        &self.relation_tables
+    }
+}
+
+pub struct SQLitePrimaryKeyPlan {
+    column_names: Vec<String>,
+}
+
+impl SQLitePrimaryKeyPlan {
+    pub fn new(column_names: Vec<String>) -> Self {
+        Self { column_names }
+    }
+
+    pub fn column_names(&self) -> &[String] {
+        &self.column_names
     }
 }
 
@@ -48,6 +67,7 @@ pub struct SQLiteTablePlan {
     name: String,
     columns: Vec<SQLiteColumnPlan>,
     foreign_keys: Vec<SQLiteForeignKeyPlan>,
+    primary_key: Option<SQLitePrimaryKeyPlan>,
 }
 
 impl SQLiteTablePlan {
@@ -62,10 +82,20 @@ impl SQLiteTablePlan {
         columns: Vec<SQLiteColumnPlan>,
         foreign_keys: Vec<SQLiteForeignKeyPlan>,
     ) -> Self {
+        Self::new_with_constraints(name, columns, foreign_keys, None)
+    }
+
+    pub fn new_with_constraints(
+        name: impl Into<String>,
+        columns: Vec<SQLiteColumnPlan>,
+        foreign_keys: Vec<SQLiteForeignKeyPlan>,
+        primary_key: Option<SQLitePrimaryKeyPlan>,
+    ) -> Self {
         Self {
             name: name.into(),
             columns,
             foreign_keys,
+            primary_key,
         }
     }
 
@@ -79,6 +109,10 @@ impl SQLiteTablePlan {
 
     pub fn foreign_keys(&self) -> &[SQLiteForeignKeyPlan] {
         &self.foreign_keys
+    }
+
+    pub fn primary_key(&self) -> Option<&SQLitePrimaryKeyPlan> {
+        self.primary_key.as_ref()
     }
 }
 
@@ -200,11 +234,13 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
         ),
     ];
 
-    let object_tables = plan_objects(&catalog);
+    let object_tables = plan_objects(catalog);
+    let relation_tables = plan_relation_tables(catalog);
 
     SQLiteSchemaPlan {
         metadata_tables,
         object_tables,
+        relation_tables,
     }
 }
 
@@ -230,24 +266,32 @@ fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
                     false,
                     scalar.is_unique(),
                 )),
-                Field::Link(link) => Some(SQLiteColumnPlan::new(
-                    format!("{}_id", field.name()),
-                    SQLiteAffinity::Text,
-                    field.cardinality() != Cardinality::Required,
-                    false,
-                    link.is_unique(),
-                )),
+                Field::Link(link) => match link.cardinality() {
+                    Cardinality::Many => None,
+                    Cardinality::Optional | Cardinality::Required => Some(SQLiteColumnPlan::new(
+                        format!("{}_id", field.name()),
+                        SQLiteAffinity::Text,
+                        field.cardinality() != Cardinality::Required,
+                        false,
+                        link.is_unique(),
+                    )),
+                },
             }));
 
             let foreign_keys = declared_fields
                 .iter()
                 .filter_map(|field| match field {
                     Field::Scalar(_) => None,
-                    Field::Link(link) => Some(SQLiteForeignKeyPlan::new(
-                        format!("{}_id", field.name()),
-                        link.target_type_name().to_ascii_lowercase(),
-                        "id",
-                    )),
+                    Field::Link(link) => match link.cardinality() {
+                        Cardinality::Many => None,
+                        Cardinality::Optional | Cardinality::Required => {
+                            Some(SQLiteForeignKeyPlan::new(
+                                format!("{}_id", field.name()),
+                                link.target_type_name().to_ascii_lowercase(),
+                                "id",
+                            ))
+                        }
+                    },
                 })
                 .collect();
 
@@ -256,6 +300,60 @@ fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
                 columns,
                 foreign_keys,
             )
+        })
+        .collect()
+}
+
+fn plan_relation_tables(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
+    catalog
+        .object_types()
+        .iter()
+        .flat_map(|object_type| {
+            object_type
+                .declared_fields()
+                .iter()
+                .filter_map(|field| match field {
+                    Field::Scalar(_) => None,
+                    Field::Link(link) if link.cardinality() == Cardinality::Many => {
+                        let source_table = object_type.name().to_ascii_lowercase();
+                        let target_table = link.target_type_name().to_ascii_lowercase();
+                        Some(SQLiteTablePlan::new_with_constraints(
+                            format!("{}__{}", source_table, field.name()),
+                            vec![
+                                SQLiteColumnPlan::new(
+                                    "source_id",
+                                    SQLiteAffinity::Text,
+                                    false,
+                                    false,
+                                    false,
+                                ),
+                                SQLiteColumnPlan::new(
+                                    "target_id",
+                                    SQLiteAffinity::Text,
+                                    false,
+                                    false,
+                                    false,
+                                ),
+                                SQLiteColumnPlan::new(
+                                    "position",
+                                    SQLiteAffinity::Integer,
+                                    true,
+                                    false,
+                                    false,
+                                ),
+                            ],
+                            vec![
+                                SQLiteForeignKeyPlan::new("source_id", source_table, "id"),
+                                SQLiteForeignKeyPlan::new("target_id", target_table, "id"),
+                            ],
+                            Some(SQLitePrimaryKeyPlan::new(vec![
+                                "source_id".to_string(),
+                                "target_id".to_string(),
+                            ])),
+                        ))
+                    }
+                    Field::Link(_) => None,
+                })
         })
         .collect()
 }

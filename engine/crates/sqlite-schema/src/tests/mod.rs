@@ -4,8 +4,8 @@ use crate::{SQLiteAffinity, plan_initial_schema};
 use alloc::vec;
 use alloc::vec::Vec;
 use schema::{
-    Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality,
-    Uniqueness,
+    Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
+    SingleCardinality, Uniqueness,
 };
 
 #[test]
@@ -504,4 +504,64 @@ fn initial_schema_plan_marks_optional_unique_single_link_column() {
     assert_eq!(foreign_key.column_name(), "user_id");
     assert_eq!(foreign_key.target_table(), "user");
     assert_eq!(foreign_key.target_column(), "id");
+}
+
+#[test]
+fn initial_schema_plan_creates_multi_link_join_table() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Link(LinkField::new(
+                "posts",
+                "Post",
+                Cardinality::Many,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+
+    let relation_tables = plan.relation_tables();
+    assert_eq!(relation_tables.len(), 1);
+
+    let user_posts = &relation_tables[0];
+    assert_eq!(user_posts.name(), "user__posts");
+
+    let columns = user_posts.columns();
+    assert_eq!(columns[0].name(), "source_id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+
+    assert_eq!(columns[1].name(), "target_id");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+
+    assert_eq!(columns[2].name(), "position");
+    assert_eq!(columns[2].affinity(), SQLiteAffinity::Integer);
+    assert_eq!(columns[2].is_nullable(), true);
+
+    let primary_key = user_posts
+        .primary_key()
+        .expect("join table should have primary key");
+    assert_eq!(primary_key.column_names(), &["source_id", "target_id"]);
+
+    let foreign_keys = user_posts.foreign_keys();
+    assert_eq!(foreign_keys.len(), 2);
+
+    assert_eq!(foreign_keys[0].column_name(), "source_id");
+    assert_eq!(foreign_keys[0].target_table(), "user");
+    assert_eq!(foreign_keys[0].target_column(), "id");
+
+    assert_eq!(foreign_keys[1].column_name(), "target_id");
+    assert_eq!(foreign_keys[1].target_table(), "post");
+    assert_eq!(foreign_keys[1].target_column(), "id");
 }
