@@ -157,7 +157,6 @@ fn initial_schema_plan_defines_catalog_fields_object_foreign_key() {
 }
 
 #[test]
-
 fn initial_schema_plan_creates_object_table_for_scalar_fields() {
     let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
         "User",
@@ -195,4 +194,62 @@ fn initial_schema_plan_creates_object_table_for_scalar_fields() {
     assert_eq!(columns[2].name(), "age");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[2].is_nullable(), true);
+}
+
+#[test]
+fn initial_schema_plan_maps_all_scalar_types_to_sqlite_affinities() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
+        "ScalarSample",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "str_field",
+                ScalarType::Str,
+                SingleCardinality::Optional,
+            )),
+            Field::Scalar(ScalarField::new(
+                "int64_field",
+                ScalarType::Int64,
+                SingleCardinality::Optional,
+            )),
+            Field::Scalar(ScalarField::new(
+                "float64_field",
+                ScalarType::Float64,
+                SingleCardinality::Optional,
+            )),
+            Field::Scalar(ScalarField::new(
+                "bool_field",
+                ScalarType::Bool,
+                SingleCardinality::Optional,
+            )),
+            Field::Scalar(ScalarField::new(
+                "uuid_field",
+                ScalarType::Uuid,
+                SingleCardinality::Optional,
+            )),
+            Field::Scalar(ScalarField::new(
+                "datetime_field",
+                ScalarType::DateTime,
+                SingleCardinality::Optional,
+            )),
+        ],
+    )])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let columns = plan.object_tables()[0].columns();
+
+    let expected_affinities = [
+        ("id", SQLiteAffinity::Text),
+        ("str_field", SQLiteAffinity::Text),
+        ("int64_field", SQLiteAffinity::Integer),
+        ("float64_field", SQLiteAffinity::Real),
+        ("bool_field", SQLiteAffinity::Integer),
+        ("uuid_field", SQLiteAffinity::Text),
+        ("datetime_field", SQLiteAffinity::Text),
+    ];
+
+    for (index, (expected_name, expected_affinity)) in expected_affinities.iter().enumerate() {
+        assert_eq!(columns[index].name(), *expected_name);
+        assert_eq!(columns[index].affinity(), *expected_affinity);
+    }
 }
