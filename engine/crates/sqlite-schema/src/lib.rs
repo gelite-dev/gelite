@@ -41,14 +41,25 @@ impl SQLiteSchemaPlan {
 pub struct SQLiteTablePlan {
     name: String,
     columns: Vec<SQLiteColumnPlan>,
+    foreign_keys: Vec<SQLiteForeignKeyPlan>,
 }
 
 impl SQLiteTablePlan {
     /// Creates a planned table with a deterministic table name and column list.
     pub fn new(name: impl Into<String>, columns: Vec<SQLiteColumnPlan>) -> Self {
+        Self::new_with_foreign_keys(name, columns, Vec::new())
+    }
+
+    /// Creates a planned table with table-level foreign key constraints.
+    pub fn new_with_foreign_keys(
+        name: impl Into<String>,
+        columns: Vec<SQLiteColumnPlan>,
+        foreign_keys: Vec<SQLiteForeignKeyPlan>,
+    ) -> Self {
         Self {
             name: name.into(),
             columns,
+            foreign_keys,
         }
     }
 
@@ -58,6 +69,10 @@ impl SQLiteTablePlan {
 
     pub fn columns(&self) -> &[SQLiteColumnPlan] {
         &self.columns
+    }
+
+    pub fn foreign_keys(&self) -> &[SQLiteForeignKeyPlan] {
+        &self.foreign_keys
     }
 }
 
@@ -111,7 +126,7 @@ pub fn plan_initial_schema(_catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
                 SQLiteColumnPlan::new("name".to_string(), SQLiteAffinity::Text, false, false, true),
             ],
         ),
-        SQLiteTablePlan::new(
+        SQLiteTablePlan::new_with_foreign_keys(
             CATALOG_FIELDS_TABLE.to_string(),
             vec![
                 SQLiteColumnPlan::new(
@@ -171,6 +186,11 @@ pub fn plan_initial_schema(_catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
                     false,
                 ),
             ],
+            vec![SQLiteForeignKeyPlan::new(
+                "object_id",
+                CATALOG_OBJECTS_TABLE,
+                "object_id",
+            )],
         ),
     ];
 
@@ -234,6 +254,39 @@ impl SQLiteColumnPlan {
     }
     pub fn name(&self) -> &str {
         &self.name
+    }
+}
+
+/// Planned table-level foreign key before DDL rendering.
+pub struct SQLiteForeignKeyPlan {
+    column_name: String,
+    target_table: String,
+    target_column: String,
+}
+
+impl SQLiteForeignKeyPlan {
+    pub fn new(
+        column_name: impl Into<String>,
+        target_table: impl Into<String>,
+        target_column: impl Into<String>,
+    ) -> Self {
+        Self {
+            column_name: column_name.into(),
+            target_table: target_table.into(),
+            target_column: target_column.into(),
+        }
+    }
+
+    pub fn column_name(&self) -> &str {
+        &self.column_name
+    }
+
+    pub fn target_table(&self) -> &str {
+        &self.target_table
+    }
+
+    pub fn target_column(&self) -> &str {
+        &self.target_column
     }
 }
 

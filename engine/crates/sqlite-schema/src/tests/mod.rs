@@ -140,3 +140,18 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
     assert_eq!(columns[7].is_primary_key(), false);
     assert_eq!(columns[7].is_unique(), false);
 }
+
+#[test]
+fn initial_schema_plan_defines_catalog_fields_object_foreign_key() {
+    let catalog = SchemaCatalog::try_new(vec![]).unwrap();
+    let plan = plan_initial_schema(&catalog);
+
+    let catalog_fields = &plan.metadata_tables()[2];
+    assert_eq!(catalog_fields.name(), "_engine_catalog_fields");
+    assert_eq!(catalog_fields.foreign_keys().len(), 1);
+
+    let foreign_key = &catalog_fields.foreign_keys()[0];
+    assert_eq!(foreign_key.column_name(), "object_id");
+    assert_eq!(foreign_key.target_table(), "_engine_catalog_objects");
+    assert_eq!(foreign_key.target_column(), "object_id");
+}
