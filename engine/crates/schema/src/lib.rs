@@ -381,6 +381,7 @@ impl SchemaCatalog {
         Self::validate_no_explicit_id_field_declaration(&object_types)?;
         Self::validate_no_unknown_link_target(&object_types)?;
         Self::validate_no_reserved_scalar_type_name_as_object_type_name(&object_types)?;
+        Self::validate_no_unique_many_link_field(&object_types)?;
         Ok(Self { object_types })
     }
 
@@ -481,6 +482,25 @@ impl SchemaCatalog {
         Ok(())
     }
 
+    fn validate_no_unique_many_link_field(object_types: &[ObjectType]) -> Result<(), SchemaError> {
+        for object_type in object_types {
+            for field in object_type.declared_fields() {
+                let Field::Link(link) = field else {
+                    continue;
+                };
+
+                if link.cardinality() == Cardinality::Many && link.is_unique() {
+                    return Err(SchemaError::UniqueManyLinkField {
+                        object_type: object_type.name().to_string(),
+                        field_name: field.name().to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn find_type(&self, name: &str) -> Option<&ObjectType> {
         self.object_types
             .iter()
@@ -549,6 +569,10 @@ pub enum SchemaError {
     },
     ReservedScalarTypeNameAsObjectTypeName {
         name: String,
+    },
+    UniqueManyLinkField {
+        object_type: String,
+        field_name: String,
     },
 }
 

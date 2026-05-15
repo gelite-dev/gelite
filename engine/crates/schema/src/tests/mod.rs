@@ -393,3 +393,28 @@ fn link_field_can_be_marked_unique() {
     assert_eq!(field.uniqueness(), Uniqueness::Unique);
     assert!(field.is_unique());
 }
+
+#[test]
+fn rejects_unique_many_link_field() {
+    let user = ObjectType::new(
+        "User",
+        vec![Field::Link(LinkField::with_uniqueness(
+            "posts",
+            "Post",
+            Cardinality::Many,
+            Uniqueness::Unique,
+        ))],
+    );
+
+    let post = ObjectType::new("Post", vec![]);
+
+    let result = SchemaCatalog::try_new(vec![user, post]);
+
+    assert_eq!(
+        result,
+        Err(SchemaError::UniqueManyLinkField {
+            object_type: "User".to_string(),
+            field_name: "posts".to_string(),
+        })
+    )
+}
