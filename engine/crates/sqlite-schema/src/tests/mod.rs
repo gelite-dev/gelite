@@ -315,6 +315,46 @@ fn initial_schema_plan_creates_required_single_link_foreign_key_column() {
 }
 
 #[test]
+fn initial_schema_plan_creates_optional_single_link_foreign_key_column() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![Field::Link(LinkField::new(
+                "author",
+                "User",
+                schema::Cardinality::Optional,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let post = &plan.object_tables()[1];
+    assert_eq!(post.name(), "post");
+
+    let columns = post.columns();
+    assert_eq!(columns[1].name(), "author_id");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), true);
+    assert_eq!(columns[1].is_primary_key(), false);
+
+    assert_eq!(post.foreign_keys().len(), 1);
+
+    let foreign_key = &post.foreign_keys()[0];
+    assert_eq!(foreign_key.column_name(), "author_id");
+    assert_eq!(foreign_key.target_table(), "user");
+    assert_eq!(foreign_key.target_column(), "id");
+}
+
+#[test]
 fn schema_scalar_field_can_be_marked_unique() {
     let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
         "User",
