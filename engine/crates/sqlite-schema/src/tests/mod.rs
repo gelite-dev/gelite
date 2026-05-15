@@ -5,6 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use schema::{
     Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality,
+    Uniqueness,
 };
 
 #[test]
@@ -311,4 +312,36 @@ fn initial_schema_plan_creates_required_single_link_foreign_key_column() {
     assert_eq!(foreign_key.column_name(), "author_id");
     assert_eq!(foreign_key.target_table(), "user");
     assert_eq!(foreign_key.target_column(), "id");
+}
+
+#[test]
+fn schema_scalar_field_can_be_marked_unique() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![Field::Scalar(ScalarField::with_uniqueness(
+            "email",
+            ScalarType::Str,
+            SingleCardinality::Required,
+            Uniqueness::Unique,
+        ))],
+    )])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    assert_eq!(plan.object_tables().len(), 1);
+
+    let user = &plan.object_tables()[0];
+    assert_eq!(user.name(), "user");
+
+    let columns = user.columns();
+    assert_eq!(columns[0].name(), "id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+    assert_eq!(columns[0].is_unique(), true);
+
+    assert_eq!(columns[1].name(), "email");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_unique(), true);
 }

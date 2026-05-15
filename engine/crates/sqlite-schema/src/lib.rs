@@ -228,7 +228,7 @@ fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
                     sqlite_affinity(scalar.scalar_type()),
                     field.cardinality() != Cardinality::Required,
                     false,
-                    false,
+                    scalar.is_unique(),
                 )),
                 Field::Link(_) => Some(SQLiteColumnPlan::new(
                     format!("{}_id", field.name()),

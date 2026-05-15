@@ -2,7 +2,7 @@ mod fixtures;
 
 use crate::{
     Field, FieldId, FieldRef, ObjectType, ObjectTypeId, ObjectTypeRef, ScalarField, ScalarType,
-    SchemaCatalog, SchemaError, SingleCardinality,
+    SchemaCatalog, SchemaError, SingleCardinality, Uniqueness,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -284,12 +284,14 @@ fn rejects_duplicate_field_names_within_type() {
                 name: "name".to_string(),
                 scalar_type: ScalarType::Str,
                 cardinality: SingleCardinality::Optional,
+                uniqueness: Uniqueness::NotUnique,
                 is_implicit: false,
             }),
             Field::Scalar(ScalarField {
                 name: "name".to_string(),
                 scalar_type: ScalarType::Str,
                 cardinality: SingleCardinality::Optional,
+                uniqueness: Uniqueness::NotUnique,
                 is_implicit: false,
             }),
         ],
@@ -315,12 +317,14 @@ fn rejects_explicit_id_field_declaration() {
                 name: "name".to_string(),
                 scalar_type: ScalarType::Str,
                 cardinality: SingleCardinality::Optional,
+                uniqueness: Uniqueness::NotUnique,
                 is_implicit: false,
             }),
             Field::Scalar(ScalarField {
                 name: "id".to_string(),
                 scalar_type: ScalarType::Int64,
                 cardinality: SingleCardinality::Optional,
+                uniqueness: Uniqueness::NotUnique,
                 is_implicit: false,
             }),
         ],
@@ -360,6 +364,7 @@ fn rejects_reserved_scalar_type_name_as_object_type_name() {
             name: "value".to_string(),
             scalar_type: ScalarType::Str,
             cardinality: SingleCardinality::Optional,
+            uniqueness: Uniqueness::NotUnique,
             is_implicit: false,
         })],
     );

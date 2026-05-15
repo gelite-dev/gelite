@@ -73,6 +73,16 @@ pub enum SingleCardinality {
     Required,
 }
 
+/// Uniqueness constraint for scalar fields.
+///
+/// `Unique` rejects duplicate present values. Optional unique fields may still
+/// have multiple absent values; SQLite stores those as multiple `NULL` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Uniqueness {
+    NotUnique,
+    Unique,
+}
+
 /// A scalar field stored as a direct value on the owning object.
 ///
 /// The implicit `id` field is represented as a scalar field with
@@ -82,6 +92,7 @@ pub struct ScalarField {
     name: String,
     scalar_type: ScalarType,
     cardinality: SingleCardinality,
+    uniqueness: Uniqueness,
     is_implicit: bool,
 }
 
@@ -214,16 +225,34 @@ impl ScalarField {
         scalar_type: ScalarType,
         cardinality: SingleCardinality,
     ) -> Self {
+        Self::with_uniqueness(name, scalar_type, cardinality, Uniqueness::NotUnique)
+    }
+
+    pub fn with_uniqueness(
+        name: impl Into<String>,
+        scalar_type: ScalarType,
+        cardinality: SingleCardinality,
+        uniqueness: Uniqueness,
+    ) -> Self {
         Self {
             name: name.into(),
             scalar_type,
             cardinality,
+            uniqueness,
             is_implicit: false,
         }
     }
 
     pub fn scalar_type(&self) -> ScalarType {
         self.scalar_type
+    }
+
+    pub fn uniqueness(&self) -> Uniqueness {
+        self.uniqueness
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.uniqueness == Uniqueness::Unique
     }
 }
 
@@ -293,6 +322,7 @@ impl ObjectType {
                 name: IMPLICIT_ID_FIELD_NAME.to_string(),
                 scalar_type: ScalarType::Uuid,
                 cardinality: SingleCardinality::Required,
+                uniqueness: Uniqueness::NotUnique,
                 is_implicit: true,
             })],
         }
