@@ -1,8 +1,8 @@
 mod fixtures;
 
 use crate::{
-    Field, FieldId, FieldRef, ObjectType, ObjectTypeId, ObjectTypeRef, ScalarField, ScalarType,
-    SchemaCatalog, SchemaError, SingleCardinality, Uniqueness,
+    Cardinality, Field, FieldId, FieldRef, LinkField, ObjectType, ObjectTypeId, ObjectTypeRef,
+    ScalarField, ScalarType, SchemaCatalog, SchemaError, SingleCardinality, Uniqueness,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -377,4 +377,19 @@ fn rejects_reserved_scalar_type_name_as_object_type_name() {
             name: "str".to_string(),
         })
     )
+}
+
+#[test]
+fn link_field_can_be_marked_unique() {
+    let field = LinkField::with_uniqueness(
+        "profile",
+        "Profile",
+        Cardinality::Optional,
+        Uniqueness::Unique,
+    );
+
+    assert_eq!(field.target_type_name(), "Profile");
+    assert_eq!(field.cardinality(), Cardinality::Optional);
+    assert_eq!(field.uniqueness(), Uniqueness::Unique);
+    assert!(field.is_unique());
 }

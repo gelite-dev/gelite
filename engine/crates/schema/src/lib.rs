@@ -105,6 +105,7 @@ pub struct LinkField {
     name: String,
     target_type_name: String,
     cardinality: Cardinality,
+    uniqueness: Uniqueness,
 }
 
 /// An object type with declared fields and catalog-injected implicit fields.
@@ -266,15 +267,37 @@ impl LinkField {
         target_type_name: impl Into<String>,
         cardinality: Cardinality,
     ) -> Self {
+        Self::with_uniqueness(name, target_type_name, cardinality, Uniqueness::NotUnique)
+    }
+
+    pub fn with_uniqueness(
+        name: impl Into<String>,
+        target_type_name: impl Into<String>,
+        cardinality: Cardinality,
+        uniqueness: Uniqueness,
+    ) -> Self {
         Self {
             name: name.into(),
             target_type_name: target_type_name.into(),
             cardinality,
+            uniqueness,
         }
     }
 
     pub fn target_type_name(&self) -> &str {
         &self.target_type_name
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
+
+    pub fn uniqueness(&self) -> Uniqueness {
+        self.uniqueness
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.uniqueness == Uniqueness::Unique
     }
 }
 
