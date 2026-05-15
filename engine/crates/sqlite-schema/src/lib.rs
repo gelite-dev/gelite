@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use schema::SchemaCatalog;
+use schema::{Cardinality, Field, ScalarType, SchemaCatalog};
 
 const SCHEMA_VERSIONS_TABLE: &str = "_engine_schema_versions";
 const CATALOG_OBJECTS_TABLE: &str = "_engine_catalog_objects";
@@ -24,11 +24,16 @@ const CATALOG_FIELDS_TABLE: &str = "_engine_catalog_fields";
 /// renderer turns the plan into `CREATE TABLE` statements.
 pub struct SQLiteSchemaPlan {
     metadata_tables: Vec<SQLiteTablePlan>,
+    object_tables: Vec<SQLiteTablePlan>,
 }
 
 impl SQLiteSchemaPlan {
     pub fn metadata_tables(&self) -> &[SQLiteTablePlan] {
         &self.metadata_tables
+    }
+
+    pub fn object_tables(&self) -> &[SQLiteTablePlan] {
+        &self.object_tables
     }
 }
 
@@ -78,7 +83,7 @@ impl SQLiteTablePlan {
 
 /// Builds the SQLite schema plan for applying a validated schema catalog to an
 /// empty SQLite database.
-pub fn plan_initial_schema(_catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
+pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
     let metadata_tables = vec![
         SQLiteTablePlan::new(
             SCHEMA_VERSIONS_TABLE.to_string(),
@@ -194,12 +199,62 @@ pub fn plan_initial_schema(_catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
         ),
     ];
 
-    SQLiteSchemaPlan { metadata_tables }
+    let object_tables = plan_objects(&catalog);
+
+    SQLiteSchemaPlan {
+        metadata_tables,
+        object_tables,
+    }
+}
+
+fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
+    catalog
+        .object_types()
+        .iter()
+        .map(|object_type| {
+            let mut columns = vec![SQLiteColumnPlan::new(
+                "id",
+                SQLiteAffinity::Text,
+                false,
+                true,
+                true,
+            )];
+
+            columns.extend(
+                object_type
+                    .declared_fields()
+                    .iter()
+                    .filter_map(|field| match field {
+                        Field::Scalar(scalar) => Some(SQLiteColumnPlan::new(
+                            field.name(),
+                            sqlite_affinity(scalar.scalar_type()),
+                            field.cardinality() != Cardinality::Required,
+                            false,
+                            false,
+                        )),
+                        Field::Link(_) => None,
+                    }),
+            );
+
+            SQLiteTablePlan::new(object_type.name().to_ascii_lowercase(), columns)
+        })
+        .collect()
+}
+
+fn sqlite_affinity(scalar_type: ScalarType) -> SQLiteAffinity {
+    match scalar_type {
+        ScalarType::Str => SQLiteAffinity::Text,
+        ScalarType::Int64 => SQLiteAffinity::Integer,
+        ScalarType::Float64 => SQLiteAffinity::Real,
+        ScalarType::Bool => SQLiteAffinity::Integer,
+        ScalarType::Uuid => SQLiteAffinity::Text,
+        ScalarType::DateTime => SQLiteAffinity::Text,
+    }
 }
 
 /// SQLite type affinity used by physical column plans.
 ///
-/// This is not the same as `schema::ScalarType`. Several semantic scalar types
+/// This is not the same as `ScalarType`. Several semantic scalar types
 /// can share one SQLite affinity, such as `bool` and `int64` both mapping to
 /// `INTEGER` in the storage spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

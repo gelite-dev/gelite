@@ -3,7 +3,7 @@ extern crate alloc;
 use crate::{SQLiteAffinity, plan_initial_schema};
 use alloc::vec;
 use alloc::vec::Vec;
-use schema::SchemaCatalog;
+use schema::{Field, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality};
 
 #[test]
 fn initial_schema_plan_creates_metadata_tables() {
@@ -154,4 +154,45 @@ fn initial_schema_plan_defines_catalog_fields_object_foreign_key() {
     assert_eq!(foreign_key.column_name(), "object_id");
     assert_eq!(foreign_key.target_table(), "_engine_catalog_objects");
     assert_eq!(foreign_key.target_column(), "object_id");
+}
+
+#[test]
+
+fn initial_schema_plan_creates_object_table_for_scalar_fields() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "age",
+                ScalarType::Int64,
+                SingleCardinality::Optional,
+            )),
+        ],
+    )])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    assert_eq!(plan.object_tables().len(), 1);
+
+    let user = &plan.object_tables()[0];
+    assert_eq!(user.name(), "user");
+
+    let columns = user.columns();
+    assert_eq!(columns[0].name(), "id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+
+    assert_eq!(columns[1].name(), "name");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+
+    assert_eq!(columns[2].name(), "age");
+    assert_eq!(columns[2].affinity(), SQLiteAffinity::Integer);
+    assert_eq!(columns[2].is_nullable(), true);
 }

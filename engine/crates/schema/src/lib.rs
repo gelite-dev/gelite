@@ -221,6 +221,10 @@ impl ScalarField {
             is_implicit: false,
         }
     }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
 }
 
 impl LinkField {
