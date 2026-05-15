@@ -345,3 +345,37 @@ fn schema_scalar_field_can_be_marked_unique() {
     assert_eq!(columns[1].is_nullable(), false);
     assert_eq!(columns[1].is_unique(), true);
 }
+
+#[test]
+fn schema_scalar_field_new_is_not_unique_by_default() {
+    let field = ScalarField::new("name", ScalarType::Str, SingleCardinality::Required);
+
+    assert_eq!(field.uniqueness(), Uniqueness::NotUnique);
+    assert!(!field.is_unique());
+}
+
+#[test]
+fn initial_schema_plan_allows_optional_unique_scalar_field() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![Field::Scalar(ScalarField::with_uniqueness(
+            "nickname",
+            ScalarType::Str,
+            SingleCardinality::Optional,
+            Uniqueness::Unique,
+        ))],
+    )])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    assert_eq!(plan.object_tables().len(), 1);
+
+    let user = &plan.object_tables()[0];
+    assert_eq!(user.name(), "user");
+
+    let columns = user.columns();
+    assert_eq!(columns[1].name(), "nickname");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), true);
+    assert_eq!(columns[1].is_unique(), true);
+}
