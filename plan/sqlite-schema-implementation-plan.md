@@ -319,7 +319,7 @@ Index naming should be deterministic.
 
 For every object type, insert one `_engine_catalog_objects` row:
 
-- `object_id`
+- `object_id` as the deterministic `schema::ObjectTypeId` integer value
 - `name`
 
 For every field, insert one `_engine_catalog_fields` row:
@@ -336,6 +336,11 @@ For every field, insert one `_engine_catalog_fields` row:
 Metadata rows must include implicit `id` fields. The resolver and future
 catalog loader need the same semantic catalog that the in-memory schema layer
 uses.
+
+The MVP stores object and field ids as integers, not UUIDs. This matches the
+current `schema::ObjectTypeId(u64)` and `schema::FieldId(u64)` model. Stable
+UUIDs can be revisited when rename-aware migrations need persistent identities
+across schema snapshots.
 
 ## Scalar Type Mapping
 

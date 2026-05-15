@@ -27,6 +27,7 @@ pub struct SQLiteSchemaPlan {
     metadata_tables: Vec<SQLiteTablePlan>,
     object_tables: Vec<SQLiteTablePlan>,
     relation_tables: Vec<SQLiteTablePlan>,
+    catalog_object_rows: Vec<SQLiteCatalogObjectRow>,
 }
 
 impl SQLiteSchemaPlan {
@@ -40,6 +41,10 @@ impl SQLiteSchemaPlan {
 
     pub fn relation_tables(&self) -> &[SQLiteTablePlan] {
         &self.relation_tables
+    }
+
+    pub fn catalog_object_rows(&self) -> &[SQLiteCatalogObjectRow] {
+        &self.catalog_object_rows
     }
 }
 
@@ -158,7 +163,7 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
             vec![
                 SQLiteColumnPlan::new(
                     "object_id".to_string(),
-                    SQLiteAffinity::Text,
+                    SQLiteAffinity::Integer,
                     false,
                     true,
                     true,
@@ -171,14 +176,14 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
             vec![
                 SQLiteColumnPlan::new(
                     "field_id".to_string(),
-                    SQLiteAffinity::Text,
+                    SQLiteAffinity::Integer,
                     false,
                     true,
                     true,
                 ),
                 SQLiteColumnPlan::new(
                     "object_id".to_string(),
-                    SQLiteAffinity::Text,
+                    SQLiteAffinity::Integer,
                     false,
                     false,
                     false,
@@ -213,7 +218,7 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
                 ),
                 SQLiteColumnPlan::new(
                     "target_object_id".to_string(),
-                    SQLiteAffinity::Text,
+                    SQLiteAffinity::Integer,
                     true,
                     false,
                     false,
@@ -236,12 +241,25 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
 
     let object_tables = plan_objects(catalog);
     let relation_tables = plan_relation_tables(catalog);
+    let catalog_object_rows = plan_catalog_object_rows(catalog);
 
     SQLiteSchemaPlan {
         metadata_tables,
         object_tables,
         relation_tables,
+        catalog_object_rows,
     }
+}
+
+fn plan_catalog_object_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogObjectRow> {
+    catalog
+        .object_types()
+        .iter()
+        .enumerate()
+        .map(|(index, object_type)| {
+            SQLiteCatalogObjectRow::new((index + 1) as u64, object_type.name())
+        })
+        .collect()
 }
 
 fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
@@ -459,6 +477,28 @@ impl SQLiteForeignKeyPlan {
 
     pub fn target_column(&self) -> &str {
         &self.target_column
+    }
+}
+
+pub struct SQLiteCatalogObjectRow {
+    object_id: u64,
+    name: String,
+}
+
+impl SQLiteCatalogObjectRow {
+    pub fn new(object_id: u64, name: impl Into<String>) -> Self {
+        Self {
+            object_id,
+            name: name.into(),
+        }
+    }
+
+    pub fn object_id(&self) -> u64 {
+        self.object_id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 

@@ -201,7 +201,7 @@ Stores semantic object definitions for diagnostics and diff support.
 
 ```sql
 CREATE TABLE _engine_catalog_objects (
-  object_id TEXT PRIMARY KEY,
+  object_id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE
 );
 ```
@@ -212,13 +212,13 @@ Stores semantic field definitions.
 
 ```sql
 CREATE TABLE _engine_catalog_fields (
-  field_id TEXT PRIMARY KEY,
-  object_id TEXT NOT NULL,
+  field_id INTEGER PRIMARY KEY,
+  object_id INTEGER NOT NULL,
   name TEXT NOT NULL,
   field_kind TEXT NOT NULL,
   cardinality TEXT NOT NULL,
   scalar_type TEXT NULL,
-  target_object_id TEXT NULL,
+  target_object_id INTEGER NULL,
   is_implicit INTEGER NOT NULL,
   FOREIGN KEY (object_id) REFERENCES _engine_catalog_objects(object_id)
 );

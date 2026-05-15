@@ -40,7 +40,7 @@ fn initial_schema_plan_defines_catalog_objects_metadata_table() {
 
     let columns = plan.metadata_tables()[1].columns();
     assert_eq!(columns[0].name(), "object_id");
-    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[0].is_nullable(), false);
     assert_eq!(columns[0].is_primary_key(), true);
     assert_eq!(columns[0].is_unique(), true);
@@ -96,13 +96,13 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
 
     let columns = plan.metadata_tables()[2].columns();
     assert_eq!(columns[0].name(), "field_id");
-    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[0].is_nullable(), false);
     assert_eq!(columns[0].is_primary_key(), true);
     assert_eq!(columns[0].is_unique(), true);
 
     assert_eq!(columns[1].name(), "object_id");
-    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[1].is_nullable(), false);
     assert_eq!(columns[1].is_primary_key(), false);
     assert_eq!(columns[1].is_unique(), false);
@@ -132,7 +132,7 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
     assert_eq!(columns[5].is_unique(), false);
 
     assert_eq!(columns[6].name(), "target_object_id");
-    assert_eq!(columns[6].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[6].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[6].is_nullable(), true);
     assert_eq!(columns[6].is_primary_key(), false);
     assert_eq!(columns[6].is_unique(), false);
@@ -564,4 +564,38 @@ fn initial_schema_plan_creates_multi_link_join_table() {
     assert_eq!(foreign_keys[1].column_name(), "target_id");
     assert_eq!(foreign_keys[1].target_table(), "post");
     assert_eq!(foreign_keys[1].target_column(), "id");
+}
+
+#[test]
+fn initial_schema_plan_records_catalog_object_rows() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Link(LinkField::new(
+                "posts",
+                "Post",
+                Cardinality::Many,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let rows = plan.catalog_object_rows();
+
+    assert_eq!(rows.len(), 2);
+
+    assert_eq!(rows[0].object_id(), 1);
+    assert_eq!(rows[0].name(), "User");
+
+    assert_eq!(rows[1].object_id(), 2);
+    assert_eq!(rows[1].name(), "Post");
 }
