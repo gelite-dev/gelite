@@ -36,6 +36,7 @@ For a schema type:
 
 ```text
 type Post {
+  required unique slug: str
   required title: str
   body: str
   required link author: User
@@ -47,6 +48,7 @@ The object table should look conceptually like:
 ```sql
 CREATE TABLE post (
   id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   body TEXT NULL,
   author_id TEXT NOT NULL,
@@ -82,6 +84,33 @@ Notes:
 - `bool` is stored as `0` or `1`
 - `uuid` is stored as canonical text in the MVP
 - `datetime` is stored as ISO-8601 text in UTC
+
+## Scalar Uniqueness
+
+Scalar fields declared with `unique` map to SQLite `UNIQUE` constraints.
+
+Example:
+
+```text
+type User {
+  unique nickname: str
+  required unique email: str
+}
+```
+
+Maps conceptually to:
+
+```sql
+CREATE TABLE user (
+  id TEXT PRIMARY KEY,
+  nickname TEXT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE
+);
+```
+
+For optional unique scalar fields, Gelite uses SQLite's `UNIQUE` behavior:
+duplicate non-null values are rejected, but multiple `NULL` values are allowed.
+The MVP treats uniqueness as a constraint on present values.
 
 ## Single Relation Mapping
 
@@ -212,6 +241,8 @@ The first milestone can restrict supported schema changes to:
 - create type
 - add nullable scalar field
 - add required scalar field only if a default/backfill strategy exists
+- add unique scalar field only when existing data can satisfy the uniqueness
+  rule
 - add single relation
 - add multi relation join table
 
@@ -307,7 +338,6 @@ Out of scope until the basic migration and query loop is proven:
 - generated columns
 - partial indexes
 - full-text search
-- user-defined constraints
 - enum storage optimizations
 - online migration strategies
 - schema branching

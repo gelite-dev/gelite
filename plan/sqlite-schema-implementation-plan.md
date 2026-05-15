@@ -118,6 +118,7 @@ impl ScalarField {
     pub fn scalar_type(&self) -> ScalarType
     pub fn cardinality(&self) -> SingleCardinality
     pub fn is_implicit(&self) -> bool
+    pub fn is_unique(&self) -> bool
 }
 
 impl LinkField {
@@ -275,12 +276,16 @@ For every object type:
 - create one table
 - add `id TEXT PRIMARY KEY`
 - add scalar fields as direct columns
+- add unique scalar fields as `UNIQUE`
 - add single-link fields as `<field>_id TEXT`
 - add foreign key constraints for single links
 - do not add columns for multi links
 
 Required fields become `NOT NULL`.
 Optional fields become nullable.
+Optional unique scalar fields stay nullable. SQLite allows multiple `NULL`
+values under a `UNIQUE` constraint, and Gelite treats this as the MVP meaning:
+only present values must be unique.
 
 The implicit `id` field must be generated from catalog semantics, not from a
 declared schema field.
@@ -388,6 +393,40 @@ Assert:
 - `age` is `INTEGER NULL`
 
 This test checks scalar mapping and cardinality mapping.
+
+### 2a. `initial_schema_plan_marks_required_unique_scalar_field`
+
+Input:
+
+```text
+type User {
+  required unique email: str
+}
+```
+
+Assert:
+
+- `email` is `TEXT NOT NULL UNIQUE`
+
+This test fixes the required unique scalar mapping.
+
+### 2b. `initial_schema_plan_allows_optional_unique_scalar_field`
+
+Input:
+
+```text
+type User {
+  unique nickname: str
+}
+```
+
+Assert:
+
+- `nickname` is `TEXT NULL UNIQUE`
+
+This test documents the MVP null semantics for optional unique fields. Gelite
+allows multiple rows with `nickname = null`; duplicate non-null nicknames are
+rejected by SQLite.
 
 ### 3. `initial_schema_plan_creates_single_link_foreign_key_column`
 
