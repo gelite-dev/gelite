@@ -419,3 +419,89 @@ fn initial_schema_plan_allows_optional_unique_scalar_field() {
     assert_eq!(columns[1].is_nullable(), true);
     assert_eq!(columns[1].is_unique(), true);
 }
+
+#[test]
+fn initial_schema_plan_marks_required_unique_single_link_column() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Profile",
+            vec![Field::Link(LinkField::with_uniqueness(
+                "user",
+                "User",
+                schema::Cardinality::Required,
+                Uniqueness::Unique,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+
+    let profile = &plan.object_tables()[1];
+    assert_eq!(profile.name(), "profile");
+
+    let columns = profile.columns();
+    assert_eq!(columns[1].name(), "user_id");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_primary_key(), false);
+    assert_eq!(columns[1].is_unique(), true);
+
+    assert_eq!(profile.foreign_keys().len(), 1);
+
+    let foreign_key = &profile.foreign_keys()[0];
+    assert_eq!(foreign_key.column_name(), "user_id");
+    assert_eq!(foreign_key.target_table(), "user");
+    assert_eq!(foreign_key.target_column(), "id");
+}
+
+#[test]
+fn initial_schema_plan_marks_optional_unique_single_link_column() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Profile",
+            vec![Field::Link(LinkField::with_uniqueness(
+                "user",
+                "User",
+                schema::Cardinality::Optional,
+                Uniqueness::Unique,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+
+    let profile = &plan.object_tables()[1];
+    assert_eq!(profile.name(), "profile");
+
+    let columns = profile.columns();
+    assert_eq!(columns[1].name(), "user_id");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), true);
+    assert_eq!(columns[1].is_primary_key(), false);
+    assert_eq!(columns[1].is_unique(), true);
+
+    assert_eq!(profile.foreign_keys().len(), 1);
+
+    let foreign_key = &profile.foreign_keys()[0];
+    assert_eq!(foreign_key.column_name(), "user_id");
+    assert_eq!(foreign_key.target_table(), "user");
+    assert_eq!(foreign_key.target_column(), "id");
+}
