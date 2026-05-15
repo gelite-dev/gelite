@@ -3,7 +3,9 @@ extern crate alloc;
 use crate::{SQLiteAffinity, plan_initial_schema};
 use alloc::vec;
 use alloc::vec::Vec;
-use schema::{Field, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality};
+use schema::{
+    Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality,
+};
 
 #[test]
 fn initial_schema_plan_creates_metadata_tables() {
@@ -252,4 +254,61 @@ fn initial_schema_plan_maps_all_scalar_types_to_sqlite_affinities() {
         assert_eq!(columns[index].name(), *expected_name);
         assert_eq!(columns[index].affinity(), *expected_affinity);
     }
+}
+
+#[test]
+fn initial_schema_plan_creates_required_single_link_foreign_key_column() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "title",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::new(
+                    "author",
+                    "User",
+                    schema::Cardinality::Required,
+                )),
+            ],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let post = &plan.object_tables()[1];
+    assert_eq!(post.name(), "post");
+
+    let columns = post.columns();
+    assert_eq!(columns[0].name(), "id");
+    assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[0].is_nullable(), false);
+    assert_eq!(columns[0].is_primary_key(), true);
+
+    assert_eq!(columns[1].name(), "title");
+    assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[1].is_nullable(), false);
+    assert_eq!(columns[1].is_primary_key(), false);
+
+    assert_eq!(columns[2].name(), "author_id");
+    assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
+    assert_eq!(columns[2].is_nullable(), false);
+    assert_eq!(columns[2].is_primary_key(), false);
+
+    assert_eq!(post.foreign_keys().len(), 1);
+
+    let foreign_key = &post.foreign_keys()[0];
+    assert_eq!(foreign_key.column_name(), "author_id");
+    assert_eq!(foreign_key.target_table(), "user");
+    assert_eq!(foreign_key.target_column(), "id");
 }

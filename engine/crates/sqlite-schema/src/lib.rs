@@ -8,6 +8,7 @@
 //! schema planning API is tested.
 
 extern crate alloc;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -212,6 +213,7 @@ fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
         .object_types()
         .iter()
         .map(|object_type| {
+            let declared_fields = object_type.declared_fields();
             let mut columns = vec![SQLiteColumnPlan::new(
                 "id",
                 SQLiteAffinity::Text,
@@ -220,23 +222,40 @@ fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
                 true,
             )];
 
-            columns.extend(
-                object_type
-                    .declared_fields()
-                    .iter()
-                    .filter_map(|field| match field {
-                        Field::Scalar(scalar) => Some(SQLiteColumnPlan::new(
-                            field.name(),
-                            sqlite_affinity(scalar.scalar_type()),
-                            field.cardinality() != Cardinality::Required,
-                            false,
-                            false,
-                        )),
-                        Field::Link(_) => None,
-                    }),
-            );
+            columns.extend(declared_fields.iter().filter_map(|field| match field {
+                Field::Scalar(scalar) => Some(SQLiteColumnPlan::new(
+                    field.name(),
+                    sqlite_affinity(scalar.scalar_type()),
+                    field.cardinality() != Cardinality::Required,
+                    false,
+                    false,
+                )),
+                Field::Link(_) => Some(SQLiteColumnPlan::new(
+                    format!("{}_id", field.name()),
+                    SQLiteAffinity::Text,
+                    field.cardinality() != Cardinality::Required,
+                    false,
+                    false,
+                )),
+            }));
 
-            SQLiteTablePlan::new(object_type.name().to_ascii_lowercase(), columns)
+            let foreign_keys = declared_fields
+                .iter()
+                .filter_map(|field| match field {
+                    Field::Scalar(_) => None,
+                    Field::Link(link) => Some(SQLiteForeignKeyPlan::new(
+                        format!("{}_id", field.name()),
+                        link.target_type_name().to_ascii_lowercase(),
+                        "id",
+                    )),
+                })
+                .collect();
+
+            SQLiteTablePlan::new_with_foreign_keys(
+                object_type.name().to_ascii_lowercase(),
+                columns,
+                foreign_keys,
+            )
         })
         .collect()
 }
