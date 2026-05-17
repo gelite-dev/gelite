@@ -219,26 +219,65 @@ Suggested first structure:
 
 ```rust
 pub struct SQLiteSchemaPlan {
-    metadata_tables: Vec<SQLiteCreateTable>,
-    object_tables: Vec<SQLiteCreateTable>,
-    relation_tables: Vec<SQLiteCreateTable>,
-    indexes: Vec<SQLiteCreateIndex>,
-    catalog_objects: Vec<SQLiteCatalogObjectRow>,
-    catalog_fields: Vec<SQLiteCatalogFieldRow>,
+    metadata_tables: Vec<SQLiteTablePlan>,
+    object_tables: Vec<SQLiteTablePlan>,
+    relation_tables: Vec<SQLiteTablePlan>,
+    indexes: Vec<SQLiteIndexPlan>,
+    catalog_object_rows: Vec<SQLiteCatalogObjectRow>,
+    catalog_field_rows: Vec<SQLiteCatalogFieldRow>,
 }
 ```
 
 This structure keeps DDL and catalog metadata together without requiring a
 SQLite binding.
 
-The first SQL rendering API can be:
+Catalog rows should stay semantic. They record the schema meaning that must be
+stored, not the exact SQLite statement used to store it. Before rendering SQL,
+convert those rows into insert plans:
+
+```rust
+pub struct SQLiteInsertPlan {
+    table_name: String,
+    columns: Vec<String>,
+    values: Vec<SQLiteValuePlan>,
+}
+
+pub enum SQLiteValuePlan {
+    Integer(i64),
+    Text(String),
+    Null,
+}
+```
+
+The first implementation can use one `SQLiteInsertPlan` per row. A later
+renderer may batch rows into multi-row `INSERT` statements if execution tests
+show that the simpler shape is too slow. The semantic row types should not be
+removed when insert plans are added; tests should still be able to inspect
+`SQLiteCatalogObjectRow` and `SQLiteCatalogFieldRow` directly.
+
+Use separate conversion functions before adding a broad rendering API:
+
+```rust
+pub fn plan_catalog_object_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertPlan>
+
+pub fn plan_catalog_field_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertPlan>
+```
+
+These functions are SQLite-specific DML planning, but they still do not own a
+database connection. They translate structured metadata rows into a stable
+column order and bindable values.
+
+The first SQL rendering API can then be:
 
 ```rust
 pub fn render_initial_schema(plan: &SQLiteSchemaPlan) -> Vec<String>
 ```
 
-This returns DDL and metadata insert SQL in deterministic order. It should not
-execute them.
+This returns DDL and metadata insert SQL in deterministic order. It may call the
+insert planning functions internally, but it should not execute the statements.
+The renderer must not inline user-controlled text directly into SQL literals
+once execution is introduced. Prefer rendering placeholders and carrying values
+through a bind-value structure when the SQLite binding API is known.
 
 Execution can be added later through the engine runtime, using a
 `no_std`-compatible SQLite binding if the binding proves suitable:
@@ -255,6 +294,29 @@ Do not add this executor abstraction until the project has tested the
 values, stepping, and result access.
 
 ## Initial Schema Plan Details
+
+### Planning Layers
+
+Keep these layers separate even while they live in the same crate:
+
+```text
+schema::SchemaCatalog
+-> SQLiteSchemaPlan
+-> SQLiteInsertPlan / SQLite DDL statement plans
+-> rendered SQL + bind values
+-> SQLite execution
+```
+
+`SQLiteSchemaPlan` is the contract tested first. It answers which tables,
+columns, constraints, and semantic metadata rows are required.
+
+`SQLiteInsertPlan` is the first DML planning layer. It answers which metadata
+table receives which columns and values.
+
+The SQL renderer is a serialization layer. It should not rediscover schema
+semantics by looking at object names or fields again. If the renderer needs
+information that is not present in `SQLiteSchemaPlan` or `SQLiteInsertPlan`,
+that is evidence that the planning layer is missing data.
 
 ### Metadata Tables
 
@@ -344,6 +406,50 @@ deterministic `schema::FieldId(u64)` value inside its owning object type, so
 `_engine_catalog_fields` uses `(object_id, field_id)` as its primary key. Stable
 UUIDs can be revisited when rename-aware migrations need persistent identities
 across schema snapshots.
+
+### Metadata Insert Plans
+
+Catalog object inserts should target `_engine_catalog_objects` with this column
+order:
+
+```text
+object_id
+name
+```
+
+Catalog field inserts should target `_engine_catalog_fields` with this column
+order:
+
+```text
+object_id
+field_id
+name
+field_kind
+cardinality
+scalar_type
+target_object_id
+is_implicit
+is_unique
+```
+
+The insert planner must preserve the row order from `SQLiteSchemaPlan`.
+Deterministic order matters because rendered schema application scripts should
+be byte-stable for the same catalog.
+
+Use integer values for boolean metadata fields in SQLite-facing plans:
+
+```text
+false -> 0
+true  -> 1
+```
+
+Use `NULL` for fields that do not apply:
+
+- scalar fields have `target_object_id = NULL`
+- link fields have `scalar_type = NULL`
+
+The semantic row types can expose Rust booleans and enums. The insert plan is
+where those values become SQLite-compatible values.
 
 ## Scalar Type Mapping
 
@@ -566,11 +672,55 @@ Assert:
 - implicit `id` is recorded with `is_implicit = true`
 - scalar fields record `scalar_type`
 - link fields record `target_object_id`
-- field kind and cardinality strings are stable
+- field kind and cardinality values are stable
 
 This test fixes the metadata format that catalog loading will later consume.
 
-### 8. `render_initial_schema_outputs_deterministic_sql`
+### 8. `initial_schema_plan_can_plan_catalog_object_inserts`
+
+Input: a two-type catalog.
+
+Assert:
+
+- one insert plan is produced per object row
+- every insert targets `_engine_catalog_objects`
+- columns are exactly `object_id, name`
+- values preserve deterministic object ids and names
+
+This test checks DML planning without requiring SQL string rendering.
+
+### 9. `initial_schema_plan_can_plan_catalog_field_inserts`
+
+Input: the same catalog used by `initial_schema_plan_records_catalog_field_rows`.
+
+Assert:
+
+- one insert plan is produced per field row
+- every insert targets `_engine_catalog_fields`
+- columns match the metadata table definition
+- scalar fields use `scalar_type` and `target_object_id = NULL`
+- link fields use `scalar_type = NULL` and `target_object_id`
+- `is_implicit` and `is_unique` are represented as integer values
+
+This test fixes the boundary between semantic metadata rows and SQLite-facing
+DML values.
+
+### 10. `render_create_table_for_catalog_fields_uses_composite_primary_key`
+
+Input: an empty catalog.
+
+Assert:
+
+- rendered DDL for `_engine_catalog_fields` includes
+  `PRIMARY KEY (object_id, field_id)`
+- both foreign keys are rendered
+- `is_unique` is rendered as `INTEGER NOT NULL`
+
+This test should be added before rendering every table type. The catalog fields
+table has the most important metadata constraints and will catch mistakes in
+table-level constraint rendering.
+
+### 11. `render_initial_schema_outputs_deterministic_sql`
 
 Input: a fixed catalog.
 
@@ -583,7 +733,7 @@ Assert:
 
 This test keeps generated migrations stable.
 
-### 9. `catalog_can_round_trip_through_metadata_rows`
+### 12. `catalog_can_round_trip_through_metadata_rows`
 
 This is not the first test. Add it after metadata rows are stable.
 
@@ -616,9 +766,14 @@ This test is the bridge to query execution without fixture catalogs.
 9. Implement unique single-link column planning for one-to-one constraints.
 10. Implement multi-link join table planning.
 11. Implement catalog metadata row planning.
-12. Add SQL rendering for the initial schema plan.
-13. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
-14. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
+12. Add metadata insert planning for catalog object rows.
+13. Add metadata insert planning for catalog field rows.
+14. Add DDL rendering for metadata tables.
+15. Add DDL rendering for object tables and multi-link relation tables.
+16. Add DML rendering for metadata insert plans.
+17. Add deterministic full initial schema rendering.
+18. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
+19. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
 ## Open Decisions
