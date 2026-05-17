@@ -1,6 +1,9 @@
 extern crate alloc;
 
-use crate::{SQLiteAffinity, SQLiteCatalogFieldKind, plan_initial_schema};
+use crate::{
+    SQLiteAffinity, SQLiteCatalogFieldKind, SQLiteValuePlan, plan_catalog_object_inserts,
+    plan_initial_schema,
+};
 use alloc::vec;
 use alloc::vec::Vec;
 use schema::{
@@ -717,4 +720,54 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[5].target_object_id(), Some(1));
     assert_eq!(rows[5].is_implicit(), false);
     assert_eq!(rows[5].is_unique(), true);
+}
+
+#[test]
+fn initial_schema_plan_can_plan_catalog_object_inserts() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let inserts = plan_catalog_object_inserts(&plan);
+
+    assert_eq!(inserts.len(), 2);
+
+    assert_eq!(inserts[0].table_name(), "_engine_catalog_objects");
+    assert_eq!(inserts[0].columns().len(), 2);
+    assert_eq!(inserts[0].columns()[0], "object_id");
+    assert_eq!(inserts[0].columns()[1], "name");
+    assert_eq!(inserts[0].values().len(), 2);
+    assert_eq!(inserts[0].values()[0], SQLiteValuePlan::Integer(1));
+    match &inserts[0].values()[1] {
+        SQLiteValuePlan::Text(value) => assert_eq!(value, "User"),
+        value => panic!("expected object name text value, got {value:?}"),
+    }
+
+    assert_eq!(inserts[1].table_name(), "_engine_catalog_objects");
+    assert_eq!(inserts[1].columns().len(), 2);
+    assert_eq!(inserts[1].columns()[0], "object_id");
+    assert_eq!(inserts[1].columns()[1], "name");
+    assert_eq!(inserts[1].values().len(), 2);
+    assert_eq!(inserts[1].values()[0], SQLiteValuePlan::Integer(2));
+    match &inserts[1].values()[1] {
+        SQLiteValuePlan::Text(value) => assert_eq!(value, "Post"),
+        value => panic!("expected object name text value, got {value:?}"),
+    }
 }

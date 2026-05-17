@@ -340,6 +340,22 @@ fn plan_catalog_object_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogObjectR
         .collect()
 }
 
+pub fn plan_catalog_object_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertPlan> {
+    plan.catalog_object_rows()
+        .iter()
+        .map(|row| SQLiteInsertPlan {
+            table_name: CATALOG_OBJECTS_TABLE.to_string(),
+            columns: vec!["object_id".to_string(), "name".to_string()],
+            values: vec![
+                SQLiteValuePlan::Integer(
+                    i64::try_from(row.object_id()).expect("catalog object id should fit in i64"),
+                ),
+                SQLiteValuePlan::Text(row.name().to_string()),
+            ],
+        })
+        .collect()
+}
+
 fn plan_objects(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
     catalog
         .object_types()
@@ -658,6 +674,31 @@ impl SQLiteCatalogFieldRow {
 pub enum SQLiteCatalogFieldKind {
     Scalar,
     Link,
+}
+
+pub struct SQLiteInsertPlan {
+    table_name: String,
+    columns: Vec<String>,
+    values: Vec<SQLiteValuePlan>,
+}
+
+impl SQLiteInsertPlan {
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
+    pub fn columns(&self) -> &[String] {
+        &self.columns
+    }
+    pub fn values(&self) -> &[SQLiteValuePlan] {
+        &self.values
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SQLiteValuePlan {
+    Integer(i64),
+    Text(String),
+    Null,
 }
 
 #[cfg(test)]
