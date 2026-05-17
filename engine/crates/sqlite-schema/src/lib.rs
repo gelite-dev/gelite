@@ -340,6 +340,11 @@ fn plan_catalog_object_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogObjectR
         .collect()
 }
 
+/// Converts planned catalog object rows into SQLite-facing insert plans.
+///
+/// This function does not inspect the original `SchemaCatalog`. It consumes the
+/// object metadata already recorded in `SQLiteSchemaPlan` so the DML layer
+/// cannot drift from the semantic rows tested earlier.
 pub fn plan_catalog_object_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertPlan> {
     plan.catalog_object_rows()
         .iter()
@@ -670,12 +675,21 @@ impl SQLiteCatalogFieldRow {
     }
 }
 
+/// Kind of field recorded in the SQLite catalog metadata.
+///
+/// The enum stays separate from `schema::Field` because catalog rows store the
+/// field kind as metadata, while the schema model stores the full field value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteCatalogFieldKind {
     Scalar,
     Link,
 }
 
+/// SQLite-facing insert operation before SQL string rendering.
+///
+/// Insert plans fix the target table, column order, and bindable values while
+/// still avoiding SQL string construction. The renderer can later serialize
+/// this shape into `INSERT` statements with placeholders and bound values.
 pub struct SQLiteInsertPlan {
     table_name: String,
     columns: Vec<String>,
@@ -694,6 +708,11 @@ impl SQLiteInsertPlan {
     }
 }
 
+/// Value representation used by schema metadata insert plans.
+///
+/// This is intentionally smaller than SQLite's full runtime value model. It
+/// only covers the metadata values emitted by `sqlite-schema` before the
+/// project adds an execution binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SQLiteValuePlan {
     Integer(i64),
