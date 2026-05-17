@@ -92,16 +92,16 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
     let plan = plan_initial_schema(&catalog);
 
     assert_eq!(plan.metadata_tables()[2].name(), "_engine_catalog_fields");
-    assert_eq!(plan.metadata_tables()[2].columns().len(), 8);
+    assert_eq!(plan.metadata_tables()[2].columns().len(), 9);
 
     let columns = plan.metadata_tables()[2].columns();
-    assert_eq!(columns[0].name(), "field_id");
+    assert_eq!(columns[0].name(), "object_id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
-    assert_eq!(columns[0].is_unique(), true);
+    assert_eq!(columns[0].is_primary_key(), false);
+    assert_eq!(columns[0].is_unique(), false);
 
-    assert_eq!(columns[1].name(), "object_id");
+    assert_eq!(columns[1].name(), "field_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Integer);
     assert_eq!(columns[1].is_nullable(), false);
     assert_eq!(columns[1].is_primary_key(), false);
@@ -142,21 +142,40 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
     assert_eq!(columns[7].is_nullable(), false);
     assert_eq!(columns[7].is_primary_key(), false);
     assert_eq!(columns[7].is_unique(), false);
+
+    assert_eq!(columns[8].name(), "is_unique");
+    assert_eq!(columns[8].affinity(), SQLiteAffinity::Integer);
+    assert_eq!(columns[8].is_nullable(), false);
+    assert_eq!(columns[8].is_primary_key(), false);
+    assert_eq!(columns[8].is_unique(), false);
+
+    let primary_key = plan.metadata_tables()[2].primary_key().unwrap();
+    assert_eq!(primary_key.column_names().len(), 2);
+    assert_eq!(primary_key.column_names()[0], "object_id");
+    assert_eq!(primary_key.column_names()[1], "field_id");
 }
 
 #[test]
-fn initial_schema_plan_defines_catalog_fields_object_foreign_key() {
+fn initial_schema_plan_defines_catalog_fields_foreign_keys() {
     let catalog = SchemaCatalog::try_new(vec![]).unwrap();
     let plan = plan_initial_schema(&catalog);
 
     let catalog_fields = &plan.metadata_tables()[2];
     assert_eq!(catalog_fields.name(), "_engine_catalog_fields");
-    assert_eq!(catalog_fields.foreign_keys().len(), 1);
+    assert_eq!(catalog_fields.foreign_keys().len(), 2);
 
-    let foreign_key = &catalog_fields.foreign_keys()[0];
-    assert_eq!(foreign_key.column_name(), "object_id");
-    assert_eq!(foreign_key.target_table(), "_engine_catalog_objects");
-    assert_eq!(foreign_key.target_column(), "object_id");
+    let object_foreign_key = &catalog_fields.foreign_keys()[0];
+    assert_eq!(object_foreign_key.column_name(), "object_id");
+    assert_eq!(object_foreign_key.target_table(), "_engine_catalog_objects");
+    assert_eq!(object_foreign_key.target_column(), "object_id");
+
+    let target_object_foreign_key = &catalog_fields.foreign_keys()[1];
+    assert_eq!(target_object_foreign_key.column_name(), "target_object_id");
+    assert_eq!(
+        target_object_foreign_key.target_table(),
+        "_engine_catalog_objects"
+    );
+    assert_eq!(target_object_foreign_key.target_column(), "object_id");
 }
 
 #[test]

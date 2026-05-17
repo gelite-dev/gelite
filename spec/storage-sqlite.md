@@ -212,15 +212,18 @@ Stores semantic field definitions.
 
 ```sql
 CREATE TABLE _engine_catalog_fields (
-  field_id INTEGER PRIMARY KEY,
   object_id INTEGER NOT NULL,
+  field_id INTEGER NOT NULL,
   name TEXT NOT NULL,
   field_kind TEXT NOT NULL,
   cardinality TEXT NOT NULL,
   scalar_type TEXT NULL,
   target_object_id INTEGER NULL,
   is_implicit INTEGER NOT NULL,
-  FOREIGN KEY (object_id) REFERENCES _engine_catalog_objects(object_id)
+  is_unique INTEGER NOT NULL,
+  PRIMARY KEY (object_id, field_id),
+  FOREIGN KEY (object_id) REFERENCES _engine_catalog_objects(object_id),
+  FOREIGN KEY (target_object_id) REFERENCES _engine_catalog_objects(object_id)
 );
 ```
 

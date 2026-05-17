@@ -324,21 +324,24 @@ For every object type, insert one `_engine_catalog_objects` row:
 
 For every field, insert one `_engine_catalog_fields` row:
 
-- `field_id`
 - `object_id`
+- `field_id`
 - `name`
 - `field_kind`
 - `cardinality`
 - `scalar_type`
 - `target_object_id`
 - `is_implicit`
+- `is_unique`
 
 Metadata rows must include implicit `id` fields. The resolver and future
 catalog loader need the same semantic catalog that the in-memory schema layer
 uses.
 
-The MVP stores object and field ids as integers, not UUIDs. This matches the
-current `schema::ObjectTypeId(u64)` and `schema::FieldId(u64)` model. Stable
+The MVP stores object and field ids as integers, not UUIDs. `object_id` matches
+the deterministic `schema::ObjectTypeId(u64)` value. `field_id` matches the
+deterministic `schema::FieldId(u64)` value inside its owning object type, so
+`_engine_catalog_fields` uses `(object_id, field_id)` as its primary key. Stable
 UUIDs can be revisited when rename-aware migrations need persistent identities
 across schema snapshots.
 
