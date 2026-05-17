@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use crate::{SQLiteAffinity, plan_initial_schema};
+use crate::{SQLiteAffinity, SQLiteCatalogFieldKind, plan_initial_schema};
 use alloc::vec;
 use alloc::vec::Vec;
 use schema::{
@@ -617,4 +617,104 @@ fn initial_schema_plan_records_catalog_object_rows() {
 
     assert_eq!(rows[1].object_id(), 2);
     assert_eq!(rows[1].name(), "Post");
+}
+
+#[test]
+fn initial_schema_plan_records_catalog_field_rows() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![
+                Field::Scalar(ScalarField::with_uniqueness(
+                    "email",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                    Uniqueness::Unique,
+                )),
+                Field::Link(LinkField::new("posts", "Post", Cardinality::Many)),
+            ],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "title",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::with_uniqueness(
+                    "author",
+                    "User",
+                    Cardinality::Required,
+                    Uniqueness::Unique,
+                )),
+            ],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let rows = plan.catalog_field_rows();
+
+    assert_eq!(rows.len(), 6);
+
+    assert_eq!(rows[0].object_id(), 1);
+    assert_eq!(rows[0].field_id(), 1);
+    assert_eq!(rows[0].name(), "id");
+    assert_eq!(rows[0].field_kind(), SQLiteCatalogFieldKind::Scalar);
+    assert_eq!(rows[0].cardinality(), Cardinality::Required);
+    assert_eq!(rows[0].scalar_type(), Some(ScalarType::Uuid));
+    assert_eq!(rows[0].target_object_id(), None);
+    assert_eq!(rows[0].is_implicit(), true);
+    assert_eq!(rows[0].is_unique(), false);
+
+    assert_eq!(rows[1].object_id(), 1);
+    assert_eq!(rows[1].field_id(), 2);
+    assert_eq!(rows[1].name(), "email");
+    assert_eq!(rows[1].field_kind(), SQLiteCatalogFieldKind::Scalar);
+    assert_eq!(rows[1].cardinality(), Cardinality::Required);
+    assert_eq!(rows[1].scalar_type(), Some(ScalarType::Str));
+    assert_eq!(rows[1].target_object_id(), None);
+    assert_eq!(rows[1].is_implicit(), false);
+    assert_eq!(rows[1].is_unique(), true);
+
+    assert_eq!(rows[2].object_id(), 1);
+    assert_eq!(rows[2].field_id(), 3);
+    assert_eq!(rows[2].name(), "posts");
+    assert_eq!(rows[2].field_kind(), SQLiteCatalogFieldKind::Link);
+    assert_eq!(rows[2].cardinality(), Cardinality::Many);
+    assert_eq!(rows[2].scalar_type(), None);
+    assert_eq!(rows[2].target_object_id(), Some(2));
+    assert_eq!(rows[2].is_implicit(), false);
+    assert_eq!(rows[2].is_unique(), false);
+
+    assert_eq!(rows[3].object_id(), 2);
+    assert_eq!(rows[3].field_id(), 1);
+    assert_eq!(rows[3].name(), "id");
+    assert_eq!(rows[3].field_kind(), SQLiteCatalogFieldKind::Scalar);
+    assert_eq!(rows[3].cardinality(), Cardinality::Required);
+    assert_eq!(rows[3].scalar_type(), Some(ScalarType::Uuid));
+    assert_eq!(rows[3].target_object_id(), None);
+    assert_eq!(rows[3].is_implicit(), true);
+    assert_eq!(rows[3].is_unique(), false);
+
+    assert_eq!(rows[4].object_id(), 2);
+    assert_eq!(rows[4].field_id(), 2);
+    assert_eq!(rows[4].name(), "title");
+    assert_eq!(rows[4].field_kind(), SQLiteCatalogFieldKind::Scalar);
+    assert_eq!(rows[4].cardinality(), Cardinality::Required);
+    assert_eq!(rows[4].scalar_type(), Some(ScalarType::Str));
+    assert_eq!(rows[4].target_object_id(), None);
+    assert_eq!(rows[4].is_implicit(), false);
+    assert_eq!(rows[4].is_unique(), false);
+
+    assert_eq!(rows[5].object_id(), 2);
+    assert_eq!(rows[5].field_id(), 3);
+    assert_eq!(rows[5].name(), "author");
+    assert_eq!(rows[5].field_kind(), SQLiteCatalogFieldKind::Link);
+    assert_eq!(rows[5].cardinality(), Cardinality::Required);
+    assert_eq!(rows[5].scalar_type(), None);
+    assert_eq!(rows[5].target_object_id(), Some(1));
+    assert_eq!(rows[5].is_implicit(), false);
+    assert_eq!(rows[5].is_unique(), true);
 }

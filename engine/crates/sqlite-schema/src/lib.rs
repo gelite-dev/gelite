@@ -28,6 +28,7 @@ pub struct SQLiteSchemaPlan {
     object_tables: Vec<SQLiteTablePlan>,
     relation_tables: Vec<SQLiteTablePlan>,
     catalog_object_rows: Vec<SQLiteCatalogObjectRow>,
+    catalog_field_rows: Vec<SQLiteCatalogFieldRow>,
 }
 
 impl SQLiteSchemaPlan {
@@ -45,6 +46,10 @@ impl SQLiteSchemaPlan {
 
     pub fn catalog_object_rows(&self) -> &[SQLiteCatalogObjectRow] {
         &self.catalog_object_rows
+    }
+
+    pub fn catalog_field_rows(&self) -> &[SQLiteCatalogFieldRow] {
+        &self.catalog_field_rows
     }
 }
 
@@ -87,14 +92,14 @@ impl SQLiteTablePlan {
         columns: Vec<SQLiteColumnPlan>,
         foreign_keys: Vec<SQLiteForeignKeyPlan>,
     ) -> Self {
-        Self::new_with_constraints(name, columns, foreign_keys, None)
+        Self::new_with_constraints(name, columns, None, foreign_keys)
     }
 
     pub fn new_with_constraints(
         name: impl Into<String>,
         columns: Vec<SQLiteColumnPlan>,
-        foreign_keys: Vec<SQLiteForeignKeyPlan>,
         primary_key: Option<SQLitePrimaryKeyPlan>,
+        foreign_keys: Vec<SQLiteForeignKeyPlan>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -171,18 +176,18 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
                 SQLiteColumnPlan::new("name".to_string(), SQLiteAffinity::Text, false, false, true),
             ],
         ),
-        SQLiteTablePlan::new_with_foreign_keys(
+        SQLiteTablePlan::new_with_constraints(
             CATALOG_FIELDS_TABLE.to_string(),
             vec![
                 SQLiteColumnPlan::new(
-                    "field_id".to_string(),
+                    "object_id".to_string(),
                     SQLiteAffinity::Integer,
                     false,
-                    true,
-                    true,
+                    false,
+                    false,
                 ),
                 SQLiteColumnPlan::new(
-                    "object_id".to_string(),
+                    "field_id".to_string(),
                     SQLiteAffinity::Integer,
                     false,
                     false,
@@ -230,25 +235,98 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
                     false,
                     false,
                 ),
+                SQLiteColumnPlan::new(
+                    "is_unique".to_string(),
+                    SQLiteAffinity::Integer,
+                    false,
+                    false,
+                    false,
+                ),
             ],
-            vec![SQLiteForeignKeyPlan::new(
-                "object_id",
-                CATALOG_OBJECTS_TABLE,
-                "object_id",
-            )],
+            Some(SQLitePrimaryKeyPlan::new(vec![
+                "object_id".to_string(),
+                "field_id".to_string(),
+            ])),
+            vec![
+                SQLiteForeignKeyPlan::new("object_id", CATALOG_OBJECTS_TABLE, "object_id"),
+                SQLiteForeignKeyPlan::new("target_object_id", CATALOG_OBJECTS_TABLE, "object_id"),
+            ],
         ),
     ];
 
     let object_tables = plan_objects(catalog);
     let relation_tables = plan_relation_tables(catalog);
     let catalog_object_rows = plan_catalog_object_rows(catalog);
+    let catalog_field_rows = plan_catalog_field_rows(catalog);
 
     SQLiteSchemaPlan {
         metadata_tables,
         object_tables,
         relation_tables,
         catalog_object_rows,
+        catalog_field_rows,
     }
+}
+
+fn plan_catalog_field_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogFieldRow> {
+    let mut rows = Vec::new();
+
+    for (object_index, object_type) in catalog.object_types().iter().enumerate() {
+        let object_id = (object_index + 1) as u64;
+
+        rows.push(SQLiteCatalogFieldRow::new(
+            object_id,
+            1,
+            "id".to_string(),
+            SQLiteCatalogFieldKind::Scalar,
+            Cardinality::Required,
+            Some(ScalarType::Uuid),
+            None,
+            true,
+            false,
+        ));
+
+        for (field_index, field) in object_type.declared_fields().iter().enumerate() {
+            let field_id = (field_index + 2) as u64;
+
+            match field {
+                Field::Scalar(scalar) => {
+                    rows.push(SQLiteCatalogFieldRow::new(
+                        object_id,
+                        field_id,
+                        field.name().to_string(),
+                        SQLiteCatalogFieldKind::Scalar,
+                        field.cardinality(),
+                        Some(scalar.scalar_type()),
+                        None,
+                        false,
+                        scalar.is_unique(),
+                    ));
+                }
+                Field::Link(link) => {
+                    let target_object_id = catalog
+                        .find_type_ref(link.target_type_name())
+                        .expect("validated schema should only contain known link targets")
+                        .id()
+                        .value();
+
+                    rows.push(SQLiteCatalogFieldRow::new(
+                        object_id,
+                        field_id,
+                        field.name().to_string(),
+                        SQLiteCatalogFieldKind::Link,
+                        field.cardinality(),
+                        None,
+                        Some(target_object_id),
+                        false,
+                        link.is_unique(),
+                    ));
+                }
+            }
+        }
+    }
+
+    rows
 }
 
 fn plan_catalog_object_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogObjectRow> {
@@ -360,14 +438,14 @@ fn plan_relation_tables(catalog: &SchemaCatalog) -> Vec<SQLiteTablePlan> {
                                     false,
                                 ),
                             ],
-                            vec![
-                                SQLiteForeignKeyPlan::new("source_id", source_table, "id"),
-                                SQLiteForeignKeyPlan::new("target_id", target_table, "id"),
-                            ],
                             Some(SQLitePrimaryKeyPlan::new(vec![
                                 "source_id".to_string(),
                                 "target_id".to_string(),
                             ])),
+                            vec![
+                                SQLiteForeignKeyPlan::new("source_id", source_table, "id"),
+                                SQLiteForeignKeyPlan::new("target_id", target_table, "id"),
+                            ],
                         ))
                     }
                     Field::Link(_) => None,
@@ -500,6 +578,86 @@ impl SQLiteCatalogObjectRow {
     pub fn name(&self) -> &str {
         &self.name
     }
+}
+
+pub struct SQLiteCatalogFieldRow {
+    object_id: u64,
+    field_id: u64,
+    name: String,
+    field_kind: SQLiteCatalogFieldKind,
+    cardinality: Cardinality,
+    scalar_type: Option<ScalarType>,
+    target_object_id: Option<u64>,
+    is_implicit: bool,
+    is_unique: bool,
+}
+
+impl SQLiteCatalogFieldRow {
+    pub fn new(
+        object_id: u64,
+        field_id: u64,
+        name: impl Into<String>,
+        field_kind: SQLiteCatalogFieldKind,
+        cardinality: Cardinality,
+        scalar_type: Option<ScalarType>,
+        target_object_id: Option<u64>,
+        is_implicit: bool,
+        is_unique: bool,
+    ) -> Self {
+        Self {
+            object_id,
+            field_id,
+            name: name.into(),
+            field_kind,
+            cardinality,
+            scalar_type,
+            target_object_id,
+            is_implicit,
+            is_unique,
+        }
+    }
+
+    pub fn object_id(&self) -> u64 {
+        self.object_id
+    }
+
+    pub fn field_id(&self) -> u64 {
+        self.field_id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn field_kind(&self) -> SQLiteCatalogFieldKind {
+        self.field_kind
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
+
+    pub fn scalar_type(&self) -> Option<ScalarType> {
+        self.scalar_type
+    }
+
+    pub fn target_object_id(&self) -> Option<u64> {
+        self.target_object_id
+    }
+
+    pub fn is_implicit(&self) -> bool {
+        self.is_implicit
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.is_unique
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteCatalogFieldKind {
+    Scalar,
+    Link,
 }
 
 #[cfg(test)]
