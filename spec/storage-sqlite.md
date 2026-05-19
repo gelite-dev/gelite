@@ -230,6 +230,21 @@ CREATE TABLE _engine_catalog_fields (
 );
 ```
 
+Catalog field metadata uses these stored text values:
+
+- `field_kind`: `scalar` or `link`
+- `cardinality`: `optional`, `required`, or `many`
+- `scalar_type`: `str`, `int64`, `float64`, `bool`, `uuid`, `datetime`, or
+  `NULL` for link fields
+
+`target_object_id` is `NULL` for scalar fields and the target
+`_engine_catalog_objects.object_id` for link fields.
+
+Boolean metadata is stored as integer values:
+
+- `0` for false
+- `1` for true
+
 These catalog tables are engine-owned metadata, not user-facing schema tables.
 
 ## Migration Model

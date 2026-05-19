@@ -451,6 +451,24 @@ Use `NULL` for fields that do not apply:
 - scalar fields have `target_object_id = NULL`
 - link fields have `scalar_type = NULL`
 
+Use these text values for enum metadata:
+
+```text
+SQLiteCatalogFieldKind::Scalar -> "scalar"
+SQLiteCatalogFieldKind::Link   -> "link"
+
+schema::Cardinality::Optional -> "optional"
+schema::Cardinality::Required -> "required"
+schema::Cardinality::Many     -> "many"
+
+schema::ScalarType::Str      -> "str"
+schema::ScalarType::Int64    -> "int64"
+schema::ScalarType::Float64  -> "float64"
+schema::ScalarType::Bool     -> "bool"
+schema::ScalarType::Uuid     -> "uuid"
+schema::ScalarType::DateTime -> "datetime"
+```
+
 The semantic row types can expose Rust booleans and enums. The insert plan is
 where those values become SQLite-compatible values.
 
