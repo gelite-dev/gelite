@@ -27,6 +27,7 @@ pub struct SQLiteSchemaPlan {
     metadata_tables: Vec<SQLiteTablePlan>,
     object_tables: Vec<SQLiteTablePlan>,
     relation_tables: Vec<SQLiteTablePlan>,
+    indexes: Vec<SQLiteIndexPlan>,
     catalog_object_rows: Vec<SQLiteCatalogObjectRow>,
     catalog_field_rows: Vec<SQLiteCatalogFieldRow>,
 }
@@ -50,6 +51,10 @@ impl SQLiteSchemaPlan {
 
     pub fn catalog_field_rows(&self) -> &[SQLiteCatalogFieldRow] {
         &self.catalog_field_rows
+    }
+
+    pub fn indexes(&self) -> &[SQLiteIndexPlan] {
+        &self.indexes
     }
 }
 
@@ -258,11 +263,13 @@ pub fn plan_initial_schema(catalog: &SchemaCatalog) -> SQLiteSchemaPlan {
     let relation_tables = plan_relation_tables(catalog);
     let catalog_object_rows = plan_catalog_object_rows(catalog);
     let catalog_field_rows = plan_catalog_field_rows(catalog);
+    let indexes = plan_indexes(catalog);
 
     SQLiteSchemaPlan {
         metadata_tables,
         object_tables,
         relation_tables,
+        indexes,
         catalog_object_rows,
         catalog_field_rows,
     }
@@ -557,6 +564,36 @@ fn cardinality_value(cardinality: Cardinality) -> SQLiteValuePlan {
     }
 }
 
+fn plan_indexes(catalog: &SchemaCatalog) -> Vec<SQLiteIndexPlan> {
+    catalog
+        .object_types()
+        .iter()
+        .flat_map(|object_type| {
+            object_type
+                .declared_fields()
+                .iter()
+                .filter_map(|field| match field {
+                    Field::Scalar(_) => None,
+                    Field::Link(link) => match link.cardinality() {
+                        Cardinality::Optional | Cardinality::Required => {
+                            let table_name = object_type.name().to_ascii_lowercase();
+                            let column_name = format!("{}_id", field.name());
+                            let index_name = format!("{}__{}_idx", table_name, column_name);
+
+                            Some(SQLiteIndexPlan::new(
+                                index_name,
+                                table_name,
+                                vec![column_name],
+                                false,
+                            ))
+                        }
+                        Cardinality::Many => None,
+                    },
+                })
+        })
+        .collect()
+}
+
 /// SQLite type affinity used by physical column plans.
 ///
 /// This is not the same as `ScalarType`. Several semantic scalar types
@@ -789,6 +826,45 @@ pub enum SQLiteValuePlan {
     Integer(i64),
     Text(String),
     Null,
+}
+
+pub struct SQLiteIndexPlan {
+    name: String,
+    table_name: String,
+    column_names: Vec<String>,
+    unique: bool,
+}
+
+impl SQLiteIndexPlan {
+    pub fn new(
+        name: impl Into<String>,
+        table_name: impl Into<String>,
+        column_names: Vec<String>,
+        unique: bool,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            table_name: table_name.into(),
+            column_names,
+            unique,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
+
+    pub fn column_names(&self) -> &[String] {
+        &self.column_names
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.unique
+    }
 }
 
 #[cfg(test)]

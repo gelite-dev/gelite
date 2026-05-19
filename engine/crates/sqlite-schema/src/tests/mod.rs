@@ -894,3 +894,44 @@ fn initial_schema_plan_can_plan_catalog_field_inserts() {
     assert_eq!(inserts[5].values()[7], SQLiteValuePlan::Integer(0));
     assert_eq!(inserts[5].values()[8], SQLiteValuePlan::Integer(1));
 }
+
+#[test]
+fn initial_schema_plan_creates_single_link_foreign_key_index() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![
+                Field::Scalar(ScalarField::with_uniqueness(
+                    "email",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                    Uniqueness::Unique,
+                )),
+                Field::Link(LinkField::new("posts", "Post", Cardinality::Many)),
+            ],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "title",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::new("author", "User", Cardinality::Required)),
+            ],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let indexes = plan.indexes();
+
+    assert_eq!(indexes.len(), 1);
+
+    assert_eq!(indexes[0].name(), "post__author_id_idx");
+    assert_eq!(indexes[0].table_name(), "post");
+    assert_eq!(indexes[0].column_names().len(), 1);
+    assert_eq!(indexes[0].column_names()[0], "author_id");
+    assert_eq!(indexes[0].is_unique(), false);
+}
