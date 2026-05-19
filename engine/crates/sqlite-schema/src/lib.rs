@@ -565,33 +565,50 @@ fn cardinality_value(cardinality: Cardinality) -> SQLiteValuePlan {
 }
 
 fn plan_indexes(catalog: &SchemaCatalog) -> Vec<SQLiteIndexPlan> {
-    catalog
-        .object_types()
-        .iter()
-        .flat_map(|object_type| {
-            object_type
-                .declared_fields()
-                .iter()
-                .filter_map(|field| match field {
-                    Field::Scalar(_) => None,
-                    Field::Link(link) => match link.cardinality() {
-                        Cardinality::Optional | Cardinality::Required => {
-                            let table_name = object_type.name().to_ascii_lowercase();
-                            let column_name = format!("{}_id", field.name());
-                            let index_name = format!("{}__{}_idx", table_name, column_name);
+    let mut indexes = Vec::new();
 
-                            Some(SQLiteIndexPlan::new(
-                                index_name,
-                                table_name,
-                                vec![column_name],
-                                false,
-                            ))
-                        }
-                        Cardinality::Many => None,
-                    },
-                })
-        })
-        .collect()
+    for object_type in catalog.object_types() {
+        let table_name = object_type.name().to_ascii_lowercase();
+
+        for field in object_type.declared_fields() {
+            let Field::Link(link) = field else {
+                continue;
+            };
+
+            match link.cardinality() {
+                Cardinality::Optional | Cardinality::Required => {
+                    let column_name = format!("{}_id", field.name());
+                    let index_name = format!("{}__{}_idx", table_name, column_name);
+
+                    indexes.push(SQLiteIndexPlan::new(
+                        index_name,
+                        table_name.clone(),
+                        vec![column_name],
+                        false,
+                    ));
+                }
+                Cardinality::Many => {
+                    let join_table_name = format!("{}__{}", table_name, field.name());
+
+                    indexes.push(SQLiteIndexPlan::new(
+                        format!("{}__source_id_idx", join_table_name),
+                        join_table_name.clone(),
+                        vec!["source_id".to_string()],
+                        false,
+                    ));
+
+                    indexes.push(SQLiteIndexPlan::new(
+                        format!("{}__target_id_idx", join_table_name),
+                        join_table_name,
+                        vec!["target_id".to_string()],
+                        false,
+                    ));
+                }
+            }
+        }
+    }
+
+    indexes
 }
 
 /// SQLite type affinity used by physical column plans.
