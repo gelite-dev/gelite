@@ -321,6 +321,31 @@ The renderer must not inline user-controlled text directly into SQL literals
 once execution is introduced. Prefer rendering placeholders and carrying values
 through a bind-value structure when the SQLite binding API is known.
 
+`sqlite-schema-sqlgen` should start with small render functions instead of a
+full schema renderer:
+
+```rust
+pub fn render_create_table(table: &sqlite_schema::SQLiteTablePlan) -> String
+
+pub fn render_create_index(index: &sqlite_schema::SQLiteIndexPlan) -> String
+
+pub fn render_insert(insert: &sqlite_schema::SQLiteInsertPlan) -> RenderedInsert
+```
+
+`RenderedInsert` should keep SQL text and values separate once execution is in
+scope:
+
+```rust
+pub struct RenderedInsert {
+    sql: String,
+    values: Vec<sqlite_schema::SQLiteValuePlan>,
+}
+```
+
+The first renderer tests may compare SQL strings directly. When execution is
+added, metadata inserts should render placeholders and carry values separately
+instead of embedding text values into SQL.
+
 Execution can be added later through the engine runtime, using a
 `no_std`-compatible SQLite binding if the binding proves suitable:
 
@@ -359,6 +384,54 @@ The SQL renderer is a serialization layer. It should not rediscover schema
 semantics by looking at object names or fields again. If the renderer needs
 information that is not present in `SQLiteSchemaPlan` or `SQLiteInsertPlan`,
 that is evidence that the planning layer is missing data.
+
+### DDL Rendering Rules
+
+`sqlite-schema-sqlgen` renders from `sqlite-schema` plan types only. It must not
+accept `schema::SchemaCatalog` directly.
+
+The first renderer can produce single-line SQL strings. Stable output matters
+more than pretty formatting because migration previews and tests need
+byte-identical results for the same plan.
+
+Column rendering rules:
+
+- `SQLiteAffinity::Text` -> `TEXT`
+- `SQLiteAffinity::Integer` -> `INTEGER`
+- `SQLiteAffinity::Real` -> `REAL`
+- nullable columns render `NULL`
+- non-nullable columns render `NOT NULL`
+- column-level primary keys render `PRIMARY KEY`
+- column-level unique constraints render `UNIQUE`
+
+Table-level constraint rendering rules:
+
+- `SQLitePrimaryKeyPlan` renders as `PRIMARY KEY (column_a, column_b)`
+- each `SQLiteForeignKeyPlan` renders as
+  `FOREIGN KEY (column) REFERENCES target_table(target_column)`
+
+Index rendering rules:
+
+- non-unique indexes render `CREATE INDEX`
+- unique indexes render `CREATE UNIQUE INDEX`
+- index column order must match `SQLiteIndexPlan::column_names()`
+
+Identifier quoting is deferred for the MVP. Current planner-generated names
+come from controlled naming rules and the schema validator rejects names that
+would collide with reserved scalar type names. Before accepting arbitrary user
+identifiers in rendered SQL, add a dedicated identifier quoting function and
+tests for quotes, spaces, keywords, and embedded quote characters.
+
+DDL statement order for full initial schema rendering:
+
+1. metadata tables
+2. object tables
+3. relation tables
+4. indexes
+5. metadata inserts
+
+This order ensures that foreign keys reference existing tables and metadata
+inserts target existing metadata tables.
 
 ### Metadata Tables
 
@@ -783,7 +856,32 @@ This test should be added before rendering every table type. The catalog fields
 table has the most important metadata constraints and will catch mistakes in
 table-level constraint rendering.
 
-### 11. `render_initial_schema_outputs_deterministic_sql`
+### 11. `render_create_index_for_single_link_foreign_key_index`
+
+Input: a `SQLiteIndexPlan` produced by
+`initial_schema_plan_creates_single_link_foreign_key_index`.
+
+Assert:
+
+- rendered SQL is `CREATE INDEX post__author_id_idx ON post (author_id)`
+- unique is not rendered for non-unique indexes
+
+This test fixes the index renderer before full schema rendering.
+
+### 12. `render_catalog_object_insert_uses_placeholders`
+
+Input: the first insert from `plan_catalog_object_inserts`.
+
+Assert:
+
+- rendered SQL targets `_engine_catalog_objects`
+- SQL uses placeholders for `object_id` and `name`
+- values remain available separately
+
+This test prevents metadata insert rendering from embedding text values into
+SQL strings.
+
+### 13. `render_initial_schema_outputs_deterministic_sql`
 
 Input: a fixed catalog.
 
@@ -796,7 +894,7 @@ Assert:
 
 This test keeps generated migrations stable.
 
-### 12. `catalog_can_round_trip_through_metadata_rows`
+### 14. `catalog_can_round_trip_through_metadata_rows`
 
 This is not the first test. Add it after metadata rows are stable.
 
@@ -831,15 +929,16 @@ This test is the bridge to query execution without fixture catalogs.
 11. Implement catalog metadata row planning.
 12. Add metadata insert planning for catalog object rows.
 13. Add metadata insert planning for catalog field rows.
-14. Add DDL rendering for metadata tables.
-15. Add DDL rendering for object tables and multi-link relation tables.
-16. Add DML rendering for metadata insert plans.
-17. Add deterministic full initial schema rendering.
-18. Add command-style `schema plan` output once `.geli` parsing exists.
-19. Add command-style `schema apply` once runtime execution exists.
-20. Add REPL schema meta commands that delegate to the command implementation.
-21. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
-22. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
+14. Add `render_create_table` in `sqlite-schema-sqlgen` for metadata tables.
+15. Add `render_create_table` coverage for object tables and relation tables.
+16. Add `render_create_index` in `sqlite-schema-sqlgen`.
+17. Add metadata insert rendering with placeholders and separate values.
+18. Add deterministic full initial schema rendering.
+19. Add command-style `schema plan` output once `.geli` parsing exists.
+20. Add command-style `schema apply` once runtime execution exists.
+21. Add REPL schema meta commands that delegate to the command implementation.
+22. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
+23. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
 ## Open Decisions
