@@ -272,7 +272,7 @@ fn plan_catalog_field_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogFieldRow
     let mut rows = Vec::new();
 
     for (object_index, object_type) in catalog.object_types().iter().enumerate() {
-        let object_id = (object_index + 1) as u64;
+        let object_id = (object_index + 1) as i64;
 
         rows.push(SQLiteCatalogFieldRow::new(
             object_id,
@@ -287,7 +287,7 @@ fn plan_catalog_field_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogFieldRow
         ));
 
         for (field_index, field) in object_type.declared_fields().iter().enumerate() {
-            let field_id = (field_index + 2) as u64;
+            let field_id = (field_index + 2) as i64;
 
             match field {
                 Field::Scalar(scalar) => {
@@ -335,7 +335,7 @@ fn plan_catalog_object_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogObjectR
         .iter()
         .enumerate()
         .map(|(index, object_type)| {
-            SQLiteCatalogObjectRow::new((index + 1) as u64, object_type.name())
+            SQLiteCatalogObjectRow::new((index + 1) as i64, object_type.name())
         })
         .collect()
 }
@@ -352,9 +352,7 @@ pub fn plan_catalog_object_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertP
             table_name: CATALOG_OBJECTS_TABLE.to_string(),
             columns: vec!["object_id".to_string(), "name".to_string()],
             values: vec![
-                SQLiteValuePlan::Integer(
-                    i64::try_from(row.object_id()).expect("catalog object id should fit in i64"),
-                ),
+                SQLiteValuePlan::Integer(row.object_id()),
                 SQLiteValuePlan::Text(row.name().to_string()),
             ],
         })
@@ -580,19 +578,19 @@ impl SQLiteForeignKeyPlan {
 }
 
 pub struct SQLiteCatalogObjectRow {
-    object_id: u64,
+    object_id: i64,
     name: String,
 }
 
 impl SQLiteCatalogObjectRow {
-    pub fn new(object_id: u64, name: impl Into<String>) -> Self {
+    pub fn new(object_id: i64, name: impl Into<String>) -> Self {
         Self {
             object_id,
             name: name.into(),
         }
     }
 
-    pub fn object_id(&self) -> u64 {
+    pub fn object_id(&self) -> i64 {
         self.object_id
     }
 
@@ -602,26 +600,26 @@ impl SQLiteCatalogObjectRow {
 }
 
 pub struct SQLiteCatalogFieldRow {
-    object_id: u64,
-    field_id: u64,
+    object_id: i64,
+    field_id: i64,
     name: String,
     field_kind: SQLiteCatalogFieldKind,
     cardinality: Cardinality,
     scalar_type: Option<ScalarType>,
-    target_object_id: Option<u64>,
+    target_object_id: Option<i64>,
     is_implicit: bool,
     is_unique: bool,
 }
 
 impl SQLiteCatalogFieldRow {
     pub fn new(
-        object_id: u64,
-        field_id: u64,
+        object_id: i64,
+        field_id: i64,
         name: impl Into<String>,
         field_kind: SQLiteCatalogFieldKind,
         cardinality: Cardinality,
         scalar_type: Option<ScalarType>,
-        target_object_id: Option<u64>,
+        target_object_id: Option<i64>,
         is_implicit: bool,
         is_unique: bool,
     ) -> Self {
@@ -638,11 +636,11 @@ impl SQLiteCatalogFieldRow {
         }
     }
 
-    pub fn object_id(&self) -> u64 {
+    pub fn object_id(&self) -> i64 {
         self.object_id
     }
 
-    pub fn field_id(&self) -> u64 {
+    pub fn field_id(&self) -> i64 {
         self.field_id
     }
 
@@ -662,7 +660,7 @@ impl SQLiteCatalogFieldRow {
         self.scalar_type
     }
 
-    pub fn target_object_id(&self) -> Option<u64> {
+    pub fn target_object_id(&self) -> Option<i64> {
         self.target_object_id
     }
 

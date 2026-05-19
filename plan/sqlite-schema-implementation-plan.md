@@ -400,12 +400,15 @@ Metadata rows must include implicit `id` fields. The resolver and future
 catalog loader need the same semantic catalog that the in-memory schema layer
 uses.
 
-The MVP stores object and field ids as integers, not UUIDs. `object_id` matches
-the deterministic `schema::ObjectTypeId(u64)` value. `field_id` matches the
-deterministic `schema::FieldId(u64)` value inside its owning object type, so
-`_engine_catalog_fields` uses `(object_id, field_id)` as its primary key. Stable
-UUIDs can be revisited when rename-aware migrations need persistent identities
-across schema snapshots.
+The MVP stores object and field ids as signed 64-bit integers, not UUIDs.
+`object_id` matches the deterministic `schema::ObjectTypeId(i64)` value.
+`field_id` matches the deterministic `schema::FieldId(i64)` value inside its
+owning object type, so `_engine_catalog_fields` uses `(object_id, field_id)` as
+its primary key. The schema layer uses `i64` instead of `u64` because SQLite
+`INTEGER` values are signed 64-bit values. Keeping the Rust id type aligned with
+SQLite avoids fallible unsigned-to-signed conversions in metadata insert
+planning. Stable UUIDs can be revisited when rename-aware migrations need
+persistent identities across schema snapshots.
 
 ### Metadata Insert Plans
 

@@ -120,8 +120,12 @@ pub struct ObjectType {
 }
 
 /// Deterministic object type identifier within a [`SchemaCatalog`].
+///
+/// The value uses `i64` because SQLite stores catalog metadata ids as signed
+/// 64-bit integers. Keeping the schema id type aligned with SQLite avoids a
+/// fallible `u64` to `i64` conversion in backend metadata planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ObjectTypeId(u64);
+pub struct ObjectTypeId(i64);
 
 /// Resolved reference to an object type.
 ///
@@ -134,8 +138,11 @@ pub struct ObjectTypeRef {
 }
 
 /// Deterministic field identifier within the owning object type.
+///
+/// The value uses `i64` for the same reason as [`ObjectTypeId`]: field ids are
+/// persisted in SQLite catalog tables as signed 64-bit integers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FieldId(u64);
+pub struct FieldId(i64);
 
 /// Resolved reference to a field on a specific object type.
 ///
@@ -158,11 +165,11 @@ pub struct SchemaCatalog {
 }
 
 impl ObjectTypeId {
-    pub fn new(value: u64) -> Self {
+    pub fn new(value: i64) -> Self {
         Self(value)
     }
 
-    pub fn value(self) -> u64 {
+    pub fn value(self) -> i64 {
         self.0
     }
 }
@@ -185,11 +192,11 @@ impl ObjectTypeRef {
 }
 
 impl FieldId {
-    pub fn new(value: u64) -> Self {
+    pub fn new(value: i64) -> Self {
         Self(value)
     }
 
-    pub fn value(self) -> u64 {
+    pub fn value(self) -> i64 {
         self.0
     }
 }
@@ -513,7 +520,7 @@ impl SchemaCatalog {
             .position(|object_type| object_type.name == name)
             .map(|index| {
                 let object_type = &self.object_types[index];
-                ObjectTypeRef::new(ObjectTypeId::new((index + 1) as u64), object_type.name())
+                ObjectTypeRef::new(ObjectTypeId::new((index + 1) as i64), object_type.name())
             })
     }
 
@@ -535,9 +542,9 @@ impl SchemaCatalog {
             .position(|field| field.name() == field_name)?;
 
         Some(FieldRef::new(
-            FieldId::new((field_index + 1) as u64),
+            FieldId::new((field_index + 1) as i64),
             ObjectTypeRef::new(
-                ObjectTypeId::new((object_type_index + 1) as u64),
+                ObjectTypeId::new((object_type_index + 1) as i64),
                 object_type.name(),
             ),
             field_name,

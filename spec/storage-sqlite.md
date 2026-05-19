@@ -198,6 +198,9 @@ CREATE TABLE _engine_schema_versions (
 ### `_engine_catalog_objects`
 
 Stores semantic object definitions for diagnostics and diff support.
+Catalog ids use SQLite `INTEGER`, which is a signed 64-bit value. The semantic
+schema catalog uses the same signed integer range for object and field ids so
+metadata planning does not need unsigned-to-signed conversion.
 
 ```sql
 CREATE TABLE _engine_catalog_objects (

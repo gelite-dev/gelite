@@ -201,6 +201,9 @@ The semantic schema catalog should preserve:
 - unique flag for scalar fields
 
 The catalog should be deterministic so migrations and diffs are stable.
+Catalog ids are signed 64-bit integers. This matches SQLite `INTEGER` storage
+for backend metadata and avoids converting deterministic schema ids from an
+unsigned range into SQLite's signed integer range.
 
 ## Defaults and Constraints
 
