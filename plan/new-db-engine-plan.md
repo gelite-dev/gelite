@@ -102,6 +102,9 @@ The initial target is not:
 
 - Rust HTTP API
 - CLI for schema/query/migration workflows
+- Command-style schema workflows such as `schema plan` and `schema apply`
+- REPL query workflow with optional schema meta commands that delegate to the
+  same schema command implementation
 - Auth/session strategy
 - Logging and diagnostics
 

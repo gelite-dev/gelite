@@ -208,8 +208,8 @@ That should be a separate parser path from `.geliql` query parsing.
 
 ### `tools/repl`
 
-The REPL should not construct fixture catalogs once metadata-backed catalogs
-exist.
+The REPL should remain query-focused. It should not become the primary user
+interface for schema DDL or migration application.
 
 Later flow:
 
@@ -222,6 +222,30 @@ repl startup
 
 Before catalog loading exists, the REPL can keep using its current fixture
 catalog.
+
+Schema changes should be exposed first as command-style workflows:
+
+```text
+gelite schema plan path/to/schema.geli --database app.db
+gelite schema apply path/to/schema.geli --database app.db
+```
+
+`schema plan` should parse `.geli`, build a `schema::SchemaCatalog`, create a
+`sqlite_schema::SQLiteSchemaPlan`, and render SQL through
+`sqlite-schema-sqlgen` without applying it.
+
+`schema apply` should use the same planning and rendering path, then execute
+the statements in a transaction once the SQLite runtime boundary exists.
+
+The REPL may later expose schema commands as meta commands:
+
+```text
+:schema plan path/to/schema.geli
+:schema apply path/to/schema.geli
+```
+
+Those meta commands should delegate to the same command implementation instead
+of maintaining a separate DDL execution path inside the REPL.
 
 ## `sqlite-schema` Public API Shape
 
@@ -811,8 +835,11 @@ This test is the bridge to query execution without fixture catalogs.
 15. Add DDL rendering for object tables and multi-link relation tables.
 16. Add DML rendering for metadata insert plans.
 17. Add deterministic full initial schema rendering.
-18. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
-19. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
+18. Add command-style `schema plan` output once `.geli` parsing exists.
+19. Add command-style `schema apply` once runtime execution exists.
+20. Add REPL schema meta commands that delegate to the command implementation.
+21. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
+22. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
 ## Open Decisions
