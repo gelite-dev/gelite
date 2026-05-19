@@ -484,6 +484,79 @@ fn sqlite_affinity(scalar_type: ScalarType) -> SQLiteAffinity {
     }
 }
 
+pub fn plan_catalog_field_inserts(plan: &SQLiteSchemaPlan) -> Vec<SQLiteInsertPlan> {
+    plan.catalog_field_rows()
+        .iter()
+        .map(|row| SQLiteInsertPlan {
+            table_name: CATALOG_FIELDS_TABLE.to_string(),
+            columns: vec![
+                "object_id".to_string(),
+                "field_id".to_string(),
+                "name".to_string(),
+                "field_kind".to_string(),
+                "cardinality".to_string(),
+                "scalar_type".to_string(),
+                "target_object_id".to_string(),
+                "is_implicit".to_string(),
+                "is_unique".to_string(),
+            ],
+            values: vec![
+                SQLiteValuePlan::Integer(row.object_id()),
+                SQLiteValuePlan::Integer(row.field_id()),
+                SQLiteValuePlan::Text(row.name().to_string()),
+                field_kind_value(row.field_kind()),
+                cardinality_value(row.cardinality()),
+                optional_scalar_type_value(row.scalar_type()),
+                optional_i64_value(row.target_object_id()),
+                bool_value(row.is_implicit()),
+                bool_value(row.is_unique()),
+            ],
+        })
+        .collect()
+}
+
+fn bool_value(value: bool) -> SQLiteValuePlan {
+    if value {
+        SQLiteValuePlan::Integer(1)
+    } else {
+        SQLiteValuePlan::Integer(0)
+    }
+}
+
+fn field_kind_value(kind: SQLiteCatalogFieldKind) -> SQLiteValuePlan {
+    match kind {
+        SQLiteCatalogFieldKind::Scalar => SQLiteValuePlan::Text("scalar".to_string()),
+        SQLiteCatalogFieldKind::Link => SQLiteValuePlan::Text("link".to_string()),
+    }
+}
+
+fn optional_scalar_type_value(scalar_type: Option<ScalarType>) -> SQLiteValuePlan {
+    match scalar_type {
+        Some(ScalarType::Str) => SQLiteValuePlan::Text("str".to_string()),
+        Some(ScalarType::Int64) => SQLiteValuePlan::Text("int64".to_string()),
+        Some(ScalarType::Float64) => SQLiteValuePlan::Text("float64".to_string()),
+        Some(ScalarType::Bool) => SQLiteValuePlan::Text("bool".to_string()),
+        Some(ScalarType::Uuid) => SQLiteValuePlan::Text("uuid".to_string()),
+        Some(ScalarType::DateTime) => SQLiteValuePlan::Text("datetime".to_string()),
+        None => SQLiteValuePlan::Null,
+    }
+}
+
+fn optional_i64_value(value: Option<i64>) -> SQLiteValuePlan {
+    match value {
+        Some(value) => SQLiteValuePlan::Integer(value),
+        None => SQLiteValuePlan::Null,
+    }
+}
+
+fn cardinality_value(cardinality: Cardinality) -> SQLiteValuePlan {
+    match cardinality {
+        Cardinality::Optional => SQLiteValuePlan::Text("optional".to_string()),
+        Cardinality::Required => SQLiteValuePlan::Text("required".to_string()),
+        Cardinality::Many => SQLiteValuePlan::Text("many".to_string()),
+    }
+}
+
 /// SQLite type affinity used by physical column plans.
 ///
 /// This is not the same as `ScalarType`. Several semantic scalar types

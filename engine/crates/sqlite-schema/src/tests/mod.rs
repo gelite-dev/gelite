@@ -1,8 +1,8 @@
 extern crate alloc;
 
 use crate::{
-    SQLiteAffinity, SQLiteCatalogFieldKind, SQLiteValuePlan, plan_catalog_object_inserts,
-    plan_initial_schema,
+    SQLiteAffinity, SQLiteCatalogFieldKind, SQLiteValuePlan, plan_catalog_field_inserts,
+    plan_catalog_object_inserts, plan_initial_schema,
 };
 use alloc::vec;
 use alloc::vec::Vec;
@@ -770,4 +770,127 @@ fn initial_schema_plan_can_plan_catalog_object_inserts() {
         SQLiteValuePlan::Text(value) => assert_eq!(value, "Post"),
         value => panic!("expected object name text value, got {value:?}"),
     }
+}
+
+#[test]
+fn initial_schema_plan_can_plan_catalog_field_inserts() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![
+                Field::Scalar(ScalarField::with_uniqueness(
+                    "email",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                    Uniqueness::Unique,
+                )),
+                Field::Link(LinkField::new("posts", "Post", Cardinality::Many)),
+            ],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "title",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::with_uniqueness(
+                    "author",
+                    "User",
+                    Cardinality::Required,
+                    Uniqueness::Unique,
+                )),
+            ],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let inserts = plan_catalog_field_inserts(&plan);
+
+    assert_eq!(inserts.len(), 6);
+
+    assert_eq!(inserts[0].table_name(), "_engine_catalog_fields");
+    assert_eq!(inserts[0].columns().len(), 9);
+    assert_eq!(inserts[0].columns()[0], "object_id");
+    assert_eq!(inserts[0].columns()[1], "field_id");
+    assert_eq!(inserts[0].columns()[2], "name");
+    assert_eq!(inserts[0].columns()[3], "field_kind");
+    assert_eq!(inserts[0].columns()[4], "cardinality");
+    assert_eq!(inserts[0].columns()[5], "scalar_type");
+    assert_eq!(inserts[0].columns()[6], "target_object_id");
+    assert_eq!(inserts[0].columns()[7], "is_implicit");
+    assert_eq!(inserts[0].columns()[8], "is_unique");
+
+    assert_eq!(inserts[0].values().len(), 9);
+    assert_eq!(inserts[0].values()[0], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[0].values()[1], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[0].values()[2], SQLiteValuePlan::Text("id".into()));
+    assert_eq!(
+        inserts[0].values()[3],
+        SQLiteValuePlan::Text("scalar".into())
+    );
+    assert_eq!(
+        inserts[0].values()[4],
+        SQLiteValuePlan::Text("required".into())
+    );
+    assert_eq!(inserts[0].values()[5], SQLiteValuePlan::Text("uuid".into()));
+    assert_eq!(inserts[0].values()[6], SQLiteValuePlan::Null);
+    assert_eq!(inserts[0].values()[7], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[0].values()[8], SQLiteValuePlan::Integer(0));
+
+    assert_eq!(inserts[1].table_name(), "_engine_catalog_fields");
+    assert_eq!(inserts[1].columns(), inserts[0].columns());
+    assert_eq!(inserts[1].values()[0], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[1].values()[1], SQLiteValuePlan::Integer(2));
+    assert_eq!(
+        inserts[1].values()[2],
+        SQLiteValuePlan::Text("email".into())
+    );
+    assert_eq!(
+        inserts[1].values()[3],
+        SQLiteValuePlan::Text("scalar".into())
+    );
+    assert_eq!(
+        inserts[1].values()[4],
+        SQLiteValuePlan::Text("required".into())
+    );
+    assert_eq!(inserts[1].values()[5], SQLiteValuePlan::Text("str".into()));
+    assert_eq!(inserts[1].values()[6], SQLiteValuePlan::Null);
+    assert_eq!(inserts[1].values()[7], SQLiteValuePlan::Integer(0));
+    assert_eq!(inserts[1].values()[8], SQLiteValuePlan::Integer(1));
+
+    assert_eq!(inserts[2].table_name(), "_engine_catalog_fields");
+    assert_eq!(inserts[2].columns(), inserts[0].columns());
+    assert_eq!(inserts[2].values()[0], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[2].values()[1], SQLiteValuePlan::Integer(3));
+    assert_eq!(
+        inserts[2].values()[2],
+        SQLiteValuePlan::Text("posts".into())
+    );
+    assert_eq!(inserts[2].values()[3], SQLiteValuePlan::Text("link".into()));
+    assert_eq!(inserts[2].values()[4], SQLiteValuePlan::Text("many".into()));
+    assert_eq!(inserts[2].values()[5], SQLiteValuePlan::Null);
+    assert_eq!(inserts[2].values()[6], SQLiteValuePlan::Integer(2));
+    assert_eq!(inserts[2].values()[7], SQLiteValuePlan::Integer(0));
+    assert_eq!(inserts[2].values()[8], SQLiteValuePlan::Integer(0));
+
+    assert_eq!(inserts[5].table_name(), "_engine_catalog_fields");
+    assert_eq!(inserts[5].columns(), inserts[0].columns());
+    assert_eq!(inserts[5].values()[0], SQLiteValuePlan::Integer(2));
+    assert_eq!(inserts[5].values()[1], SQLiteValuePlan::Integer(3));
+    assert_eq!(
+        inserts[5].values()[2],
+        SQLiteValuePlan::Text("author".into())
+    );
+    assert_eq!(inserts[5].values()[3], SQLiteValuePlan::Text("link".into()));
+    assert_eq!(
+        inserts[5].values()[4],
+        SQLiteValuePlan::Text("required".into())
+    );
+    assert_eq!(inserts[5].values()[5], SQLiteValuePlan::Null);
+    assert_eq!(inserts[5].values()[6], SQLiteValuePlan::Integer(1));
+    assert_eq!(inserts[5].values()[7], SQLiteValuePlan::Integer(0));
+    assert_eq!(inserts[5].values()[8], SQLiteValuePlan::Integer(1));
 }
