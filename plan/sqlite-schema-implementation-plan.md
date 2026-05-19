@@ -169,11 +169,29 @@ drift. For the first `sqlite-schema` tests, local naming helpers are acceptable.
 ### `sqlite-sqlgen`
 
 No immediate changes are required. It renders select SQL from `sqlite-plan`.
-DDL rendering should not be added to this crate unless the project decides that
-all SQLite SQL rendering belongs there.
+DDL rendering should not be added to this crate. `sqlite-sqlgen` owns runtime
+query SQL generated from `sqlite-plan`, not schema-management SQL.
 
-For now, keep DDL rendering inside `sqlite-schema` because DDL is tightly tied
-to catalog application and metadata table layout.
+### `sqlite-schema-sqlgen`
+
+This crate renders SQL for schema application. It depends on `sqlite-schema`
+and consumes `SQLiteSchemaPlan`, `SQLiteTablePlan`, `SQLiteIndexPlan`, and
+metadata insert plans.
+
+Initial dependency direction:
+
+```text
+sqlite-schema-sqlgen -> sqlite-schema -> schema
+```
+
+It should render:
+
+- `CREATE TABLE` for metadata, object, and relation tables
+- `CREATE INDEX` for planned indexes
+- metadata `INSERT` statements for engine catalog rows
+
+It should not render runtime query SQL. SELECT and later user-data DML stay in
+`sqlite-sqlgen`, which consumes `sqlite-plan`.
 
 ### `query-parser`
 
@@ -267,7 +285,7 @@ These functions are SQLite-specific DML planning, but they still do not own a
 database connection. They translate structured metadata rows into a stable
 column order and bindable values.
 
-The first SQL rendering API can then be:
+The first SQL rendering API in `sqlite-schema-sqlgen` can then be:
 
 ```rust
 pub fn render_initial_schema(plan: &SQLiteSchemaPlan) -> Vec<String>
@@ -815,12 +833,24 @@ until pure planning and rendering are tested. The execution wrapper should live
 in an engine runtime crate so planning remains inspectable without opening a
 connection.
 
-### DDL SQL ownership
+### Schema SQL ownership
 
-`sqlite-sqlgen` currently renders select SQL only. DDL can stay in
-`sqlite-schema` for now because it is schema-application-specific.
+`sqlite-schema-sqlgen` renders schema-management SQL from `sqlite-schema`
+plans. This keeps `sqlite-schema` as a pure planner and keeps `sqlite-sqlgen`
+focused on runtime query SQL.
 
-If DDL rendering later grows large, split a dedicated SQLite DDL renderer.
+The split is by pipeline, not by SQL keyword:
+
+```text
+query path:
+ir -> sqlite-plan -> sqlite-sqlgen
+
+schema path:
+schema -> sqlite-schema -> sqlite-schema-sqlgen
+```
+
+Both paths may eventually render `INSERT` statements. User-data inserts belong
+to `sqlite-sqlgen`; engine metadata inserts belong to `sqlite-schema-sqlgen`.
 
 ### Shared SQLite naming
 

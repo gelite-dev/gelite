@@ -6,6 +6,7 @@ members = [
   "engine/crates/resolver",
   "engine/crates/sqlite-plan",
   "engine/crates/sqlite-schema",
+  "engine/crates/sqlite-schema-sqlgen",
   "engine/crates/sqlite-sqlgen",
   "engine/crates/query-parser",
   "tools/repl",
