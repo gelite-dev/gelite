@@ -103,6 +103,10 @@ tools/repl
 - formatting command output into stable structs or text
 - shared command functions used by CLI and REPL meta commands
 
+`gelite-commands` should depend on runner-facing traits, not on a concrete
+SQLite binding. Native CLI setup can construct a native runner backend and pass
+it to the command layer.
+
 The existing `tools/repl` can remain while the new CLI is introduced. Once
 `gelite repl` exists, `tools/repl` can either be replaced by the new binary or
 turned into a thin wrapper around the same command/repl implementation.
@@ -161,7 +165,7 @@ read schema.geli
 -> schema_parser::parse_schema
 -> sqlite_schema::plan_initial_schema
 -> sqlite_schema_sqlgen::render_initial_schema
--> sqlite_runner::apply_schema_statements
+-> sqlite_runner::apply_schema_statements over a native runner backend
 ```
 
 Initial scope:
@@ -285,8 +289,8 @@ The intended browser demo stack is:
 
 - Solid.js for the UI
 - a WASM build of the Gelite engine crates
-- a WASM-compatible SQLite runtime based on the same runner direction as the
-  native engine
+- a WASM-compatible SQLite runner backend implementing the same runner-facing
+  contracts as the native backend
 - Optique only where a TypeScript command parser is useful, such as a browser
   command palette, scripted demo commands, or a web-based CLI-like input
 
@@ -302,7 +306,7 @@ schema source in editor
 -> schema_parser
 -> sqlite_schema
 -> sqlite_schema_sqlgen
--> sqlite_runner using WASM-compatible SQLite binding
+-> sqlite_runner using a WASM backend
 -> query_parser / resolver / sqlite_plan / sqlite_sqlgen
 -> execute query in browser
 -> render result rows
@@ -321,7 +325,9 @@ replacement:
 Do not start the browser demo until:
 
 - `sqlite-runner` can apply an initial schema
-- the selected SQLite binding works in the target WASM environment
+- the native runner backend has proven the runner contract
+- a WASM runner backend can open a database and execute the same smoke tests in
+  the target browser/WASM environment
 - SELECT execution and result shaping have tests outside the browser
 
 The browser demo should reuse engine and command-layer code where possible.
@@ -329,18 +335,20 @@ Avoid putting language parsing or SQL generation logic in TypeScript.
 
 ## Implementation Sequence
 
-1. Add `sqlite-runner` and validate `sqlite-rs-embedded` with schema apply
-   smoke tests.
+1. Add `sqlite-runner` and define binding-neutral runner traits for DDL and
+   metadata inserts.
 2. Add `gelite-commands` with `schema plan` orchestration over source text.
-3. Add `tools/gelite-cli` using `clap`.
-4. Implement `gelite schema plan`.
-5. Implement `gelite schema apply`.
-6. Add `query plan --schema`.
-7. Add catalog loading from SQLite metadata.
-8. Add SELECT execution to `sqlite-runner`.
-9. Add `query run --database`.
-10. Route `gelite repl` through the shared command/query implementation.
-11. Revisit WASM/browser demo once runner behavior is tested outside the
+3. Validate one native SQLite backend against the runner trait.
+4. Add `tools/gelite-cli` using `clap`.
+5. Implement `gelite schema plan`.
+6. Implement `gelite schema apply`.
+7. Add `query plan --schema`.
+8. Add catalog loading from SQLite metadata.
+9. Add SELECT execution to `sqlite-runner`.
+10. Add `query run --database`.
+11. Route `gelite repl` through the shared command/query implementation.
+12. Validate a WASM runner backend against the same smoke tests.
+13. Revisit WASM/browser demo once runner behavior is tested outside the
     browser.
 
 ## Current Non-Goals

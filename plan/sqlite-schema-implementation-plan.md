@@ -944,21 +944,29 @@ This test is the bridge to query execution without fixture catalogs.
 
 ## Open Decisions
 
-### SQLite driver
+### SQLite driver boundary
 
-The current direction is to evaluate
-`https://github.com/vlcn-io/sqlite-rs-embedded` before adding a `std` SQLite
-driver.
+The runtime goal is not only native SQLite access. Gelite should be able to run
+the same parser, resolver, planner, SQL generator, and runner-facing contracts
+in native, embedded, and WASM/browser environments.
 
-The repository describes the binding as `no_std` and WASM-compatible SQLite
-bindings that stay close to the SQLite C API. That matches the engine goal
-better than putting all execution behind a separate `std` runner crate, but it
-also means the project must wrap the unsafe and low-level API carefully.
+Do not make the public runner API depend on a single SQLite binding crate.
+`sqlite-rs-embedded` remains the first candidate because it is designed for
+`no_std` and WASM-compatible SQLite use, but it should be treated as a backend
+implementation detail until its native and WASM behavior is tested.
 
-`sqlite-schema` should still avoid depending directly on the SQLite binding
-until pure planning and rendering are tested. The execution wrapper should live
-in an engine runtime crate so planning remains inspectable without opening a
-connection.
+Other candidates may be used if they better satisfy the same constraints:
+
+- native in-memory database support for tests and CLI
+- browser/WASM execution path
+- prepared statements
+- integer, text, and null bind values
+- deterministic stepping and finalization behavior
+- usable error reporting
+
+`sqlite-schema`, `sqlite-schema-sqlgen`, `sqlite-plan`, and `sqlite-sqlgen`
+must not depend directly on any SQLite binding. The execution wrapper belongs
+in `sqlite-runner`.
 
 ### `sqlite-runner` crate
 
@@ -977,7 +985,31 @@ sqlite-runner
   -> schema
 ```
 
-The runner may depend on `sqlite-rs-embedded`. Pure planning crates must not.
+The first version of the crate should define binding-neutral runner contracts
+before choosing a concrete backend:
+
+```rust
+pub trait SQLiteRunner {
+    fn execute(&mut self, sql: &str) -> Result<(), SQLiteRunnerError>;
+
+    fn execute_with_values(
+        &mut self,
+        sql: &str,
+        values: &[sqlite_schema::SQLiteValuePlan],
+    ) -> Result<(), SQLiteRunnerError>;
+}
+```
+
+Concrete backends can then implement the trait:
+
+```text
+sqlite-runner/src/backend/native.rs
+sqlite-runner/src/backend/wasm.rs
+```
+
+The first concrete backend may use `sqlite-rs-embedded`,
+`powersync_sqlite_nostd`, or another binding if it satisfies the runner tests.
+The backend type should not leak into planning or command crates.
 
 The first runner target is schema application, not query execution:
 
@@ -991,19 +1023,18 @@ schema source
 -> SQLite database
 ```
 
-The runner should start with a narrow API:
+Schema apply should be implemented on top of the trait:
 
 ```rust
 pub fn apply_schema_statements(
-    connection: &mut SQLiteConnection,
+    runner: &mut impl SQLiteRunner,
     statements: &[sqlite_schema_sqlgen::RenderedSchemaStatement],
 ) -> Result<(), SQLiteRunnerError>
 ```
 
-`SQLiteConnection` may be a wrapper around the concrete `sqlite-rs-embedded`
-connection handle. Do not expose the low-level binding type from public Gelite
-APIs until the binding surface is understood. Keep the wrapper small enough
-that it can be replaced if the binding turns out to be unsuitable.
+This keeps command orchestration independent from the selected SQLite binding.
+The native backend may still expose an owned connection wrapper for tests and
+CLI setup, but `apply_schema_statements` should only need the trait.
 
 The first implementation should support only:
 
@@ -1018,11 +1049,22 @@ Do not add SELECT query execution, row decoding, result shaping, migrations, or
 catalog loading in the first runner step. Those require additional contracts
 around statement lifetimes and returned values.
 
-Because `sqlite-rs-embedded` stays close to the SQLite C API, the wrapper must
-make unsafe and lifetime-sensitive behavior explicit. The upstream README notes
-that statement values can be invalidated by stepping or finalizing the
-statement. Gelite code should not return borrowed SQLite values across a step
-or finalize boundary.
+If a backend stays close to the SQLite C API, the wrapper must make unsafe and
+lifetime-sensitive behavior explicit. Gelite code should not return borrowed
+SQLite values across a step or finalize boundary.
+
+Backend evaluation order:
+
+1. Check whether the candidate can be added through crates.io or a pinned git
+   dependency.
+2. Build a native in-memory smoke test.
+3. Execute DDL.
+4. Execute prepared metadata inserts with integer, text, and null values.
+5. Query SQLite metadata or rows back using owned Rust values.
+6. Check whether the same dependency can build for the intended WASM target.
+
+Do not implement CLI `schema apply` until at least the native backend satisfies
+steps 1-5. Do not start the browser demo until step 6 is proven.
 
 Initial runner tests:
 

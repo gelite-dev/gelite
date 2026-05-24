@@ -231,9 +231,9 @@ Anything beyond that should be added only after IR and lowering are stable.
 
 - HTTP: `axum`
 - Runtime: `tokio`
-- DB access: an engine-owned wrapper around `vlcn-io/sqlite-rs-embedded`, if
-  the binding proves suitable for prepared statements, bind values, stepping,
-  and metadata reads
+- DB access: binding-neutral runner traits with native and WASM SQLite
+  backends; `vlcn-io/sqlite-rs-embedded` remains the first candidate only if it
+  satisfies prepared statements, bind values, stepping, and metadata reads
 - Error reporting: `miette`
 - Logging/tracing: `tracing`
 - Config: environment-based plus local project config file
