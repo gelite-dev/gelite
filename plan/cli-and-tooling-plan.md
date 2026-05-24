@@ -191,6 +191,9 @@ Assert:
 
 Do not implement this command before `sqlite-runner` has tests for DDL,
 prepared metadata inserts, and full rendered initial schema application.
+The concrete native backend must also pass the runner backend verification
+gates in `plan/sqlite-schema-plan-implementation-plan.md`. The CLI should not
+be the first place where a SQLite binding is proven.
 
 ## Query Commands
 

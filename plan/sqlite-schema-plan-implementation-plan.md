@@ -1017,7 +1017,7 @@ The first runner target is schema application, not query execution:
 schema source
 -> schema-parser
 -> schema_model::SchemaCatalog
--> sqlite-schema-plan_model::plan_initial_schema
+-> sqlite-schema-plan::plan_initial_schema
 -> sqlite-schema-sqlgen::render_initial_schema
 -> sqlite-runner
 -> SQLite database
@@ -1065,6 +1065,118 @@ Backend evaluation order:
 
 Do not implement CLI `schema apply` until at least the native backend satisfies
 steps 1-5. Do not start the browser demo until step 6 is proven.
+
+### Runner backend verification plan
+
+The next runner step is a backend spike, not a query execution feature. The
+goal is to prove that one concrete SQLite binding can satisfy the existing
+`SQLiteRunner` trait without changing planner or SQL generator crates.
+
+The crate should keep the binding-neutral contract as the default build:
+
+```toml
+[features]
+default = []
+native = ["dep:<candidate-sqlite-crate>"]
+wasm = ["dep:<candidate-wasm-sqlite-crate>"]
+```
+
+The first backend module should be feature-gated:
+
+```text
+sqlite-runner/src/native.rs
+```
+
+`lib.rs` should expose it only behind the feature:
+
+```rust
+#[cfg(feature = "native")]
+pub mod native;
+```
+
+The first native type should own its SQLite connection:
+
+```rust
+pub struct NativeSQLiteRunner {
+    // concrete connection type stays private
+}
+
+impl NativeSQLiteRunner {
+    pub fn open_in_memory() -> Result<Self, SQLiteRunnerError>;
+}
+```
+
+The concrete connection type must not appear in `sqlite-schema-plan`,
+`sqlite-schema-sqlgen`, `sqlite-query-plan`, `sqlite-query-sqlgen`,
+`schema-parser`, `query-parser`, or command-layer public APIs.
+
+Candidate acceptance gates:
+
+1. `cargo test -p sqlite-runner --no-default-features --offline` still builds
+   and runs the binding-neutral tests.
+2. `cargo test -p sqlite-runner --features native --offline` can open an
+   in-memory database.
+3. The native backend can execute a raw DDL statement through
+   `SQLiteRunner::execute`.
+4. The native backend can execute a prepared insert through
+   `SQLiteRunner::execute_with_values`.
+5. The native backend binds `SQLiteValuePlan::Integer`,
+   `SQLiteValuePlan::Text`, and `SQLiteValuePlan::Null` without string
+   interpolation.
+6. The native backend can read back owned values for test inspection. Borrowed
+   SQLite values must not escape a step/finalize boundary.
+7. A rendered initial schema can be applied to an in-memory database, and the
+   metadata tables, object tables, and at least one catalog row can be verified.
+8. The dependency has a plausible WASM path. This can be either the same crate
+   building for the intended WASM target or a compatible backend that can
+   implement the same `SQLiteRunner` contract.
+
+If a candidate fails gates 2-7, do not adapt the planner or renderer to fit
+the candidate. Replace the backend candidate or add a narrower adapter inside
+`sqlite-runner`. A backend limitation must not leak into schema/query planning
+unless the limitation is part of SQLite itself.
+
+Native backend tests should be added in this order:
+
+1. `native_runner_can_open_in_memory_database`
+   - construct `NativeSQLiteRunner::open_in_memory()`
+   - assert the result is `Ok`
+
+2. `native_runner_can_execute_create_table_statement`
+   - open an in-memory database
+   - call `execute("CREATE TABLE post (id TEXT PRIMARY KEY)")`
+   - query `sqlite_master` or equivalent metadata using owned Rust values
+   - assert the `post` table exists
+
+3. `native_runner_can_execute_insert_statement_with_bind_values`
+   - create a small table
+   - call `execute_with_values` with integer, text, and null values
+   - read the row back
+   - assert each stored value matches the bound value
+
+4. `native_runner_can_apply_rendered_initial_schema`
+   - build `post_catalog()`
+   - call `plan_initial_schema`
+   - call `render_initial_schema`
+   - call `apply_schema_statements`
+   - assert `_engine_schema_versions`, `_engine_catalog_objects`,
+     `_engine_catalog_fields`, and `post` exist
+   - assert `_engine_catalog_objects` contains the `Post` row
+
+5. `native_runner_reports_execution_errors`
+   - execute invalid SQL
+   - assert a `SQLiteRunnerError` is returned
+   - keep the initial error shape binding-neutral
+
+Transaction support should not be part of the first native spike. Add it after
+the schema apply smoke test passes, because rollback behavior needs its own
+contract and tests.
+
+WASM verification should not block the first native smoke test, but it must
+happen before browser demo work starts. The WASM check should compile a minimal
+target that imports `sqlite-runner` with the WASM backend feature and runs the
+same contract through a browser-compatible SQLite database. If that requires a
+different backend crate, the `SQLiteRunner` trait remains the shared boundary.
 
 Initial runner tests:
 
