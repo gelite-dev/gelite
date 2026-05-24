@@ -154,9 +154,21 @@ fn render_initial_schema_outputs_deterministic_sql() {
         assert_eq!(first_statement.sql(), second_statement.sql());
     }
 
-    assert!(first[0].sql().starts_with("CREATE TABLE _engine_schema_versions"));
-    assert!(first[1].sql().starts_with("CREATE TABLE _engine_catalog_objects"));
-    assert!(first[2].sql().starts_with("CREATE TABLE _engine_catalog_fields"));
+    assert!(
+        first[0]
+            .sql()
+            .starts_with("CREATE TABLE _engine_schema_versions")
+    );
+    assert!(
+        first[1]
+            .sql()
+            .starts_with("CREATE TABLE _engine_catalog_objects")
+    );
+    assert!(
+        first[2]
+            .sql()
+            .starts_with("CREATE TABLE _engine_catalog_fields")
+    );
     assert!(first[3].sql().starts_with("CREATE TABLE user"));
     assert!(first[4].sql().starts_with("CREATE TABLE post"));
     assert_eq!(
@@ -167,7 +179,10 @@ fn render_initial_schema_outputs_deterministic_sql() {
         first[7].sql(),
         "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
-    assert_eq!(first[12].sql(), "CREATE INDEX post__author_id_idx ON post (author_id)");
+    assert_eq!(
+        first[12].sql(),
+        "CREATE INDEX post__author_id_idx ON post (author_id)"
+    );
 
     match &first[5] {
         RenderedSchemaStatement::Insert(insert) => {
