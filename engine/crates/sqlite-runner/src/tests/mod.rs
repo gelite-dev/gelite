@@ -83,3 +83,34 @@ fn apply_schema_statements_stops_after_insert_failure() {
 
     assert_eq!(runner.calls().len(), failing_call_index + 1);
 }
+
+#[test]
+fn apply_schema_statements_preserves_empty_statement_list() {
+    let statements = [];
+    let mut runner = RecordingRunner::default();
+
+    let result = apply_schema_statements(&mut runner, &statements);
+
+    assert_eq!(result, Ok(()));
+    assert!(runner.calls().is_empty());
+}
+
+#[test]
+fn apply_schema_statements_stops_after_execute_failure() {
+    let statements = rendered_post_schema_statements();
+
+    let failing_sql = statements
+        .iter()
+        .find_map(|statement| match statement {
+            RenderedSchemaStatement::Sql(sql) => Some(sql.clone()),
+            RenderedSchemaStatement::Insert(_) => None,
+        })
+        .expect("rendered schema should contain raw SQL statement");
+
+    let mut runner = RecordingRunner::fail_on_sql(failing_sql.clone());
+
+    let result = apply_schema_statements(&mut runner, &statements);
+
+    assert_eq!(result, Err(SQLiteRunnerError::ExecutionFailed));
+    assert_eq!(runner.calls(), &[RecordedCall::Execute(failing_sql)]);
+}
