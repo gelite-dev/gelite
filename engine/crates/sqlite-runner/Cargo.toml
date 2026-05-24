@@ -1,0 +1,11 @@
+[package]
+name = "sqlite-runner"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sqlite-schema-plan = { path = "../sqlite-schema-plan" }
+sqlite-schema-sqlgen = { path = "../sqlite-schema-sqlgen" }
+
+[dev-dependencies]
+schema-model = { path = "../schema-model" }

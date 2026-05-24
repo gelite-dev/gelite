@@ -280,6 +280,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlite-runner"
+version = "0.1.0"
+dependencies = [
+ "schema-model",
+ "sqlite-schema-plan",
+ "sqlite-schema-sqlgen",
+]
+
+[[package]]
 name = "sqlite-schema-plan"
 version = "0.1.0"
 dependencies = [
