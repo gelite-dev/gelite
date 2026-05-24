@@ -84,7 +84,7 @@ The project should split command orchestration from the binary entrypoint.
 Recommended layout:
 
 ```text
-engine/crates/gelite-commands
+tools/gelite-commands
 tools/gelite-cli
 tools/repl
 ```
@@ -96,16 +96,33 @@ tools/repl
 - process exit codes
 - writing command output to stdout/stderr
 
-`gelite-commands` owns:
+`tools/gelite-commands` owns:
 
 - schema command orchestration
 - query command orchestration
 - formatting command output into stable structs or text
 - shared command functions used by CLI and REPL meta commands
+- command-level tests that exercise engine pipelines without process I/O
 
-`gelite-commands` should depend on runner-facing traits, not on a concrete
-SQLite binding. Native CLI setup can construct a native runner backend and pass
-it to the command layer.
+`tools/gelite-commands` must not own:
+
+- argument parsing
+- process exit codes
+- direct stdout/stderr writes
+- interactive line editing
+- language parsing implementations
+- SQLite planning or SQL generation internals
+
+`tools/gelite-commands` should depend on engine crates and runner-facing
+traits, not on a concrete SQLite binding. Native CLI setup can construct a
+native runner backend and pass it to the command layer. This keeps command
+orchestration out of `engine/crates` while still allowing `tools/repl` and
+`tools/gelite-cli` to share the same command behavior.
+
+`tools/gelite-cli` must stay a binary entrypoint. It should translate process
+arguments into command structs, call `tools/gelite-commands`, print the result,
+and choose an exit code. It should not contain schema planning, SQL rendering,
+or runner-specific apply logic.
 
 The existing `tools/repl` can remain while the new CLI is introduced. Once
 `gelite repl` exists, `tools/repl` can either be replaced by the new binary or
@@ -340,7 +357,8 @@ Avoid putting language parsing or SQL generation logic in TypeScript.
 
 1. Add `sqlite-runner` and define binding-neutral runner traits for DDL and
    metadata inserts.
-2. Add `gelite-commands` with `schema plan` orchestration over source text.
+2. Add `tools/gelite-commands` with `schema plan` orchestration over source
+   text.
 3. Validate one native SQLite backend against the runner trait.
 4. Add `tools/gelite-cli` using `clap`.
 5. Implement `gelite schema plan`.

@@ -1,0 +1,10 @@
+[package]
+name = "gelite-commands"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+schema-parser = { path = "../../engine/crates/schema-parser" }
+sqlite-schema-plan = { path = "../../engine/crates/sqlite-schema-plan" }
+sqlite-schema-sqlgen = { path = "../../engine/crates/sqlite-schema-sqlgen" }
+sqlite-runner = { path = "../../engine/crates/sqlite-runner" }

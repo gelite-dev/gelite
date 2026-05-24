@@ -109,6 +109,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "gelite-cli"
+version = "0.1.0"
+dependencies = [
+ "gelite-commands",
+]
+
+[[package]]
+name = "gelite-commands"
+version = "0.1.0"
+dependencies = [
+ "schema-parser",
+ "sqlite-runner",
+ "sqlite-schema-plan",
+ "sqlite-schema-sqlgen",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

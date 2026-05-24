@@ -1,0 +1,11 @@
+[package]
+name = "gelite-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "gelite"
+path = "src/main.rs"
+
+[dependencies]
+gelite-commands = { path = "../gelite-commands" }

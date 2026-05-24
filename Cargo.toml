@@ -11,6 +11,8 @@ members = [
   "engine/crates/sqlite-query-sqlgen",
   "engine/crates/query-parser",
   "engine/crates/schema-parser",
+  "tools/gelite-commands",
+  "tools/gelite-cli",
   "tools/repl",
 ]
 
