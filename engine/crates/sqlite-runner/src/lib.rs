@@ -7,6 +7,9 @@
 //! schema plans without knowing whether the backend is native, embedded, or
 //! WASM-based.
 
+extern crate alloc;
+
+use alloc::string::String;
 use sqlite_schema_plan::SQLiteValuePlan;
 use sqlite_schema_sqlgen::RenderedSchemaStatement;
 
@@ -20,7 +23,21 @@ pub mod native;
 /// driver through public planner or command APIs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SQLiteRunnerError {
-    ExecutionFailed,
+    ExecutionFailed { message: String },
+}
+
+impl SQLiteRunnerError {
+    pub fn execution_failed(message: impl Into<String>) -> Self {
+        Self::ExecutionFailed {
+            message: message.into(),
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            Self::ExecutionFailed { message } => message,
+        }
+    }
 }
 
 /// Minimal SQLite execution contract used by schema application.

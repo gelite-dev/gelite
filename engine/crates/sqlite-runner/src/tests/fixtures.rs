@@ -43,7 +43,9 @@ impl SQLiteRunner for RecordingRunner {
         self.calls.push(RecordedCall::Execute(sql.to_string()));
 
         if self.should_fail_sql(sql) {
-            return Err(SQLiteRunnerError::ExecutionFailed);
+            return Err(SQLiteRunnerError::execution_failed(
+                "recorded runner failure",
+            ));
         }
 
         Ok(())
@@ -60,7 +62,9 @@ impl SQLiteRunner for RecordingRunner {
         ));
 
         if self.should_fail_sql(sql) {
-            return Err(SQLiteRunnerError::ExecutionFailed);
+            return Err(SQLiteRunnerError::execution_failed(
+                "recorded runner failure",
+            ));
         }
 
         Ok(())

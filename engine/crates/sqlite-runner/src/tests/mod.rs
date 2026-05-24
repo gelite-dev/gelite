@@ -72,7 +72,12 @@ fn apply_schema_statements_stops_after_insert_failure() {
 
     let result = apply_schema_statements(&mut runner, &statements);
 
-    assert_eq!(result, Err(SQLiteRunnerError::ExecutionFailed));
+    assert_eq!(
+        result,
+        Err(SQLiteRunnerError::execution_failed(
+            "recorded runner failure"
+        ))
+    );
 
     let failing_call_index = runner
         .calls()
@@ -113,6 +118,11 @@ fn apply_schema_statements_stops_after_execute_failure() {
 
     let result = apply_schema_statements(&mut runner, &statements);
 
-    assert_eq!(result, Err(SQLiteRunnerError::ExecutionFailed));
+    assert_eq!(
+        result,
+        Err(SQLiteRunnerError::execution_failed(
+            "recorded runner failure"
+        ))
+    );
     assert_eq!(runner.calls(), &[RecordedCall::Execute(failing_sql)]);
 }

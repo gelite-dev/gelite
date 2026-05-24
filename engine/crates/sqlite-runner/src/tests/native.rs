@@ -81,3 +81,15 @@ fn native_runner_can_apply_rendered_initial_schema() {
 
     assert_eq!(row, Some((1, "Post".to_string(), None)));
 }
+
+#[test]
+fn native_runner_reports_execution_errors() {
+    let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");
+
+    let error = runner
+        .execute("CREATE TABLE")
+        .expect_err("invalid SQL should fail");
+
+    assert!(error.message().contains("execute SQL"));
+    assert!(!error.message().is_empty());
+}
