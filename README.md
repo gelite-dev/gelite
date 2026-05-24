@@ -54,16 +54,20 @@ query text
 
 ## Current scope
 
-Gelite currently focuses on the read/query side of the language. The working
-path is `select` parsing, semantic resolution, SQLite planning, and SQL
-rendering.
+Gelite currently focuses on two narrow compiler paths:
 
-It does not yet execute SQL against SQLite. It does not yet implement schema
-parsing, migrations, insert/update/delete, a server, or a web UI.
+- query compilation: `select` parsing, semantic resolution, SQLite query
+  planning, and SQL rendering
+- initial schema planning: `.geli` parsing, SQLite schema planning, and DDL SQL
+  rendering
+
+It does not yet execute user queries against SQLite. It does not yet provide a
+schema apply CLI command, migration diffing, insert/update/delete, a server, or
+a web UI.
 
 That is intentional for this stage. The first useful milestone is to make the
-language pipeline correct and understandable before building runtime features
-on top of it.
+language and schema pipelines correct and understandable before building
+runtime features on top of them.
 
 ## Example
 
@@ -131,27 +135,35 @@ compiler step can be inspected independently.
 
 ## What is implemented
 
-- `schema`: semantic schema catalog with object types, scalar fields, links,
-  cardinality, deterministic references, and implicit `id` lookup.
+- `schema-model`: semantic schema catalog with object types, scalar fields,
+  links, cardinality, deterministic references, and implicit `id` lookup.
+- `schema-parser`: lexer and parser for the current `.geli` schema syntax.
 - `query-ast`: unresolved syntax tree for select queries.
 - `query-parser`: lexer and parser for the current select syntax, with source
   spans.
-- `resolver`: AST-to-IR semantic analysis for explicit select shapes, filters,
-  ordering, and link traversal.
-- `ir`: backend-independent Semantic IR for select queries.
-- `sqlite-plan`: SQLite-specific structured select plan.
-- `sqlite-sqlgen`: SQL renderer that emits bind placeholders.
+- `query-resolver`: AST-to-IR semantic analysis for explicit select shapes,
+  filters, ordering, and link traversal.
+- `query-ir`: backend-independent Semantic IR for select queries.
+- `sqlite-query-plan`: SQLite-specific structured select plan.
+- `sqlite-query-sqlgen`: SQL renderer for select plans that emits bind
+  placeholders.
+- `sqlite-schema-plan`: SQLite-specific initial schema plan.
+- `sqlite-schema-sqlgen`: SQL renderer for initial schema DDL and metadata
+  inserts.
+- `sqlite-runner`: runner-facing schema statement execution contract.
+- `tools/gelite-cli`: top-level command-line binary.
+- `tools/gelite-commands`: command orchestration shared by CLI-facing tools.
 - `tools/repl`: inspection tool for running the current pipeline on a query.
 
 ## What is not implemented yet
 
-- Schema source parser.
+- `gelite schema apply`.
+- `gelite query plan` and `gelite query run`.
 - Insert, update, and delete.
-- Migration planning and application.
-- SQLite execution runtime.
+- Migration diffing and migration history.
+- Query execution runtime.
 - Runtime nested result shaping.
 - HTTP API.
-- Full CLI workflows.
 - Web playground.
 
 ## Running the project
@@ -161,6 +173,79 @@ Run all tests:
 ```sh
 cargo test --workspace
 ```
+
+Run the current CLI:
+
+```sh
+cargo run -p gelite-cli -- --help
+```
+
+If the `gelite` binary is installed or built directly, the examples below can
+be written without the `cargo run -p gelite-cli --` prefix.
+
+### Current CLI commands
+
+The current CLI exposes two working command paths:
+
+```text
+gelite schema plan <schema.geli>
+gelite repl [--debug] [QUERY]...
+```
+
+`gelite schema plan <schema.geli>` parses a schema source file, builds the
+initial SQLite schema plan, renders SQL, and prints metadata bind values
+separately from SQL text. It does not open or mutate a database.
+
+Example schema file:
+
+```text
+type User {
+  required email: str
+}
+
+type Post {
+  required title: str
+  required link author: User
+}
+```
+
+Run schema planning:
+
+```sh
+cargo run -p gelite-cli -- schema plan path/to/blog.geli
+```
+
+`gelite repl` runs the current query inspection pipeline. With no query
+argument, it starts the interactive REPL. With a query argument, it parses and
+renders that one query.
+
+Open the CLI REPL:
+
+```sh
+cargo run -p gelite-cli -- repl
+```
+
+Run one query through the CLI:
+
+```sh
+cargo run -p gelite-cli -- repl 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
+```
+
+Print intermediate forms:
+
+```sh
+cargo run -p gelite-cli -- repl --debug 'select Post { title, author: { name } } filter .title = "Hello"'
+```
+
+The REPL currently uses a hard-coded schema with `User` and `Post`. The
+`--schema` and `--database` flags are accepted by the command parser but return
+an explicit unsupported-feature error until catalog loading and SQLite runtime
+execution are wired into the CLI.
+
+### Development REPL binary
+
+The older `tools/repl` binary is still available as a development entrypoint.
+It uses the same REPL implementation as `gelite repl`.
 
 Open the inspection REPL:
 
@@ -191,7 +276,7 @@ for compiler inspection, not as a database shell.
 - `spec/query.md`: MVP query language surface.
 - `spec/ir.md`: Semantic IR contract.
 - `spec/storage-sqlite.md`: SQLite storage mapping.
-- `spec/sqlite-plan.md`: SQLite planning contract.
+- `spec/sqlite-query-plan.md`: SQLite query planning contract.
 
 `plan/` explains the implementation order and design reasoning:
 
@@ -200,7 +285,9 @@ for compiler inspection, not as a database shell.
 - `plan/implementation-start-plan.md`
 - `plan/query-parser-implementation-plan.md`
 - `plan/select-path-traversal-plan.md`
-- `plan/sqlite-plan-implementation-plan.md`
+- `plan/sqlite-query-plan-implementation-plan.md`
+- `plan/sqlite-schema-plan-implementation-plan.md`
+- `plan/cli-and-tooling-plan.md`
 
 When these documents conflict, `spec/` wins for meaning and `plan/` wins for
 work sequencing.

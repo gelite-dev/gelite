@@ -53,14 +53,19 @@ query text
 
 ## 현재 범위
 
-Gelite는 지금 read/query 쪽에 집중합니다. 현재 작동하는 경로는 `select` parsing,
-semantic resolution, SQLite planning, SQL rendering입니다.
+Gelite는 현재 두 개의 좁은 compiler path에 집중합니다.
 
-아직 SQLite에 SQL을 실행하지 않습니다. schema parser, migration,
-insert/update/delete, server, web UI도 아직 없습니다.
+- query compilation: `select` parsing, semantic resolution, SQLite query
+  planning, SQL rendering
+- initial schema planning: `.geli` parsing, SQLite schema planning, DDL SQL
+  rendering
 
-이건 현재 단계의 의도입니다. runtime feature를 올리기 전에 language pipeline이
-정확하고 이해 가능한지 먼저 검증하는 것이 첫 번째 유효한 milestone입니다.
+아직 user query를 SQLite에 실행하지 않습니다. `schema apply` CLI command,
+migration diffing, insert/update/delete, server, web UI도 아직 없습니다.
+
+이건 현재 단계의 의도입니다. runtime feature를 올리기 전에 language pipeline과
+schema pipeline이 정확하고 이해 가능한지 먼저 검증하는 것이 첫 번째 유효한
+milestone입니다.
 
 ## 예시
 
@@ -127,26 +132,34 @@ LIMIT 10
 
 ## 구현된 것
 
-- `schema`: object type, scalar field, link, cardinality, deterministic
+- `schema-model`: object type, scalar field, link, cardinality, deterministic
   reference, implicit `id` lookup을 가진 semantic schema catalog.
+- `schema-parser`: 현재 `.geli` schema syntax용 lexer/parser.
 - `query-ast`: select query용 unresolved syntax tree.
 - `query-parser`: 현재 select syntax용 lexer/parser와 source span.
-- `resolver`: explicit select shape, filter, ordering, link traversal을 위한
-  AST-to-IR semantic analysis.
-- `ir`: select query용 backend-independent Semantic IR.
-- `sqlite-plan`: SQLite-specific structured select plan.
-- `sqlite-sqlgen`: bind placeholder를 사용하는 SQL renderer.
+- `query-resolver`: explicit select shape, filter, ordering, link traversal을
+  위한 AST-to-IR semantic analysis.
+- `query-ir`: select query용 backend-independent Semantic IR.
+- `sqlite-query-plan`: SQLite-specific structured select plan.
+- `sqlite-query-sqlgen`: select plan을 bind placeholder 기반 SQL로 렌더링하는
+  SQL renderer.
+- `sqlite-schema-plan`: SQLite-specific initial schema plan.
+- `sqlite-schema-sqlgen`: initial schema DDL과 metadata insert를 렌더링하는 SQL
+  renderer.
+- `sqlite-runner`: schema statement execution을 위한 runner-facing contract.
+- `tools/gelite-cli`: top-level command-line binary.
+- `tools/gelite-commands`: CLI-facing tool들이 공유하는 command orchestration.
 - `tools/repl`: 현재 pipeline을 query 하나로 확인하는 inspection tool.
 
 ## 아직 구현되지 않은 것
 
-- Schema source parser.
+- `gelite schema apply`.
+- `gelite query plan`, `gelite query run`.
 - Insert, update, delete.
-- Migration planning/application.
-- SQLite execution runtime.
+- Migration diffing과 migration history.
+- Query execution runtime.
 - Runtime nested result shaping.
 - HTTP API.
-- Full CLI workflow.
 - Web playground.
 
 ## 실행 방법
@@ -156,6 +169,78 @@ LIMIT 10
 ```sh
 cargo test --workspace
 ```
+
+현재 CLI 실행:
+
+```sh
+cargo run -p gelite-cli -- --help
+```
+
+`gelite` binary를 직접 설치하거나 빌드한 경우에는 아래 예시에서
+`cargo run -p gelite-cli --` prefix를 빼고 사용할 수 있습니다.
+
+### 현재 사용 가능한 CLI 명령
+
+현재 CLI에서 실제로 동작하는 명령 경로는 두 가지입니다.
+
+```text
+gelite schema plan <schema.geli>
+gelite repl [--debug] [QUERY]...
+```
+
+`gelite schema plan <schema.geli>`는 schema source file을 parse하고, initial
+SQLite schema plan을 만들고, SQL과 metadata bind value를 출력합니다. 이 명령은
+database를 열거나 변경하지 않습니다.
+
+예시 schema file:
+
+```text
+type User {
+  required email: str
+}
+
+type Post {
+  required title: str
+  required link author: User
+}
+```
+
+schema planning 실행:
+
+```sh
+cargo run -p gelite-cli -- schema plan path/to/blog.geli
+```
+
+`gelite repl`은 현재 query inspection pipeline을 실행합니다. query 인자가 없으면
+interactive REPL을 시작하고, query 인자가 있으면 그 query 하나를 parse하고 SQL로
+렌더링합니다.
+
+CLI REPL 실행:
+
+```sh
+cargo run -p gelite-cli -- repl
+```
+
+query 하나 실행:
+
+```sh
+cargo run -p gelite-cli -- repl 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
+```
+
+중간 표현 출력:
+
+```sh
+cargo run -p gelite-cli -- repl --debug 'select Post { title, author: { name } } filter .title = "Hello"'
+```
+
+REPL은 현재 `User`와 `Post`가 있는 hard-coded schema를 사용합니다. `--schema`와
+`--database` flag는 command parser에는 있지만, catalog loading과 SQLite runtime
+execution이 CLI에 연결될 때까지 명시적인 unsupported-feature error를 반환합니다.
+
+### 개발용 REPL binary
+
+기존 `tools/repl` binary도 개발용 entrypoint로 남아 있습니다. 이 binary는
+`gelite repl`과 같은 REPL 구현을 사용합니다.
 
 inspection REPL 실행:
 
@@ -186,7 +271,7 @@ shell이 아니라 compiler inspection tool입니다.
 - `spec/query.md`: MVP query language surface.
 - `spec/ir.md`: Semantic IR contract.
 - `spec/storage-sqlite.md`: SQLite storage mapping.
-- `spec/sqlite-plan.md`: SQLite planning contract.
+- `spec/sqlite-query-plan.md`: SQLite query planning contract.
 
 `plan/`은 구현 순서와 설계 근거를 설명합니다.
 
@@ -195,7 +280,9 @@ shell이 아니라 compiler inspection tool입니다.
 - `plan/implementation-start-plan.md`
 - `plan/query-parser-implementation-plan.md`
 - `plan/select-path-traversal-plan.md`
-- `plan/sqlite-plan-implementation-plan.md`
+- `plan/sqlite-query-plan-implementation-plan.md`
+- `plan/sqlite-schema-plan-implementation-plan.md`
+- `plan/cli-and-tooling-plan.md`
 
 문서가 충돌하면 의미는 `spec/`, 작업 순서는 `plan/`을 우선합니다.
 
