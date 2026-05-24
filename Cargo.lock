@@ -273,6 +273,7 @@ dependencies = [
 name = "sqlite-schema-sqlgen"
 version = "0.1.0"
 dependencies = [
+ "schema",
  "sqlite-schema",
 ]
 
