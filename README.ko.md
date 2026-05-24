@@ -185,7 +185,7 @@ cargo run -p gelite-cli -- --help
 
 ```text
 gelite schema plan <schema.geli>
-gelite repl [--debug] [QUERY]...
+gelite repl --schema <schema.geli> [--debug] [QUERY]...
 ```
 
 `gelite schema plan <schema.geli>`는 schema source file을 parse하고, initial
@@ -211,36 +211,39 @@ schema planning 실행:
 cargo run -p gelite-cli -- schema plan path/to/blog.geli
 ```
 
-`gelite repl`은 현재 query inspection pipeline을 실행합니다. query 인자가 없으면
+`gelite repl --schema <schema.geli>`는 schema source file에서 parse한 catalog를
+기준으로 현재 query inspection pipeline을 실행합니다. query 인자가 없으면
 interactive REPL을 시작하고, query 인자가 있으면 그 query 하나를 parse하고 SQL로
 렌더링합니다.
 
 CLI REPL 실행:
 
 ```sh
-cargo run -p gelite-cli -- repl
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli
 ```
 
 query 하나 실행:
 
 ```sh
-cargo run -p gelite-cli -- repl 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
 ```
 
 중간 표현 출력:
 
 ```sh
-cargo run -p gelite-cli -- repl --debug 'select Post { title, author: { name } } filter .title = "Hello"'
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli --debug 'select Post { title, author: { name } } filter .title = "Hello"'
 ```
 
-REPL은 현재 `User`와 `Post`가 있는 hard-coded schema를 사용합니다. `--schema`와
-`--database` flag는 command parser에는 있지만, catalog loading과 SQLite runtime
-execution이 CLI에 연결될 때까지 명시적인 unsupported-feature error를 반환합니다.
+CLI REPL은 숨겨진 default catalog를 사용하지 않습니다. `--schema`나 `--database`
+가 없으면 사용 안내 성격의 error를 내고 종료합니다. `--database` flag는 command
+parser에는 있지만, SQLite metadata에서 catalog를 load하는 기능이 구현될 때까지
+명시적인 unsupported-feature error를 반환합니다.
 
 ### 개발용 REPL binary
 
 기존 `tools/repl` binary도 개발용 entrypoint로 남아 있습니다. 이 binary는
-`gelite repl`과 같은 REPL 구현을 사용합니다.
+`gelite repl`과 같은 REPL 구현을 사용하지만, 빠른 compiler inspection을 위해
+hard-coded `User`/`Post` development catalog를 유지합니다.
 
 inspection REPL 실행:
 

@@ -76,19 +76,28 @@ fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
 }
 
 fn run_repl_command(command: ReplCommand) -> Result<(), String> {
-    if let Some(schema) = command.schema {
-        return Err(format!(
-            "gelite repl does not support schema files yet: {}",
-            schema.display()
-        ));
-    }
-
-    if let Some(database) = command.database {
-        return Err(format!(
-            "gelite repl does not support database files yet: {}",
-            database.display()
-        ));
-    }
+    let catalog = match (command.schema, command.database) {
+        (Some(_), Some(_)) => {
+            return Err("gelite repl accepts either --schema or --database, not both".to_string());
+        }
+        (Some(schema), None) => {
+            let source = fs::read_to_string(&schema)
+                .map_err(|error| format!("failed to read {}: {error}", schema.display()))?;
+            schema_parser::parse_schema(&source).map_err(|error| format!("{error:#?}"))?
+        }
+        (None, Some(database)) => {
+            return Err(format!(
+                "gelite repl cannot load catalogs from databases yet: {}. Use --schema <schema.geli> for compile-only query inspection.",
+                database.display()
+            ));
+        }
+        (None, None) => {
+            return Err(
+                "gelite repl needs a catalog. Pass --schema <schema.geli> for compile-only query inspection. Database catalog loading through --database <app.db> is not implemented yet."
+                    .to_string(),
+            );
+        }
+    };
 
     let query = if command.query.is_empty() {
         None
@@ -96,9 +105,12 @@ fn run_repl_command(command: ReplCommand) -> Result<(), String> {
         Some(command.query.join(" "))
     };
 
-    repl::run(repl::ReplOptions {
-        debug: command.debug,
-        query,
-    })
+    repl::run_with_catalog(
+        &catalog,
+        repl::ReplOptions {
+            debug: command.debug,
+            query,
+        },
+    )
     .map_err(|()| "gelite repl failed".to_string())
 }

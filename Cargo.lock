@@ -211,6 +211,7 @@ dependencies = [
  "clap",
  "gelite-commands",
  "repl",
+ "schema-parser",
 ]
 
 [[package]]

@@ -189,7 +189,7 @@ The current CLI exposes two working command paths:
 
 ```text
 gelite schema plan <schema.geli>
-gelite repl [--debug] [QUERY]...
+gelite repl --schema <schema.geli> [--debug] [QUERY]...
 ```
 
 `gelite schema plan <schema.geli>` parses a schema source file, builds the
@@ -215,37 +215,40 @@ Run schema planning:
 cargo run -p gelite-cli -- schema plan path/to/blog.geli
 ```
 
-`gelite repl` runs the current query inspection pipeline. With no query
-argument, it starts the interactive REPL. With a query argument, it parses and
-renders that one query.
+`gelite repl --schema <schema.geli>` runs the current query inspection pipeline
+against a catalog parsed from a schema source file. With no query argument, it
+starts the interactive REPL. With a query argument, it parses and renders that
+one query.
 
 Open the CLI REPL:
 
 ```sh
-cargo run -p gelite-cli -- repl
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli
 ```
 
 Run one query through the CLI:
 
 ```sh
-cargo run -p gelite-cli -- repl 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
 ```
 
 Print intermediate forms:
 
 ```sh
-cargo run -p gelite-cli -- repl --debug 'select Post { title, author: { name } } filter .title = "Hello"'
+cargo run -p gelite-cli -- repl --schema path/to/blog.geli --debug 'select Post { title, author: { name } } filter .title = "Hello"'
 ```
 
-The REPL currently uses a hard-coded schema with `User` and `Post`. The
-`--schema` and `--database` flags are accepted by the command parser but return
-an explicit unsupported-feature error until catalog loading and SQLite runtime
-execution are wired into the CLI.
+The CLI REPL does not use a hidden default catalog. If neither `--schema` nor
+`--database` is provided, the command exits with a usage-oriented error.
+`--database` is accepted by the command parser but returns an explicit
+unsupported-feature error until catalog loading from SQLite metadata is
+implemented.
 
 ### Development REPL binary
 
 The older `tools/repl` binary is still available as a development entrypoint.
-It uses the same REPL implementation as `gelite repl`.
+It uses the same REPL implementation as `gelite repl`, but it still provides a
+hard-coded `User`/`Post` development catalog for quick compiler inspection.
 
 Open the inspection REPL:
 

@@ -13,11 +13,15 @@ pub struct ReplOptions {
 }
 
 pub fn run(options: ReplOptions) -> Result<(), ()> {
-    let catalog = build_schema();
+    let catalog = build_development_schema();
 
+    run_with_catalog(&catalog, options)
+}
+
+pub fn run_with_catalog(catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
     match options.query {
-        Some(query_text) => inspect_query(&catalog, &query_text, options.debug),
-        None => run_repl(&catalog, options.debug),
+        Some(query_text) => inspect_query(catalog, &query_text, options.debug),
+        None => run_repl(catalog, options.debug),
     }
 }
 
@@ -186,7 +190,7 @@ fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Resu
     }
 }
 
-fn build_schema() -> SchemaCatalog {
+fn build_development_schema() -> SchemaCatalog {
     SchemaCatalog::try_new(vec![
         ObjectType::new(
             "User",
