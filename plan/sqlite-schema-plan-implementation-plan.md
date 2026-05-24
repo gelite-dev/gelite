@@ -1077,9 +1077,20 @@ The crate should keep the binding-neutral contract as the default build:
 ```toml
 [features]
 default = []
-native = ["dep:<candidate-sqlite-crate>"]
-wasm = ["dep:<candidate-wasm-sqlite-crate>"]
+native = ["sqlite-nostd-static"]
+wasm = ["sqlite-nostd-extension"]
+
+sqlite-nostd-static = [
+    "dep:powersync_sqlite_nostd",
+    "powersync_sqlite_nostd/static",
+]
+sqlite-nostd-extension = ["dep:powersync_sqlite_nostd"]
 ```
+
+The native feature uses the direct `sqlite3_*` symbols and links the host
+SQLite library. The WASM feature intentionally does not enable
+`powersync_sqlite_nostd/static`; it checks the extension-mode build where calls
+are dispatched through SQLite's API table.
 
 The first backend module should be feature-gated:
 
@@ -1177,6 +1188,21 @@ happen before browser demo work starts. The WASM check should compile a minimal
 target that imports `sqlite-runner` with the WASM backend feature and runs the
 same contract through a browser-compatible SQLite database. If that requires a
 different backend crate, the `SQLiteRunner` trait remains the shared boundary.
+
+Current WASM compile gate:
+
+```text
+rustup target add wasm32-unknown-unknown
+cargo check -p sqlite-runner \
+  --target wasm32-unknown-unknown \
+  --no-default-features \
+  --features wasm
+```
+
+This gate currently passes with the placeholder `WasmSQLiteRunner`. It proves
+only that `sqlite-runner` can compile for `wasm32-unknown-unknown` without the
+native SQLite link step. It does not prove that a browser SQLite database can
+open or execute SQL yet.
 
 Initial runner tests:
 
