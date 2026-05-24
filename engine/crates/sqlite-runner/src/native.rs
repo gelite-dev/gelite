@@ -1,8 +1,9 @@
 extern crate alloc;
 
 use alloc::ffi::CString;
+use alloc::string::{String, ToString};
 
-use powersync_sqlite_nostd::{Connection, Destructor, ManagedConnection, ResultCode};
+use powersync_sqlite_nostd::{ColumnType, Connection, Destructor, ManagedConnection, ResultCode};
 use sqlite_schema_plan::SQLiteValuePlan;
 
 use crate::{SQLiteRunner, SQLiteRunnerError};
@@ -38,6 +39,42 @@ impl NativeSQLiteRunner {
         match statement.step() {
             Ok(ResultCode::ROW) => Ok(true),
             Ok(ResultCode::DONE) => Ok(false),
+            Ok(_) | Err(_) => Err(SQLiteRunnerError::ExecutionFailed),
+        }
+    }
+
+    /// Reads the first row as owned values for native backend smoke tests.
+    ///
+    /// This is not the query execution API. It exists only to verify that the
+    /// selected SQLite binding stores values through `SQLiteRunner` correctly.
+    pub fn first_three_column_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<(i64, String, Option<i64>)>, SQLiteRunnerError> {
+        let statement = self
+            .connection
+            .prepare_v2(sql)
+            .map_err(|_| SQLiteRunnerError::ExecutionFailed)?;
+
+        match statement.step() {
+            Ok(ResultCode::ROW) => {
+                let first = statement.column_int64(0);
+                let second = statement
+                    .column_text(1)
+                    .map_err(|_| SQLiteRunnerError::ExecutionFailed)?
+                    .to_string();
+                let third = match statement
+                    .column_type(2)
+                    .map_err(|_| SQLiteRunnerError::ExecutionFailed)?
+                {
+                    ColumnType::Null => None,
+                    ColumnType::Integer => Some(statement.column_int64(2)),
+                    _ => return Err(SQLiteRunnerError::ExecutionFailed),
+                };
+
+                Ok(Some((first, second, third)))
+            }
+            Ok(ResultCode::DONE) => Ok(None),
             Ok(_) | Err(_) => Err(SQLiteRunnerError::ExecutionFailed),
         }
     }
