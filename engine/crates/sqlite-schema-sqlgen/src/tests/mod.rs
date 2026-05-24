@@ -7,7 +7,8 @@ use schema::{
     SingleCardinality,
 };
 use sqlite_schema::{
-    SQLiteIndexPlan, SQLiteValuePlan, plan_catalog_object_inserts, plan_initial_schema,
+    SQLiteIndexPlan, SQLiteValuePlan, plan_catalog_field_inserts, plan_catalog_object_inserts,
+    plan_initial_schema,
 };
 
 #[test]
@@ -83,6 +84,34 @@ fn render_catalog_object_insert_uses_placeholders() {
         [
             SQLiteValuePlan::Integer(1),
             SQLiteValuePlan::Text("User".into()),
+        ]
+    )
+}
+
+#[test]
+fn render_catalog_field_insert_uses_placeholders_and_preserves_null_values() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new("User", vec![])]).unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let inserts = plan_catalog_field_inserts(&plan);
+    let rendered = render_insert(&inserts[0]);
+
+    assert_eq!(
+        rendered.sql(),
+        "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    assert_eq!(
+        rendered.values(),
+        [
+            SQLiteValuePlan::Integer(1),
+            SQLiteValuePlan::Integer(1),
+            SQLiteValuePlan::Text("id".into()),
+            SQLiteValuePlan::Text("scalar".into()),
+            SQLiteValuePlan::Text("required".into()),
+            SQLiteValuePlan::Text("uuid".into()),
+            SQLiteValuePlan::Null,
+            SQLiteValuePlan::Integer(1),
+            SQLiteValuePlan::Integer(0),
         ]
     )
 }
