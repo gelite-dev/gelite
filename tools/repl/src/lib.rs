@@ -7,8 +7,6 @@ use schema_model::{
 use sqlite_query_sqlgen::SQLiteSelectStatement;
 use sqlite_runner::{SQLiteCellValue, SQLiteQueryResult};
 
-const DEFAULT_QUERY: &str = r#"select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10 offset 0"#;
-
 pub struct ReplOptions {
     pub debug: bool,
     pub query: Option<String>,
@@ -80,7 +78,6 @@ impl ReplRuntime<'_> {
 fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>) -> Result<(), ()> {
     println!("gelite repl");
     println!("Type a select query, or :quit / :exit to leave.");
-    println!("Press Enter on an empty line to run the default query.");
     println!("Use balanced braces for multiline input.");
     println!("Press Ctrl-C twice in a row to leave.");
     if debug {
@@ -107,11 +104,6 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>)
 
                 if pending.is_empty() && is_exit_command(trimmed) {
                     break;
-                }
-
-                if pending.is_empty() && trimmed.is_empty() {
-                    let _ = runtime.inspect_query(catalog, DEFAULT_QUERY, debug);
-                    continue;
                 }
 
                 if !pending.is_empty() {
