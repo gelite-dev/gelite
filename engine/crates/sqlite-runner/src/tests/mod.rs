@@ -5,10 +5,10 @@ mod fixtures;
 use alloc::string::ToString;
 use alloc::vec;
 use sqlite_schema_plan::{SQLiteValuePlan, plan_initial_schema};
-use sqlite_schema_sqlgen::render_initial_schema;
+use sqlite_schema_sqlgen::{RenderedSchemaStatement, render_initial_schema};
 
-use crate::apply_schema_statements;
-use fixtures::{RecordedCall, RecordingRunner, post_catalog};
+use crate::{SQLiteRunnerError, apply_schema_statements};
+use fixtures::{RecordedCall, RecordingRunner, post_catalog, rendered_post_schema_statements};
 
 #[test]
 fn apply_schema_statements_executes_sql_and_insert_statements_in_order() {
@@ -52,4 +52,34 @@ fn apply_schema_statements_executes_sql_and_insert_statements_in_order() {
                     SQLiteValuePlan::Integer(0),
                 ]
     )));
+}
+
+#[test]
+fn apply_schema_statements_stops_after_insert_failure() {
+    let statements = rendered_post_schema_statements();
+
+    let failing_sql = statements
+        .iter()
+        .find_map(|statement| match statement {
+            RenderedSchemaStatement::Insert(insert) => Some(insert.sql().to_string()),
+            RenderedSchemaStatement::Sql(_) => None,
+        })
+        .expect("rendered schema should contain metadata insert");
+
+    let mut runner = RecordingRunner::fail_on_sql(failing_sql.clone());
+
+    let result = apply_schema_statements(&mut runner, &statements);
+
+    assert_eq!(result, Err(SQLiteRunnerError::ExecutionFailed));
+
+    let failing_call_index = runner
+        .calls()
+        .iter()
+        .position(|call| match call {
+            RecordedCall::ExecuteWithValues(sql, _) => sql == &failing_sql,
+            RecordedCall::Execute(_) => false,
+        })
+        .expect("failing insert should be attempted");
+
+    assert_eq!(runner.calls().len(), failing_call_index + 1);
 }

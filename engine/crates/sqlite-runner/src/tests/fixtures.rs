@@ -4,7 +4,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use schema_model::{Field, ObjectType, ScalarField, ScalarType, SchemaCatalog, SingleCardinality};
-use sqlite_schema_plan::SQLiteValuePlan;
+use sqlite_schema_plan::{SQLiteValuePlan, plan_initial_schema};
+use sqlite_schema_sqlgen::{RenderedSchemaStatement, render_initial_schema};
 
 use crate::{SQLiteRunner, SQLiteRunnerError};
 
@@ -17,17 +18,34 @@ pub enum RecordedCall {
 #[derive(Default)]
 pub struct RecordingRunner {
     calls: Vec<RecordedCall>,
+    fails_on_sql: Option<String>,
 }
 
 impl RecordingRunner {
     pub fn calls(&self) -> &[RecordedCall] {
         &self.calls
     }
+
+    pub fn fail_on_sql(sql: impl Into<String>) -> Self {
+        Self {
+            calls: Vec::new(),
+            fails_on_sql: Some(sql.into()),
+        }
+    }
+
+    fn should_fail_sql(&self, sql: &str) -> bool {
+        self.fails_on_sql.as_deref() == Some(sql)
+    }
 }
 
 impl SQLiteRunner for RecordingRunner {
     fn execute(&mut self, sql: &str) -> Result<(), SQLiteRunnerError> {
         self.calls.push(RecordedCall::Execute(sql.to_string()));
+
+        if self.should_fail_sql(sql) {
+            return Err(SQLiteRunnerError::ExecutionFailed);
+        }
+
         Ok(())
     }
 
@@ -40,6 +58,11 @@ impl SQLiteRunner for RecordingRunner {
             sql.to_string(),
             values.to_vec(),
         ));
+
+        if self.should_fail_sql(sql) {
+            return Err(SQLiteRunnerError::ExecutionFailed);
+        }
+
         Ok(())
     }
 }
@@ -54,4 +77,10 @@ pub fn post_catalog() -> SchemaCatalog {
         ))],
     )])
     .expect("test catalog should be valid")
+}
+
+pub fn rendered_post_schema_statements() -> Vec<RenderedSchemaStatement> {
+    let catalog = post_catalog();
+    let plan = plan_initial_schema(&catalog);
+    render_initial_schema(&plan)
 }
