@@ -1,6 +1,9 @@
 extern crate alloc;
 
-use crate::{render_create_index, render_create_table, render_insert};
+use crate::{
+    RenderedSchemaStatement, render_create_index, render_create_table, render_initial_schema,
+    render_insert,
+};
 use alloc::vec;
 use schema::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
@@ -114,4 +117,74 @@ fn render_catalog_field_insert_uses_placeholders_and_preserves_null_values() {
             SQLiteValuePlan::Integer(0),
         ]
     )
+}
+
+#[test]
+fn render_initial_schema_outputs_deterministic_sql() {
+    let catalog = SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![Field::Scalar(ScalarField::new(
+                "email",
+                ScalarType::Str,
+                SingleCardinality::Required,
+            ))],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "title",
+                    ScalarType::Str,
+                    SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::new("author", "User", Cardinality::Required)),
+            ],
+        ),
+    ])
+    .unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let first = render_initial_schema(&plan);
+    let second = render_initial_schema(&plan);
+
+    assert_eq!(first.len(), second.len());
+    assert_eq!(first.len(), 13);
+    for (first_statement, second_statement) in first.iter().zip(second.iter()) {
+        assert_eq!(first_statement.sql(), second_statement.sql());
+    }
+
+    assert!(first[0].sql().starts_with("CREATE TABLE _engine_schema_versions"));
+    assert!(first[1].sql().starts_with("CREATE TABLE _engine_catalog_objects"));
+    assert!(first[2].sql().starts_with("CREATE TABLE _engine_catalog_fields"));
+    assert!(first[3].sql().starts_with("CREATE TABLE user"));
+    assert!(first[4].sql().starts_with("CREATE TABLE post"));
+    assert_eq!(
+        first[5].sql(),
+        "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+    );
+    assert_eq!(
+        first[7].sql(),
+        "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    assert_eq!(first[12].sql(), "CREATE INDEX post__author_id_idx ON post (author_id)");
+
+    match &first[5] {
+        RenderedSchemaStatement::Insert(insert) => {
+            assert_eq!(
+                insert.values(),
+                [
+                    SQLiteValuePlan::Integer(1),
+                    SQLiteValuePlan::Text("User".into()),
+                ]
+            );
+        }
+        RenderedSchemaStatement::Sql(_) => panic!("catalog object row should render as insert"),
+    }
+    match &first[7] {
+        RenderedSchemaStatement::Insert(insert) => {
+            assert_eq!(insert.values()[6], SQLiteValuePlan::Null);
+        }
+        RenderedSchemaStatement::Sql(_) => panic!("catalog field row should render as insert"),
+    }
 }

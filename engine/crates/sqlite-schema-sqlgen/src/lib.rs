@@ -15,7 +15,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_schema::{
     SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLiteIndexPlan, SQLiteInsertPlan,
-    SQLitePrimaryKeyPlan, SQLiteTablePlan, SQLiteValuePlan,
+    SQLitePrimaryKeyPlan, SQLiteSchemaPlan, SQLiteTablePlan, SQLiteValuePlan,
+    plan_catalog_field_inserts, plan_catalog_object_inserts,
 };
 
 pub fn render_create_table(table: &SQLiteTablePlan) -> String {
@@ -124,6 +125,63 @@ pub fn render_insert(insert: &SQLiteInsertPlan) -> RenderedInsert {
         ),
         values: insert.values().to_vec(),
     }
+}
+
+pub enum RenderedSchemaStatement {
+    Sql(String),
+    Insert(RenderedInsert),
+}
+
+impl RenderedSchemaStatement {
+    pub fn sql(&self) -> &str {
+        match self {
+            Self::Sql(sql) => sql,
+            Self::Insert(insert) => insert.sql(),
+        }
+    }
+}
+
+pub fn render_initial_schema(plan: &SQLiteSchemaPlan) -> Vec<RenderedSchemaStatement> {
+    let mut statements = Vec::new();
+
+    statements.extend(
+        plan.metadata_tables()
+            .iter()
+            .map(render_create_table)
+            .map(RenderedSchemaStatement::Sql),
+    );
+    statements.extend(
+        plan.object_tables()
+            .iter()
+            .map(render_create_table)
+            .map(RenderedSchemaStatement::Sql),
+    );
+    statements.extend(
+        plan.relation_tables()
+            .iter()
+            .map(render_create_table)
+            .map(RenderedSchemaStatement::Sql),
+    );
+    statements.extend(
+        plan_catalog_object_inserts(plan)
+            .iter()
+            .map(render_insert)
+            .map(RenderedSchemaStatement::Insert),
+    );
+    statements.extend(
+        plan_catalog_field_inserts(plan)
+            .iter()
+            .map(render_insert)
+            .map(RenderedSchemaStatement::Insert),
+    );
+    statements.extend(
+        plan.indexes()
+            .iter()
+            .map(render_create_index)
+            .map(RenderedSchemaStatement::Sql),
+    );
+
+    statements
 }
 
 #[cfg(test)]
