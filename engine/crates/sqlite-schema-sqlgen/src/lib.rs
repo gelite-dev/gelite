@@ -14,7 +14,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_schema::{
-    SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLitePrimaryKeyPlan, SQLiteTablePlan,
+    SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLiteIndexPlan, SQLitePrimaryKeyPlan,
+    SQLiteTablePlan,
 };
 
 pub fn render_create_table(table: &SQLiteTablePlan) -> String {
@@ -72,6 +73,22 @@ fn render_foreign_key(foreign_key: &SQLiteForeignKeyPlan) -> String {
         foreign_key.column_name(),
         foreign_key.target_table(),
         foreign_key.target_column(),
+    )
+}
+
+pub fn render_create_index(index: &SQLiteIndexPlan) -> String {
+    let create = if index.is_unique() {
+        "CREATE UNIQUE INDEX"
+    } else {
+        "CREATE INDEX"
+    };
+
+    format!(
+        "{} {} ON {} ({})",
+        create,
+        index.name(),
+        index.table_name(),
+        index.column_names().join(", "),
     )
 }
 
