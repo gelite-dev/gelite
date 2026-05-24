@@ -66,13 +66,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ir"
-version = "0.1.0"
-dependencies = [
- "schema",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -157,11 +150,27 @@ name = "query-ast"
 version = "0.1.0"
 
 [[package]]
+name = "query-ir"
+version = "0.1.0"
+dependencies = [
+ "schema-model",
+]
+
+[[package]]
 name = "query-parser"
 version = "0.1.0"
 dependencies = [
  "logos",
  "query-ast",
+]
+
+[[package]]
+name = "query-resolver"
+version = "0.1.0"
+dependencies = [
+ "query-ast",
+ "query-ir",
+ "schema-model",
 ]
 
 [[package]]
@@ -204,23 +213,14 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 name = "repl"
 version = "0.1.0"
 dependencies = [
- "ir",
  "query-ast",
+ "query-ir",
  "query-parser",
- "resolver",
+ "query-resolver",
  "rustyline",
- "schema",
- "sqlite-plan",
- "sqlite-sqlgen",
-]
-
-[[package]]
-name = "resolver"
-version = "0.1.0"
-dependencies = [
- "ir",
- "query-ast",
- "schema",
+ "schema-model",
+ "sqlite-query-plan",
+ "sqlite-query-sqlgen",
 ]
 
 [[package]]
@@ -245,7 +245,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "schema"
+name = "schema-model"
 version = "0.1.0"
 
 [[package]]
@@ -253,7 +253,7 @@ name = "schema-parser"
 version = "0.1.0"
 dependencies = [
  "logos",
- "schema",
+ "schema-model",
 ]
 
 [[package]]
@@ -263,35 +263,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
-name = "sqlite-plan"
+name = "sqlite-query-plan"
 version = "0.1.0"
 dependencies = [
- "ir",
- "schema",
+ "query-ir",
+ "schema-model",
 ]
 
 [[package]]
-name = "sqlite-schema"
+name = "sqlite-query-sqlgen"
 version = "0.1.0"
 dependencies = [
- "schema",
+ "query-ir",
+ "schema-model",
+ "sqlite-query-plan",
+]
+
+[[package]]
+name = "sqlite-schema-plan"
+version = "0.1.0"
+dependencies = [
+ "schema-model",
 ]
 
 [[package]]
 name = "sqlite-schema-sqlgen"
 version = "0.1.0"
 dependencies = [
- "schema",
- "sqlite-schema",
-]
-
-[[package]]
-name = "sqlite-sqlgen"
-version = "0.1.0"
-dependencies = [
- "ir",
- "schema",
- "sqlite-plan",
+ "schema-model",
+ "sqlite-schema-plan",
 ]
 
 [[package]]

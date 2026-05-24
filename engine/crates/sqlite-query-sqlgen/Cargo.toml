@@ -1,10 +1,11 @@
 [package]
-name = "sqlite-schema-sqlgen"
+name = "sqlite-query-sqlgen"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-sqlite-schema-plan = { path = "../sqlite-schema-plan" }
+sqlite-query-plan = { path = "../sqlite-query-plan" }
 
 [dev-dependencies]
+query-ir = { path = "../query-ir" }
 schema-model = { path = "../schema-model" }

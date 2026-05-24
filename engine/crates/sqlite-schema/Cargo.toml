@@ -1,7 +1,0 @@
-[package]
-name = "sqlite-schema"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-schema = { path = "../schema" }

@@ -3,15 +3,15 @@
 ## Purpose
 
 The `schema-parser` crate turns `.geli` schema source text into
-`schema::SchemaCatalog` values:
+`schema_model::SchemaCatalog` values:
 
 ```text
-.geli text -> schema-parser -> schema::SchemaCatalog -> sqlite-schema
+.geli text -> schema-parser -> schema_model::SchemaCatalog -> sqlite-schema-plan
 ```
 
 The first parser milestone should not introduce a public or crate-level schema
-AST. The parser should build `schema::ObjectType`, `schema::Field`, and
-`schema::SchemaCatalog` directly. This keeps the frontend small while the
+AST. The parser should build `schema_model::ObjectType`, `schema_model::Field`, and
+`schema_model::SchemaCatalog` directly. This keeps the frontend small while the
 schema model is still the single semantic representation used by resolver,
 SQLite planning, and schema application.
 
@@ -19,8 +19,8 @@ SQLite planning, and schema application.
 
 - `spec/schema.md` defines the `.geli` schema surface syntax and semantic
   rules.
-- `plan/sqlite-schema-implementation-plan.md` describes how a validated
-  `schema::SchemaCatalog` becomes SQLite table, index, and metadata insert
+- `plan/sqlite-schema-plan-implementation-plan.md` describes how a validated
+  `schema_model::SchemaCatalog` becomes SQLite table, index, and metadata insert
   plans.
 - This document describes only the source-text frontend that creates the
   catalog consumed by those later stages.
@@ -64,18 +64,18 @@ Defer:
 The public API should accept source text and return the semantic catalog:
 
 ```rust
-pub fn parse_schema(input: &str) -> Result<schema::SchemaCatalog, ParseError>
+pub fn parse_schema(input: &str) -> Result<schema_model::SchemaCatalog, ParseError>
 ```
 
 Internally, parsing should still be token-based:
 
 ```rust
-pub fn parse_schema(input: &str) -> Result<schema::SchemaCatalog, ParseError> {
+pub fn parse_schema(input: &str) -> Result<schema_model::SchemaCatalog, ParseError> {
     let tokens = lex(input).map_err(ParseError::from)?;
     parse_schema_tokens(&tokens)
 }
 
-fn parse_schema_tokens(tokens: &[Token]) -> Result<schema::SchemaCatalog, ParseError> {
+fn parse_schema_tokens(tokens: &[Token]) -> Result<schema_model::SchemaCatalog, ParseError> {
     Parser::new(tokens).parse_schema()
 }
 ```
@@ -91,12 +91,12 @@ The first implementation should not create a separate public `SchemaAst`,
 
 Instead:
 
-- `parse_schema` collects `schema::ObjectType` values.
-- `parse_type_decl` returns `schema::ObjectType`.
-- `parse_field_decl` returns `schema::Field`.
-- scalar field parsing returns `schema::Field::Scalar`.
-- link field parsing returns `schema::Field::Link`.
-- the final step calls `schema::SchemaCatalog::try_new(object_types)`.
+- `parse_schema` collects `schema_model::ObjectType` values.
+- `parse_type_decl` returns `schema_model::ObjectType`.
+- `parse_field_decl` returns `schema_model::Field`.
+- scalar field parsing returns `schema_model::Field::Scalar`.
+- link field parsing returns `schema_model::Field::Link`.
+- the final step calls `schema_model::SchemaCatalog::try_new(object_types)`.
 
 This means semantic validation stays in `schema`, not in the parser. The parser
 is responsible for syntax and local modifier shape. The catalog remains
@@ -113,7 +113,7 @@ shape before a field can be constructed:
 - `unique` on link fields
 
 The parser should convert these cases into `ParseError` values with source
-spans. Do not construct an invalid `schema::Field` and rely on a later panic.
+spans. Do not construct an invalid `schema_model::Field` and rely on a later panic.
 
 ## Lexer Strategy
 
@@ -182,14 +182,14 @@ The top-level loop should parse type declarations until token exhaustion.
 3. expect `{`
 4. parse field declarations until `}`
 5. expect `}`
-6. return `schema::ObjectType::new(name, fields)`
+6. return `schema_model::ObjectType::new(name, fields)`
 
 `parse_field_decl` should:
 
 1. collect modifiers before the declaration head
 2. decide whether the field is a link or scalar/property
 3. validate modifier compatibility for that field kind
-4. construct `schema::Field`
+4. construct `schema_model::Field`
 
 The parser should accept both scalar forms:
 
@@ -229,9 +229,9 @@ multi link posts: Post     -> Many
 
 Use the existing schema types:
 
-- `schema::SingleCardinality` for scalar fields
-- `schema::Cardinality` for links
-- `schema::Uniqueness` for scalar uniqueness
+- `schema_model::SingleCardinality` for scalar fields
+- `schema_model::Cardinality` for links
+- `schema_model::Uniqueness` for scalar uniqueness
 
 If the current constructor API is too narrow for this mapping, add the smallest
 schema constructor needed before expanding parser behavior.
@@ -254,7 +254,7 @@ pub enum ParseErrorKind {
     DuplicateModifier { modifier: &'static str },
     IncompatibleModifiers { message: &'static str },
     InvalidScalarType { name: String },
-    InvalidCatalog(schema::SchemaError),
+    InvalidCatalog(schema_model::SchemaError),
 }
 ```
 
@@ -440,7 +440,7 @@ type User {}
 type User {}
 ```
 
-Assert the parse error wraps `schema::SchemaError::DuplicateTypeName`.
+Assert the parse error wraps `schema_model::SchemaError::DuplicateTypeName`.
 
 ## Implementation Notes
 

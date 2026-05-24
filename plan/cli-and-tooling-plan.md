@@ -122,7 +122,7 @@ Pipeline:
 ```text
 read schema.geli
 -> schema_parser::parse_schema
--> sqlite_schema::plan_initial_schema
+-> sqlite_schema_plan::plan_initial_schema
 -> sqlite_schema_sqlgen::render_initial_schema
 -> print SQL statements and bind values
 ```
@@ -163,7 +163,7 @@ Pipeline:
 ```text
 read schema.geli
 -> schema_parser::parse_schema
--> sqlite_schema::plan_initial_schema
+-> sqlite_schema_plan::plan_initial_schema
 -> sqlite_schema_sqlgen::render_initial_schema
 -> sqlite_runner::apply_schema_statements over a native runner backend
 ```
@@ -205,9 +205,9 @@ read schema.geli
 -> schema_parser::parse_schema
 read query.geliql
 -> query_parser::parse_select
--> resolver::resolve_select
--> sqlite_plan::plan_select
--> sqlite_sqlgen::render_select
+-> query_resolver::resolve_select
+-> sqlite_query_plan::plan_select
+-> sqlite_query_sqlgen::render_select
 -> print SQL and bind values
 ```
 
@@ -226,11 +226,11 @@ Pipeline:
 
 ```text
 read query.geliql
--> load schema::SchemaCatalog from SQLite metadata
+-> load schema_model::SchemaCatalog from SQLite metadata
 -> query_parser::parse_select
--> resolver::resolve_select
--> sqlite_plan::plan_select
--> sqlite_sqlgen::render_select
+-> query_resolver::resolve_select
+-> sqlite_query_plan::plan_select
+-> sqlite_query_sqlgen::render_select
 -> sqlite_runner::execute_select
 -> result shaping
 -> print rows

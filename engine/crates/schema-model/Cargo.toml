@@ -1,0 +1,6 @@
+[package]
+name = "schema-model"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

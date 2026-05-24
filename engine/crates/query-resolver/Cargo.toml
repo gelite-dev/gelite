@@ -1,8 +1,9 @@
 [package]
-name = "schema-parser"
+name = "query-resolver"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-logos = "0.16.1"
 schema-model = { path = "../schema-model" }
+query-ast = { path = "../query-ast" }
+query-ir = { path = "../query-ir" }

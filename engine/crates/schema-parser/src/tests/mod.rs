@@ -1,6 +1,6 @@
 use crate::{Keyword, LexErrorKind, ParseErrorKind, TokenKind, lex, parse_schema};
 use alloc::string::ToString;
-use schema::{Cardinality, Field, ScalarType, SchemaError, Uniqueness};
+use schema_model::{Cardinality, Field, ScalarType, SchemaError, Uniqueness};
 
 #[test]
 fn lexer_tokenizes_empty_type_declaration() {

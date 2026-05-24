@@ -110,7 +110,7 @@ engine core.
 
 These should wait until the first milestone is done:
 
-- `sqlite-plan`
+- `sqlite-query-plan`
 - `sqlgen`
 - `runtime`
 - `server`
@@ -144,7 +144,7 @@ Because this project is also a learning project, implementation should start by
 writing tests that lock down the schema model contracts before expanding the
 API surface.
 
-The `schema` crate should be implemented in three test layers.
+The `schema-model` crate should be implemented in three test layers.
 
 ### Layer 1: model representation tests
 
@@ -273,7 +273,7 @@ clearly enough that work can be resumed later without rediscovering intent.
 
 ## Recommended Next Step After `schema`
 
-Once the `schema` crate can model valid schemas, expose lookup APIs, and reject
+Once the `schema-model` crate can model valid schemas, expose lookup APIs, and reject
 invalid schema structure, the next implementation target should be `query-ast`.
 
 This is the recommended next step because:
@@ -457,7 +457,7 @@ represent this query faithfully as Rust data.
 - `CompareExpr`
 - `ValueExpr`
 - `OrderExpr`
-- `ObjectTypeRef` and `FieldRef` from the `schema` crate
+- `ObjectTypeRef` and `FieldRef` from the `schema-model` crate
 
 ## Current Implementation Status
 
@@ -546,14 +546,14 @@ query-ast + schema -> resolver -> ir
 
 ### Resolver responsibilities
 
-- resolve the selected root type name into `schema::ObjectTypeRef`
+- resolve the selected root type name into `schema_model::ObjectTypeRef`
 - resolve each shape item name against the current source object type
-- convert resolved scalar selections into `ir::ResolvedShapeField`
-- convert resolved link selections into nested `ir::ResolvedShapeField`
+- convert resolved scalar selections into `query_ir::ResolvedShapeField`
+- convert resolved link selections into nested `query_ir::ResolvedShapeField`
 - preserve shape item order from `query-ast`
 - propagate field cardinality from `schema` into `ir`
-- resolve filter paths into `ir::ValueExpr::Field`
-- resolve order paths into `ir::ValueExpr::Field`
+- resolve filter paths into `query_ir::ValueExpr::Field`
+- resolve order paths into `query_ir::ValueExpr::Field`
 - pass `limit` and `offset` through unchanged
 - return structured errors for semantic failures
 
@@ -574,9 +574,9 @@ Start with a small API that is easy to test:
 
 ```rust
 pub fn resolve_select(
-    catalog: &schema::SchemaCatalog,
+    catalog: &schema_model::SchemaCatalog,
     query: &query_ast::SelectQuery,
-) -> Result<ir::SelectQuery, ResolveError>
+) -> Result<query_ir::SelectQuery, ResolveError>
 ```
 
 Keep `ResolveError` minimal at first. The first useful variants are:
@@ -626,8 +626,8 @@ select Post {
 
 Expected result:
 
-- `ir::SelectQuery.root_object_type()` is `Post`
-- `ir::ResolvedShape.source_object_type()` is `Post`
+- `query_ir::SelectQuery.root_object_type()` is `Post`
+- `query_ir::ResolvedShape.source_object_type()` is `Post`
 - the shape has one field
 - that field references `Post.title`
 - cardinality is copied from the schema field
@@ -671,10 +671,10 @@ query-ast path `.title`
 into:
 
 ```text
-ir::ValueExpr::Field(FieldRef(Post.title))
+query_ir::ValueExpr::Field(FieldRef(Post.title))
 ```
 
-`query-ast::Literal` should be converted into `ir::Literal`. At first, string
+`query-ast::Literal` should be converted into `query_ir::Literal`. At first, string
 literals are enough because the current IR only models `Literal::String`.
 
 For the first pass, `query-ast::CompareExpr` is intentionally asymmetric:
@@ -831,17 +831,17 @@ resolver = "2"
 Then wire dependencies approximately like this:
 
 - `resolver` depends on `schema`, `query-ast`, and `ir`
-- `repl` depends on `schema`, `query-parser`, `resolver`, `sqlite-plan`, and `sqlite-sqlgen`
+- `repl` depends on `schema`, `query-parser`, `resolver`, `sqlite-query-plan`, and `sqlite-query-sqlgen`
 
 ## Recommended First Work Session
 
 If starting immediately, the best order is:
 
 1. create the workspace and crates
-2. implement the `schema` crate first
-3. implement the `ir` crate second
+2. implement the `schema-model` crate first
+3. implement the `query-ir` crate second
 4. implement the `query-ast` crate third
-5. implement the `resolver` crate fourth
+5. implement the `query-resolver` crate fourth
 6. add one successful `select` resolution test
 7. add a few failing semantic tests
 
@@ -859,4 +859,4 @@ At that point, the next planning conversation should focus on the
 `Semantic IR -> SQLite Plan` lowering implementation.
 
 The detailed follow-up plan is tracked in
-[sqlite-plan-implementation-plan.md](sqlite-plan-implementation-plan.md).
+[sqlite-query-plan-implementation-plan.md](sqlite-query-plan-implementation-plan.md).

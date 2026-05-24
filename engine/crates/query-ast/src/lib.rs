@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 /// Parsed `select` query before schema resolution.
 ///
 /// `root_type_name` is an unresolved object type name. The resolver turns it
-/// into `schema::ObjectTypeRef` and validates the shape, filter, and ordering
+/// into `schema_model::ObjectTypeRef` and validates the shape, filter, and ordering
 /// against the schema catalog.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {

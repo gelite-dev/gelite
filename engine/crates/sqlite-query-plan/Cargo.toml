@@ -1,8 +1,8 @@
 [package]
-name = "schema-parser"
+name = "sqlite-query-plan"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-logos = "0.16.1"
+query-ir = { path = "../query-ir" }
 schema-model = { path = "../schema-model" }

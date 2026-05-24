@@ -86,7 +86,7 @@ Assisted-by: Codex:gpt-5.5
 - `spec/storage-sqlite.md`
   - SQLite 물리 저장 구조의 기준 문서다.
   - 테이블/컬럼/조인 테이블 같은 저장 관점의 결정을 여기서 맞춘다.
-- `spec/sqlite-plan.md`
+- `spec/sqlite-query-plan.md`
   - Semantic IR과 SQL 생성 사이의 SQLite 전용 planning 계층을 정의한다.
   - backend-specific 로직을 어디까지 허용할지 정하는 문서다.
 
@@ -138,7 +138,7 @@ This component improves scalability and maintainability.
 좋은 예:
 
 ```text
-The resolver returns `ir::ResolvedPath` instead of a terminal `FieldRef` so
+The resolver returns `query_ir::ResolvedPath` instead of a terminal `FieldRef` so
 SQLite planning can recover both the final column and the joins required by
 link traversal.
 ```

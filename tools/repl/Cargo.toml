@@ -4,11 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-schema = { path = "../../engine/crates/schema" }
+schema-model = { path = "../../engine/crates/schema-model" }
 query-ast = { path = "../../engine/crates/query-ast" }
 query-parser = { path = "../../engine/crates/query-parser" }
-ir = { path = "../../engine/crates/ir" }
-resolver = { path = "../../engine/crates/resolver" }
-sqlite-plan = { path = "../../engine/crates/sqlite-plan" }
-sqlite-sqlgen = { path = "../../engine/crates/sqlite-sqlgen" }
+query-ir = { path = "../../engine/crates/query-ir" }
+query-resolver = { path = "../../engine/crates/query-resolver" }
+sqlite-query-plan = { path = "../../engine/crates/sqlite-query-plan" }
+sqlite-query-sqlgen = { path = "../../engine/crates/sqlite-query-sqlgen" }
 rustyline = "18"

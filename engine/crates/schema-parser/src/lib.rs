@@ -3,7 +3,7 @@
 //!
 //! This crate is responsible for turning schema source text into `schema`
 //! values. The first implementation starts with lexing only; parsing will
-//! build `schema::SchemaCatalog` directly instead of introducing a separate
+//! build `schema_model::SchemaCatalog` directly instead of introducing a separate
 //! schema AST.
 
 extern crate alloc;

@@ -3,7 +3,7 @@
 ## Purpose
 
 This document describes the next select-query expansion after the basic
-`parser -> resolver -> ir -> sqlite-plan -> sqlite-sqlgen -> repl` pipeline.
+`parser -> resolver -> ir -> sqlite-query-plan -> sqlite-query-sqlgen -> repl` pipeline.
 
 The current pipeline can parse multi-step paths, but the resolver and IR only
 preserve enough information for root scalar fields. The next milestone is to
@@ -73,7 +73,7 @@ This represents root scalar fields well, but it does not preserve path steps.
 
 ### SQLite Planning
 
-`sqlite-plan` can already produce joins for selected single-link nested shapes.
+`sqlite-query-plan` can already produce joins for selected single-link nested shapes.
 
 It does not yet produce joins for:
 
@@ -82,8 +82,8 @@ It does not yet produce joins for:
 
 ### SQL Generation
 
-`sqlite-sqlgen` now renders joins that are already present in the SQLite plan.
-It should not invent new joins. Join planning belongs to `sqlite-plan`.
+`sqlite-query-sqlgen` now renders joins that are already present in the SQLite plan.
+It should not invent new joins. Join planning belongs to `sqlite-query-plan`.
 
 ## Target Semantics
 
@@ -183,7 +183,7 @@ rejects_filter_path_with_unknown_nested_field
 
 ## SQLite Plan
 
-`sqlite-plan` should lower `ResolvedPath` into:
+`sqlite-query-plan` should lower `ResolvedPath` into:
 
 - a column reference for the terminal scalar field
 - zero or more joins for link traversal
@@ -280,7 +280,7 @@ the same table but require different aliases and join conditions.
 
 ## SQLite SQL Generation
 
-`sqlite-sqlgen` should continue to render only the joins present in
+`sqlite-query-sqlgen` should continue to render only the joins present in
 `SQLiteSelectPlan`.
 
 No resolver or path traversal logic should be added to SQL generation.
@@ -293,15 +293,15 @@ No resolver or path traversal logic should be added to SQL generation.
 4. Update resolver root scalar filter/order tests.
 5. Add resolver tests for `.author.name`.
 6. Teach resolver to resolve single-link path traversal.
-7. Add a sqlite-plan failing test proving that `Post.author.name` must lower to
+7. Add a sqlite-query-plan failing test proving that `Post.author.name` must lower to
    `author.name`, not `root.name`.
-8. Add a sqlite-plan failing test proving that filter/order path traversal adds
+8. Add a sqlite-query-plan failing test proving that filter/order path traversal adds
    the required join.
 9. Introduce internal `PlannedPath` / `plan_resolved_path` logic that returns
    both terminal column and joins.
-10. Update sqlite-plan to collect joins from shape, filter, and order paths.
+10. Update sqlite-query-plan to collect joins from shape, filter, and order paths.
 11. Add join deduplication by logical traversal path, not merely target table.
-12. Update sqlite-sqlgen tests only if join rendering or ordering output
+12. Update sqlite-query-sqlgen tests only if join rendering or ordering output
     changes.
 13. Add REPL smoke examples for traversed filter/order paths.
 

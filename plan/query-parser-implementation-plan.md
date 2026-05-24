@@ -22,7 +22,7 @@ belong to later pipeline stages.
 - `plan/implementation-start-plan.md` explains why `query-ast` was implemented
   before a parser.
 - This document explains how to add the parser now that `query-ast`, `resolver`,
-  `ir`, `sqlite-plan`, and `sqlite-sqlgen` have a working select pipeline.
+  `ir`, `sqlite-query-plan`, and `sqlite-query-sqlgen` have a working select pipeline.
 
 When this document conflicts with `spec/query.md`, the spec wins. When it
 conflicts with current implementation, the difference should be treated as
@@ -562,7 +562,7 @@ represent.
 Later replacement:
 
 - extend `query-ast::Expr` with recursive boolean expression variants
-- extend resolver and `ir::Expr` with resolved boolean expression variants
+- extend resolver and `query_ir::Expr` with resolved boolean expression variants
 - add parser precedence rules for `not`, `and`, and `or`
 - reserve `and`, `or`, and `not` as lexer keywords only when those stages can
   consume them end-to-end

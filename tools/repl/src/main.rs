@@ -1,6 +1,6 @@
 use query_parser::parse_select;
 use rustyline::{DefaultEditor, error::ReadlineError};
-use schema::{
+use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
@@ -130,10 +130,10 @@ fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Resu
         println!("Query AST:\n{query:#?}");
     }
 
-    match resolver::resolve_select(catalog, &query) {
+    match query_resolver::resolve_select(catalog, &query) {
         Ok(resolved) => {
-            let plan = sqlite_plan::plan_select(&resolved);
-            let statement = sqlite_sqlgen::render_select(&plan);
+            let plan = sqlite_query_plan::plan_select(&resolved);
+            let statement = sqlite_query_sqlgen::render_select(&plan);
 
             if debug {
                 println!("Resolved IR:\n{resolved:#?}");
@@ -154,8 +154,8 @@ fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Resu
                 for join in plan.joins() {
                     let on = join.on();
                     let join_kind = match join.kind() {
-                        sqlite_plan::SQLiteJoinKind::Inner => "inner join",
-                        sqlite_plan::SQLiteJoinKind::Left => "left join",
+                        sqlite_query_plan::SQLiteJoinKind::Inner => "inner join",
+                        sqlite_query_plan::SQLiteJoinKind::Left => "left join",
                     };
                     println!(
                         "    {} {} as {} on {}.{} = {}.{}",

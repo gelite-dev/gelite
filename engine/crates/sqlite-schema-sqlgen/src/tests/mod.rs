@@ -5,11 +5,11 @@ use crate::{
     render_insert,
 };
 use alloc::vec;
-use schema::{
+use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
-use sqlite_schema::{
+use sqlite_schema_plan::{
     SQLiteIndexPlan, SQLiteValuePlan, plan_catalog_field_inserts, plan_catalog_object_inserts,
     plan_initial_schema,
 };

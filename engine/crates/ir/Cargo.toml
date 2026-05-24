@@ -1,7 +1,0 @@
-[package]
-name = "ir"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-schema = { path = "../schema" }

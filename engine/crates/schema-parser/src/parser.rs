@@ -1,7 +1,7 @@
 use crate::{Keyword, LexError, Span, Token, TokenKind, lex};
 use alloc::string::String;
 use alloc::vec::Vec;
-use schema::{
+use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog, SchemaError,
     SingleCardinality, Uniqueness,
 };
@@ -10,13 +10,13 @@ use schema::{
 ///
 /// The parser checks syntax and local modifier compatibility. Catalog-level
 /// validation, such as duplicate type names and unknown link targets, remains
-/// owned by `schema::SchemaCatalog`.
-pub fn parse_schema(input: &str) -> Result<schema::SchemaCatalog, ParseError> {
+/// owned by `schema_model::SchemaCatalog`.
+pub fn parse_schema(input: &str) -> Result<schema_model::SchemaCatalog, ParseError> {
     let tokens = lex(input).map_err(ParseError::from)?;
     parse_schema_tokens(&tokens)
 }
 
-fn parse_schema_tokens(tokens: &[Token]) -> Result<schema::SchemaCatalog, ParseError> {
+fn parse_schema_tokens(tokens: &[Token]) -> Result<schema_model::SchemaCatalog, ParseError> {
     Parser::new(tokens).parse_schema()
 }
 
@@ -75,7 +75,7 @@ impl<'a> Parser<'a> {
         Self { tokens, cursor: 0 }
     }
 
-    fn parse_schema(&mut self) -> Result<schema::SchemaCatalog, ParseError> {
+    fn parse_schema(&mut self) -> Result<schema_model::SchemaCatalog, ParseError> {
         let mut object_types = Vec::new();
 
         while self.peek().is_some() {
