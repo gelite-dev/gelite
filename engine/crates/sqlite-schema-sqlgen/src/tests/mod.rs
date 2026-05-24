@@ -1,12 +1,14 @@
 extern crate alloc;
 
-use crate::{render_create_index, render_create_table};
+use crate::{render_create_index, render_create_table, render_insert};
 use alloc::vec;
 use schema::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
-use sqlite_schema::{SQLiteIndexPlan, plan_initial_schema};
+use sqlite_schema::{
+    SQLiteIndexPlan, SQLiteValuePlan, plan_catalog_object_inserts, plan_initial_schema,
+};
 
 #[test]
 fn render_create_table_for_catalog_fields_uses_composite_primary_key() {
@@ -56,11 +58,31 @@ fn render_create_index_for_single_link_foreign_key_index() {
 }
 
 #[test]
-
 fn render_create_unique_index_uses_create_unique_index() {
     let index = SQLiteIndexPlan::new("user__email_idx", "user", vec!["email".into()], true);
 
     let sql = render_create_index(&index);
 
     assert_eq!(sql, "CREATE UNIQUE INDEX user__email_idx ON user (email)");
+}
+
+#[test]
+fn render_catalog_object_insert_uses_placeholders() {
+    let catalog = SchemaCatalog::try_new(vec![ObjectType::new("User", vec![])]).unwrap();
+
+    let plan = plan_initial_schema(&catalog);
+    let inserts = plan_catalog_object_inserts(&plan);
+    let rendered = render_insert(&inserts[0]);
+
+    assert_eq!(
+        rendered.sql(),
+        "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+    );
+    assert_eq!(
+        rendered.values(),
+        [
+            SQLiteValuePlan::Integer(1),
+            SQLiteValuePlan::Text("User".into()),
+        ]
+    )
 }

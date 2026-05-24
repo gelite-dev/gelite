@@ -14,8 +14,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_schema::{
-    SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLiteIndexPlan, SQLitePrimaryKeyPlan,
-    SQLiteTablePlan,
+    SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLiteIndexPlan, SQLiteInsertPlan,
+    SQLitePrimaryKeyPlan, SQLiteTablePlan, SQLiteValuePlan,
 };
 
 pub fn render_create_table(table: &SQLiteTablePlan) -> String {
@@ -90,6 +90,40 @@ pub fn render_create_index(index: &SQLiteIndexPlan) -> String {
         index.table_name(),
         index.column_names().join(", "),
     )
+}
+
+pub struct RenderedInsert {
+    sql: String,
+    values: Vec<SQLiteValuePlan>,
+}
+
+impl RenderedInsert {
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+    pub fn values(&self) -> &[SQLiteValuePlan] {
+        &self.values
+    }
+}
+
+pub fn render_insert(insert: &SQLiteInsertPlan) -> RenderedInsert {
+    let columns = insert.columns().join(", ");
+    let placeholders = insert
+        .columns()
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    RenderedInsert {
+        sql: format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            insert.table_name(),
+            columns,
+            placeholders,
+        ),
+        values: insert.values().to_vec(),
+    }
 }
 
 #[cfg(test)]
