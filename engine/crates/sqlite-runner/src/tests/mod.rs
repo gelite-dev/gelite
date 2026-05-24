@@ -1,6 +1,8 @@
 extern crate alloc;
 
 mod fixtures;
+#[cfg(feature = "native")]
+mod native;
 
 use alloc::string::ToString;
 use alloc::vec;

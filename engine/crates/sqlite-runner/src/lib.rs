@@ -10,6 +10,9 @@
 use sqlite_schema_plan::SQLiteValuePlan;
 use sqlite_schema_sqlgen::RenderedSchemaStatement;
 
+#[cfg(feature = "native")]
+pub mod native;
+
 /// Error type returned by runner operations.
 ///
 /// The first version only needs a binding-neutral execution failure. Concrete

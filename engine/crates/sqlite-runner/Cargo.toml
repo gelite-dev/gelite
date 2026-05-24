@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+powersync_sqlite_nostd = { version = "0.4.14", features = ["static"], optional = true }
 sqlite-schema-plan = { path = "../sqlite-schema-plan" }
 sqlite-schema-sqlgen = { path = "../sqlite-schema-sqlgen" }
 
 [dev-dependencies]
 schema-model = { path = "../schema-model" }
+
+[features]
+default = []
+native = ["dep:powersync_sqlite_nostd"]
