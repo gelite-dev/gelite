@@ -4,6 +4,7 @@
 //! renderer, and runner crates into user-facing commands, but it does not own
 //! process argument parsing, stdout/stderr, or process exit codes.
 
+use sqlite_runner::{SQLiteRunner, SQLiteRunnerError, apply_schema_statements};
 use sqlite_schema_plan::SQLiteValuePlan;
 use sqlite_schema_sqlgen::RenderedSchemaStatement;
 
@@ -65,6 +66,22 @@ pub fn plan_schema(source: &str) -> Result<SchemaPlanOutput, CommandError> {
         .collect();
 
     Ok(SchemaPlanOutput { statements })
+}
+
+pub fn apply_schema(source: &str, runner: &mut impl SQLiteRunner) -> Result<(), CommandError> {
+    let catalog = schema_parser::parse_schema(source).map_err(|error| CommandError {
+        message: format!("failed to parse schema: {error:?}"),
+    })?;
+    let plan = sqlite_schema_plan::plan_initial_schema(&catalog);
+    let statements = sqlite_schema_sqlgen::render_initial_schema(&plan);
+
+    apply_schema_statements(runner, &statements).map_err(command_error_from_runner)
+}
+
+fn command_error_from_runner(error: SQLiteRunnerError) -> CommandError {
+    CommandError {
+        message: format!("failed to apply schema: {}", error.message()),
+    }
 }
 
 fn schema_plan_statement_from_rendered(statement: RenderedSchemaStatement) -> SchemaPlanStatement {

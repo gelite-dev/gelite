@@ -10,6 +10,7 @@
 extern crate alloc;
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use sqlite_schema_plan::SQLiteValuePlan;
 use sqlite_schema_sqlgen::RenderedSchemaStatement;
 
@@ -55,6 +56,34 @@ pub trait SQLiteRunner {
         sql: &str,
         values: &[SQLiteValuePlan],
     ) -> Result<(), SQLiteRunnerError>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SQLiteQueryResult {
+    columns: Vec<String>,
+    rows: Vec<Vec<SQLiteCellValue>>,
+}
+
+impl SQLiteQueryResult {
+    pub fn new(columns: Vec<String>, rows: Vec<Vec<SQLiteCellValue>>) -> Self {
+        Self { columns, rows }
+    }
+
+    pub fn columns(&self) -> &[String] {
+        &self.columns
+    }
+
+    pub fn rows(&self) -> &[Vec<SQLiteCellValue>] {
+        &self.rows
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SQLiteCellValue {
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Null,
 }
 
 /// Applies rendered schema statements through a runner implementation.

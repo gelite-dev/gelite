@@ -1,7 +1,8 @@
 use std::{fs, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand};
-use gelite_commands::{SchemaPlanStatement, plan_schema};
+use gelite_commands::{SchemaPlanStatement, apply_schema, plan_schema};
+use sqlite_runner::native::NativeSQLiteRunner;
 
 #[derive(Debug, Parser)]
 #[command(name = "gelite")]
@@ -22,7 +23,14 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum SchemaCommand {
-    Plan { schema_file: PathBuf },
+    Plan {
+        schema_file: PathBuf,
+    },
+    Apply {
+        schema_file: PathBuf,
+        #[arg(long)]
+        database: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -72,28 +80,50 @@ fn run_schema_command(command: SchemaCommand) -> Result<(), String> {
 
             Ok(())
         }
+        SchemaCommand::Apply {
+            schema_file,
+            database,
+        } => {
+            let source = fs::read_to_string(&schema_file)
+                .map_err(|error| format!("failed to read {}: {error}", schema_file.display()))?;
+            let database = path_to_str(&database)?;
+            let mut runner = NativeSQLiteRunner::open(database)
+                .map_err(|error| format!("failed to open database: {}", error.message()))?;
+
+            apply_schema(&source, &mut runner).map_err(|error| error.message().to_string())?;
+            println!("Applied schema to {database}");
+
+            Ok(())
+        }
     }
 }
 
 fn run_repl_command(command: ReplCommand) -> Result<(), String> {
-    let catalog = match (command.schema, command.database) {
+    let (catalog, mut runner) = match (command.schema, command.database) {
         (Some(_), Some(_)) => {
             return Err("gelite repl accepts either --schema or --database, not both".to_string());
         }
         (Some(schema), None) => {
             let source = fs::read_to_string(&schema)
                 .map_err(|error| format!("failed to read {}: {error}", schema.display()))?;
-            schema_parser::parse_schema(&source).map_err(|error| format!("{error:#?}"))?
+            (
+                schema_parser::parse_schema(&source).map_err(|error| format!("{error:#?}"))?,
+                None,
+            )
         }
         (None, Some(database)) => {
-            return Err(format!(
-                "gelite repl cannot load catalogs from databases yet: {}. Use --schema <schema.geli> for compile-only query inspection.",
-                database.display()
-            ));
+            let database = path_to_str(&database)?;
+            let runner = NativeSQLiteRunner::open(database)
+                .map_err(|error| format!("failed to open database: {}", error.message()))?;
+            let catalog = runner
+                .load_schema_catalog()
+                .map_err(|error| format!("failed to load catalog: {}", error.message()))?;
+
+            (catalog, Some(runner))
         }
         (None, None) => {
             return Err(
-                "gelite repl needs a catalog. Pass --schema <schema.geli> for compile-only query inspection. Database catalog loading through --database <app.db> is not implemented yet."
+                "gelite repl needs a catalog. Pass --schema <schema.geli> for compile-only query inspection or --database <app.db> to load an applied catalog."
                     .to_string(),
             );
         }
@@ -105,12 +135,27 @@ fn run_repl_command(command: ReplCommand) -> Result<(), String> {
         Some(command.query.join(" "))
     };
 
-    repl::run_with_catalog(
-        &catalog,
-        repl::ReplOptions {
-            debug: command.debug,
-            query,
-        },
-    )
+    let options = repl::ReplOptions {
+        debug: command.debug,
+        query,
+    };
+
+    match runner.as_mut() {
+        Some(runner) => {
+            let mut executor = |statement: &sqlite_query_sqlgen::SQLiteSelectStatement| {
+                runner
+                    .execute_select(statement)
+                    .map_err(|error| error.message().to_string())
+            };
+
+            repl::run_with_executor(&catalog, options, &mut executor)
+        }
+        None => repl::run_with_catalog(&catalog, options),
+    }
     .map_err(|()| "gelite repl failed".to_string())
+}
+
+fn path_to_str(path: &PathBuf) -> Result<&str, String> {
+    path.to_str()
+        .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
 }

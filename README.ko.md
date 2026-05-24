@@ -60,8 +60,9 @@ Gelite는 현재 두 개의 좁은 compiler path에 집중합니다.
 - initial schema planning: `.geli` parsing, SQLite schema planning, DDL SQL
   rendering
 
-아직 user query를 SQLite에 실행하지 않습니다. `schema apply` CLI command,
-migration diffing, insert/update/delete, server, web UI도 아직 없습니다.
+Initial schema를 SQLite database에 적용할 수 있고, 현재 select subset은 CLI
+REPL을 통해 실행할 수 있습니다. 아직 migration diffing, insert/update/delete
+command, server, web UI는 없습니다.
 
 이건 현재 단계의 의도입니다. runtime feature를 올리기 전에 language pipeline과
 schema pipeline이 정확하고 이해 가능한지 먼저 검증하는 것이 첫 번째 유효한
@@ -153,7 +154,6 @@ LIMIT 10
 
 ## 아직 구현되지 않은 것
 
-- `gelite schema apply`.
 - `gelite query plan`, `gelite query run`.
 - Insert, update, delete.
 - Migration diffing과 migration history.
@@ -181,11 +181,13 @@ cargo run -p gelite-cli -- --help
 
 ### 현재 사용 가능한 CLI 명령
 
-현재 CLI에서 실제로 동작하는 명령 경로는 두 가지입니다.
+현재 CLI에서 실제로 동작하는 명령 경로는 세 가지입니다.
 
 ```text
 gelite schema plan <schema.geli>
+gelite schema apply <schema.geli> --database <app.db>
 gelite repl --schema <schema.geli> [--debug] [QUERY]...
+gelite repl --database <app.db> [--debug] [QUERY]...
 ```
 
 `gelite schema plan <schema.geli>`는 schema source file을 parse하고, initial
@@ -208,7 +210,13 @@ type Post {
 schema planning 실행:
 
 ```sh
-cargo run -p gelite-cli -- schema plan path/to/blog.geli
+cargo run -p gelite-cli -- schema plan examples/blog.geli
+```
+
+schema를 SQLite database에 적용:
+
+```sh
+cargo run -p gelite-cli -- schema apply examples/blog.geli --database app.db
 ```
 
 `gelite repl --schema <schema.geli>`는 schema source file에서 parse한 catalog를
@@ -216,55 +224,31 @@ cargo run -p gelite-cli -- schema plan path/to/blog.geli
 interactive REPL을 시작하고, query 인자가 있으면 그 query 하나를 parse하고 SQL로
 렌더링합니다.
 
+`gelite repl --database <app.db>`는 SQLite database 안의 Gelite metadata table에서
+catalog를 읽고, select query를 실제 database에 실행합니다. `--debug`가 없으면
+result row만 출력하고, `--debug`가 있으면 rendered SQL과 bind value를 먼저
+출력합니다.
+
 CLI REPL 실행:
 
 ```sh
-cargo run -p gelite-cli -- repl --schema path/to/blog.geli
+cargo run -p gelite-cli -- repl --database app.db
 ```
 
 query 하나 실행:
 
 ```sh
-cargo run -p gelite-cli -- repl --schema path/to/blog.geli 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
+cargo run -p gelite-cli -- repl --database app.db 'select Post { title, author: { email } } filter .title = "Hello" order by .title desc limit 10'
 ```
 
-중간 표현 출력:
+result row 전에 SQL과 bind value 출력:
 
 ```sh
-cargo run -p gelite-cli -- repl --schema path/to/blog.geli --debug 'select Post { title, author: { name } } filter .title = "Hello"'
+cargo run -p gelite-cli -- repl --database app.db --debug 'select Post { title, author: { email } } filter .title = "Hello"'
 ```
 
 CLI REPL은 숨겨진 default catalog를 사용하지 않습니다. `--schema`나 `--database`
-가 없으면 사용 안내 성격의 error를 내고 종료합니다. `--database` flag는 command
-parser에는 있지만, SQLite metadata에서 catalog를 load하는 기능이 구현될 때까지
-명시적인 unsupported-feature error를 반환합니다.
-
-### 개발용 REPL binary
-
-기존 `tools/repl` binary도 개발용 entrypoint로 남아 있습니다. 이 binary는
-`gelite repl`과 같은 REPL 구현을 사용하지만, 빠른 compiler inspection을 위해
-hard-coded `User`/`Post` development catalog를 유지합니다.
-
-inspection REPL 실행:
-
-```sh
-cargo run -p repl
-```
-
-query 하나 실행:
-
-```sh
-cargo run -p repl -- 'select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10'
-```
-
-중간 표현 출력:
-
-```sh
-cargo run -p repl -- --debug 'select Post { title, author: { name } } filter .title = "Hello"'
-```
-
-REPL은 현재 `User`와 `Post`가 있는 hard-coded schema를 사용합니다. database
-shell이 아니라 compiler inspection tool입니다.
+가 없으면 사용 안내 성격의 error를 내고 종료합니다.
 
 ## 저장소 안내
 

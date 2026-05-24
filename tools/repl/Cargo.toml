@@ -11,4 +11,5 @@ query-ir = { path = "../../engine/crates/query-ir" }
 query-resolver = { path = "../../engine/crates/query-resolver" }
 sqlite-query-plan = { path = "../../engine/crates/sqlite-query-plan" }
 sqlite-query-sqlgen = { path = "../../engine/crates/sqlite-query-sqlgen" }
+sqlite-runner = { path = "../../engine/crates/sqlite-runner" }
 rustyline = "18"

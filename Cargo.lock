@@ -212,6 +212,8 @@ dependencies = [
  "gelite-commands",
  "repl",
  "schema-parser",
+ "sqlite-query-sqlgen",
+ "sqlite-runner",
 ]
 
 [[package]]
@@ -501,6 +503,7 @@ dependencies = [
  "schema-model",
  "sqlite-query-plan",
  "sqlite-query-sqlgen",
+ "sqlite-runner",
 ]
 
 [[package]]
@@ -577,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "powersync_sqlite_nostd",
  "schema-model",
+ "sqlite-query-sqlgen",
  "sqlite-schema-plan",
  "sqlite-schema-sqlgen",
 ]

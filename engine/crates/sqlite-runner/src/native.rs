@@ -3,11 +3,18 @@ extern crate alloc;
 use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
-use powersync_sqlite_nostd::{ColumnType, Connection, Destructor, ManagedConnection, ResultCode};
+use powersync_sqlite_nostd::{
+    ColumnType, Connection, Destructor, ManagedConnection, ManagedStmt, ResultCode,
+};
+use schema_model::{
+    Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
+    SingleCardinality, Uniqueness,
+};
 use sqlite_schema_plan::SQLiteValuePlan;
 
-use crate::{SQLiteRunner, SQLiteRunnerError};
+use crate::{SQLiteCellValue, SQLiteQueryResult, SQLiteRunner, SQLiteRunnerError};
 
 /// Native SQLite runner backed by an owned SQLite connection.
 ///
@@ -20,12 +27,15 @@ pub struct NativeSQLiteRunner {
 
 impl NativeSQLiteRunner {
     pub fn open_in_memory() -> Result<Self, SQLiteRunnerError> {
-        let filename = CString::new(":memory:").map_err(|_| {
-            SQLiteRunnerError::execution_failed("failed to build in-memory SQLite filename")
-        })?;
+        Self::open(":memory:")
+    }
+
+    pub fn open(path: &str) -> Result<Self, SQLiteRunnerError> {
+        let filename = CString::new(path)
+            .map_err(|_| SQLiteRunnerError::execution_failed("SQLite path contains a null byte"))?;
         let connection = powersync_sqlite_nostd::open(filename.as_ptr()).map_err(|error| {
             SQLiteRunnerError::execution_failed(format!(
-                "failed to open in-memory SQLite database: {error:?}"
+                "failed to open SQLite database `{path}`: {error:?}"
             ))
         })?;
 
@@ -91,6 +101,220 @@ impl NativeSQLiteRunner {
         }
     }
 
+    pub fn load_schema_catalog(&self) -> Result<SchemaCatalog, SQLiteRunnerError> {
+        let objects = self.read_catalog_objects()?;
+        let fields = self.read_catalog_fields()?;
+        let mut object_types = Vec::new();
+
+        for object in &objects {
+            let mut declared_fields = Vec::new();
+
+            for field in fields
+                .iter()
+                .filter(|field| field.object_id == object.object_id && !field.is_implicit)
+            {
+                match field.field_kind.as_str() {
+                    "scalar" => {
+                        let scalar_type =
+                            parse_scalar_type(field.scalar_type.as_deref().ok_or_else(|| {
+                                SQLiteRunnerError::execution_failed(format!(
+                                    "catalog field `{}` is missing scalar_type",
+                                    field.name
+                                ))
+                            })?)?;
+                        let cardinality = parse_single_cardinality(&field.cardinality)?;
+                        let uniqueness = parse_uniqueness(field.is_unique)?;
+
+                        declared_fields.push(Field::Scalar(ScalarField::with_uniqueness(
+                            field.name.clone(),
+                            scalar_type,
+                            cardinality,
+                            uniqueness,
+                        )));
+                    }
+                    "link" => {
+                        let target_object_id = field.target_object_id.ok_or_else(|| {
+                            SQLiteRunnerError::execution_failed(format!(
+                                "catalog link field `{}` is missing target_object_id",
+                                field.name
+                            ))
+                        })?;
+                        let target_object = objects
+                            .iter()
+                            .find(|object| object.object_id == target_object_id)
+                            .ok_or_else(|| {
+                                SQLiteRunnerError::execution_failed(format!(
+                                    "catalog link field `{}` references unknown target object id {target_object_id}",
+                                    field.name
+                                ))
+                            })?;
+                        let cardinality = parse_cardinality(&field.cardinality)?;
+                        let uniqueness = parse_uniqueness(field.is_unique)?;
+
+                        declared_fields.push(Field::Link(LinkField::with_uniqueness(
+                            field.name.clone(),
+                            target_object.name.clone(),
+                            cardinality,
+                            uniqueness,
+                        )));
+                    }
+                    kind => {
+                        return Err(SQLiteRunnerError::execution_failed(format!(
+                            "unknown catalog field kind `{kind}`"
+                        )));
+                    }
+                }
+            }
+
+            object_types.push(ObjectType::new(object.name.clone(), declared_fields));
+        }
+
+        SchemaCatalog::try_new(object_types).map_err(|error| {
+            SQLiteRunnerError::execution_failed(format!("invalid catalog metadata: {error:?}"))
+        })
+    }
+
+    pub fn execute_select(
+        &mut self,
+        statement: &sqlite_query_sqlgen::SQLiteSelectStatement,
+    ) -> Result<SQLiteQueryResult, SQLiteRunnerError> {
+        let prepared = self
+            .connection
+            .prepare_v2(statement.sql())
+            .map_err(|_| self.connection_error("prepare SELECT"))?;
+
+        for (index, value) in statement.bind_values().iter().enumerate() {
+            let parameter_index = i32::try_from(index + 1).map_err(|_| {
+                SQLiteRunnerError::execution_failed("bind parameter index exceeds i32 range")
+            })?;
+
+            match value {
+                sqlite_query_sqlgen::SQLiteBindValue::String(value) => {
+                    prepared
+                        .bind_text(parameter_index, value, Destructor::TRANSIENT)
+                        .map_err(|error| self.result_error("bind string value", error))?;
+                }
+                sqlite_query_sqlgen::SQLiteBindValue::Int64(value) => {
+                    prepared
+                        .bind_int64(parameter_index, *value)
+                        .map_err(|error| self.result_error("bind int64 value", error))?;
+                }
+                sqlite_query_sqlgen::SQLiteBindValue::Bool(value) => {
+                    prepared
+                        .bind_int64(parameter_index, i64::from(*value))
+                        .map_err(|error| self.result_error("bind bool value", error))?;
+                }
+                sqlite_query_sqlgen::SQLiteBindValue::Null => {
+                    prepared
+                        .bind_null(parameter_index)
+                        .map_err(|error| self.result_error("bind null value", error))?;
+                }
+            }
+        }
+
+        let column_count = prepared.column_count();
+        let mut columns = Vec::new();
+        for index in 0..column_count {
+            columns.push(
+                prepared
+                    .column_name(index)
+                    .map_err(|error| self.result_error("read result column name", error))?
+                    .to_string(),
+            );
+        }
+
+        let mut rows = Vec::new();
+        loop {
+            match prepared.step() {
+                Ok(ResultCode::ROW) => {
+                    let mut row = Vec::new();
+                    for index in 0..column_count {
+                        row.push(read_cell_value(&prepared, index)?);
+                    }
+                    rows.push(row);
+                }
+                Ok(ResultCode::DONE) => break,
+                Ok(result) => return Err(self.result_error("step SELECT", result)),
+                Err(result) => return Err(self.result_error("step SELECT", result)),
+            }
+        }
+
+        Ok(SQLiteQueryResult::new(columns, rows))
+    }
+
+    fn read_catalog_objects(&self) -> Result<Vec<CatalogObjectRow>, SQLiteRunnerError> {
+        let statement = self
+            .connection
+            .prepare_v2(
+                "SELECT object_id, name FROM _engine_catalog_objects ORDER BY object_id ASC",
+            )
+            .map_err(|_| self.connection_error("prepare catalog object query"))?;
+        let mut rows = Vec::new();
+
+        loop {
+            match statement.step() {
+                Ok(ResultCode::ROW) => rows.push(CatalogObjectRow {
+                    object_id: statement.column_int64(0),
+                    name: read_text_column(&statement, 1, "read catalog object name")?,
+                }),
+                Ok(ResultCode::DONE) => break,
+                Ok(result) => return Err(self.result_error("step catalog object query", result)),
+                Err(result) => return Err(self.result_error("step catalog object query", result)),
+            }
+        }
+
+        if rows.is_empty() {
+            return Err(SQLiteRunnerError::execution_failed(
+                "database does not contain Gelite catalog objects",
+            ));
+        }
+
+        Ok(rows)
+    }
+
+    fn read_catalog_fields(&self) -> Result<Vec<CatalogFieldRow>, SQLiteRunnerError> {
+        let statement = self
+            .connection
+            .prepare_v2(
+                "SELECT object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique
+                 FROM _engine_catalog_fields
+                 ORDER BY object_id ASC, field_id ASC",
+            )
+            .map_err(|_| self.connection_error("prepare catalog field query"))?;
+        let mut rows = Vec::new();
+
+        loop {
+            match statement.step() {
+                Ok(ResultCode::ROW) => rows.push(CatalogFieldRow {
+                    object_id: statement.column_int64(0),
+                    field_id: statement.column_int64(1),
+                    name: read_text_column(&statement, 2, "read catalog field name")?,
+                    field_kind: read_text_column(&statement, 3, "read catalog field kind")?,
+                    cardinality: read_text_column(&statement, 4, "read catalog field cardinality")?,
+                    scalar_type: read_nullable_text_column(&statement, 5, "read scalar_type")?,
+                    target_object_id: read_nullable_integer_column(
+                        &statement,
+                        6,
+                        "read target_object_id",
+                    )?,
+                    is_implicit: read_bool_column(&statement, 7, "read is_implicit")?,
+                    is_unique: read_bool_column(&statement, 8, "read is_unique")?,
+                }),
+                Ok(ResultCode::DONE) => break,
+                Ok(result) => return Err(self.result_error("step catalog field query", result)),
+                Err(result) => return Err(self.result_error("step catalog field query", result)),
+            }
+        }
+
+        if rows.is_empty() {
+            return Err(SQLiteRunnerError::execution_failed(
+                "database does not contain Gelite catalog fields",
+            ));
+        }
+
+        Ok(rows)
+    }
+
     fn connection_error(&self, context: &str) -> SQLiteRunnerError {
         let message = self
             .connection
@@ -107,6 +331,145 @@ impl NativeSQLiteRunner {
             .unwrap_or_else(|_| "unknown SQLite error".to_string());
 
         SQLiteRunnerError::execution_failed(format!("{context}: {result:?}: {message}"))
+    }
+}
+
+struct CatalogObjectRow {
+    object_id: i64,
+    name: String,
+}
+
+struct CatalogFieldRow {
+    object_id: i64,
+    #[allow(dead_code)]
+    field_id: i64,
+    name: String,
+    field_kind: String,
+    cardinality: String,
+    scalar_type: Option<String>,
+    target_object_id: Option<i64>,
+    is_implicit: bool,
+    is_unique: bool,
+}
+
+fn read_text_column(
+    statement: &ManagedStmt,
+    index: i32,
+    context: &str,
+) -> Result<String, SQLiteRunnerError> {
+    statement
+        .column_text(index)
+        .map(|value| value.to_string())
+        .map_err(|error| SQLiteRunnerError::execution_failed(format!("{context}: {error:?}")))
+}
+
+fn read_nullable_text_column(
+    statement: &ManagedStmt,
+    index: i32,
+    context: &str,
+) -> Result<Option<String>, SQLiteRunnerError> {
+    match statement
+        .column_type(index)
+        .map_err(|error| SQLiteRunnerError::execution_failed(format!("{context}: {error:?}")))?
+    {
+        ColumnType::Null => Ok(None),
+        ColumnType::Text => read_text_column(statement, index, context).map(Some),
+        column_type => Err(SQLiteRunnerError::execution_failed(format!(
+            "{context}: unexpected column type {column_type:?}"
+        ))),
+    }
+}
+
+fn read_nullable_integer_column(
+    statement: &ManagedStmt,
+    index: i32,
+    context: &str,
+) -> Result<Option<i64>, SQLiteRunnerError> {
+    match statement
+        .column_type(index)
+        .map_err(|error| SQLiteRunnerError::execution_failed(format!("{context}: {error:?}")))?
+    {
+        ColumnType::Null => Ok(None),
+        ColumnType::Integer => Ok(Some(statement.column_int64(index))),
+        column_type => Err(SQLiteRunnerError::execution_failed(format!(
+            "{context}: unexpected column type {column_type:?}"
+        ))),
+    }
+}
+
+fn read_bool_column(
+    statement: &ManagedStmt,
+    index: i32,
+    context: &str,
+) -> Result<bool, SQLiteRunnerError> {
+    match statement.column_int64(index) {
+        0 => Ok(false),
+        1 => Ok(true),
+        value => Err(SQLiteRunnerError::execution_failed(format!(
+            "{context}: expected 0 or 1, got {value}"
+        ))),
+    }
+}
+
+fn read_cell_value(
+    statement: &ManagedStmt,
+    index: i32,
+) -> Result<SQLiteCellValue, SQLiteRunnerError> {
+    match statement.column_type(index).map_err(|error| {
+        SQLiteRunnerError::execution_failed(format!("read result column type: {error:?}"))
+    })? {
+        ColumnType::Integer => Ok(SQLiteCellValue::Integer(statement.column_int64(index))),
+        ColumnType::Float => Ok(SQLiteCellValue::Real(statement.column_double(index))),
+        ColumnType::Text => {
+            read_text_column(statement, index, "read text result").map(SQLiteCellValue::Text)
+        }
+        ColumnType::Null => Ok(SQLiteCellValue::Null),
+        ColumnType::Blob => Err(SQLiteRunnerError::execution_failed(
+            "blob result values are not supported yet",
+        )),
+    }
+}
+
+fn parse_scalar_type(value: &str) -> Result<ScalarType, SQLiteRunnerError> {
+    match value {
+        "str" => Ok(ScalarType::Str),
+        "int64" => Ok(ScalarType::Int64),
+        "float64" => Ok(ScalarType::Float64),
+        "bool" => Ok(ScalarType::Bool),
+        "uuid" => Ok(ScalarType::Uuid),
+        "datetime" => Ok(ScalarType::DateTime),
+        _ => Err(SQLiteRunnerError::execution_failed(format!(
+            "unknown scalar type `{value}`"
+        ))),
+    }
+}
+
+fn parse_cardinality(value: &str) -> Result<Cardinality, SQLiteRunnerError> {
+    match value {
+        "optional" => Ok(Cardinality::Optional),
+        "required" => Ok(Cardinality::Required),
+        "many" => Ok(Cardinality::Many),
+        _ => Err(SQLiteRunnerError::execution_failed(format!(
+            "unknown cardinality `{value}`"
+        ))),
+    }
+}
+
+fn parse_single_cardinality(value: &str) -> Result<SingleCardinality, SQLiteRunnerError> {
+    match parse_cardinality(value)? {
+        Cardinality::Optional => Ok(SingleCardinality::Optional),
+        Cardinality::Required => Ok(SingleCardinality::Required),
+        Cardinality::Many => Err(SQLiteRunnerError::execution_failed(
+            "scalar fields cannot have many cardinality",
+        )),
+    }
+}
+
+fn parse_uniqueness(value: bool) -> Result<Uniqueness, SQLiteRunnerError> {
+    if value {
+        Ok(Uniqueness::Unique)
+    } else {
+        Ok(Uniqueness::NotUnique)
     }
 }
 

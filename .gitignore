@@ -5,6 +5,14 @@ gel/
 target/
 engine/target/
 
+# SQLite local database files
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
 # Zed editor workspace settings
 .zed/
 

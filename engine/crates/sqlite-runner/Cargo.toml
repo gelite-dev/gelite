@@ -5,11 +5,10 @@ edition.workspace = true
 
 [dependencies]
 powersync_sqlite_nostd = { version = "0.4.14", optional = true }
+schema-model = { path = "../schema-model" }
+sqlite-query-sqlgen = { path = "../sqlite-query-sqlgen" }
 sqlite-schema-plan = { path = "../sqlite-schema-plan" }
 sqlite-schema-sqlgen = { path = "../sqlite-schema-sqlgen" }
-
-[dev-dependencies]
-schema-model = { path = "../schema-model" }
 
 [features]
 default = []

@@ -4,6 +4,8 @@ use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
+use sqlite_query_sqlgen::SQLiteSelectStatement;
+use sqlite_runner::{SQLiteCellValue, SQLiteQueryResult};
 
 const DEFAULT_QUERY: &str = r#"select Post { title, author: { name } } filter .title = "Hello" order by .title desc limit 10 offset 0"#;
 
@@ -19,15 +21,65 @@ pub fn run(options: ReplOptions) -> Result<(), ()> {
 }
 
 pub fn run_with_catalog(catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
-    match options.query {
-        Some(query_text) => inspect_query(catalog, &query_text, options.debug),
-        None => run_repl(catalog, options.debug),
+    let mut runtime = ReplRuntime { executor: None };
+
+    runtime.run(catalog, options)
+}
+
+pub fn run_with_executor(
+    catalog: &SchemaCatalog,
+    options: ReplOptions,
+    executor: &mut dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String>,
+) -> Result<(), ()> {
+    let mut runtime = ReplRuntime {
+        executor: Some(executor),
+    };
+
+    runtime.run(catalog, options)
+}
+
+struct ReplRuntime<'a> {
+    executor:
+        Option<&'a mut dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String>>,
+}
+
+impl ReplRuntime<'_> {
+    fn run(&mut self, catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
+        match options.query {
+            Some(query_text) => self.inspect_query(catalog, &query_text, options.debug),
+            None => self.run_repl(catalog, options.debug),
+        }
+    }
+
+    fn run_repl(&mut self, catalog: &SchemaCatalog, debug: bool) -> Result<(), ()> {
+        run_repl(catalog, debug, self)
+    }
+
+    fn inspect_query(
+        &mut self,
+        catalog: &SchemaCatalog,
+        query_text: &str,
+        debug: bool,
+    ) -> Result<(), ()> {
+        let statement = compile_query(catalog, query_text, debug)?;
+
+        match self.executor.as_deref_mut() {
+            Some(executor) => {
+                let result = executor(&statement).map_err(|error| {
+                    eprintln!("failed to execute query: {error}");
+                })?;
+                print_query_result(&result);
+            }
+            None => println!("{}", statement.sql()),
+        }
+
+        Ok(())
     }
 }
 
-fn run_repl(catalog: &SchemaCatalog, debug: bool) -> Result<(), ()> {
+fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>) -> Result<(), ()> {
     println!("gelite repl");
-    println!("Type a select query to render SQL, or :quit / :exit to leave.");
+    println!("Type a select query, or :quit / :exit to leave.");
     println!("Press Enter on an empty line to run the default query.");
     println!("Use balanced braces for multiline input.");
     println!("Press Ctrl-C twice in a row to leave.");
@@ -58,7 +110,7 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool) -> Result<(), ()> {
                 }
 
                 if pending.is_empty() && trimmed.is_empty() {
-                    let _ = inspect_query(catalog, DEFAULT_QUERY, debug);
+                    let _ = runtime.inspect_query(catalog, DEFAULT_QUERY, debug);
                     continue;
                 }
 
@@ -76,7 +128,7 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool) -> Result<(), ()> {
 
                 if !query_text.is_empty() {
                     let _ = editor.add_history_entry(query_text.as_str());
-                    let _ = inspect_query(catalog, &query_text, debug);
+                    let _ = runtime.inspect_query(catalog, &query_text, debug);
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -124,7 +176,11 @@ fn brace_balance(input: &str) -> i32 {
     balance
 }
 
-fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Result<(), ()> {
+fn compile_query(
+    catalog: &SchemaCatalog,
+    query_text: &str,
+    debug: bool,
+) -> Result<SQLiteSelectStatement, ()> {
     let query = match parse_select(query_text) {
         Ok(query) => query,
         Err(error) => {
@@ -133,60 +189,50 @@ fn inspect_query(catalog: &SchemaCatalog, query_text: &str, debug: bool) -> Resu
         }
     };
 
-    if debug {
-        println!("Query:\n{query_text}");
-        println!("Query AST:\n{query:#?}");
-    }
-
     match query_resolver::resolve_select(catalog, &query) {
         Ok(resolved) => {
             let plan = sqlite_query_plan::plan_select(&resolved);
             let statement = sqlite_query_sqlgen::render_select(&plan);
 
             if debug {
-                println!("Resolved IR:\n{resolved:#?}");
-                println!(
-                    "SQLite Plan:\n  root: {} as {}\n  selected values:",
-                    plan.root_source().table_name(),
-                    plan.root_source().alias()
-                );
-                for value in plan.selected_values() {
-                    println!(
-                        "    {}.{} -> {}",
-                        value.source_alias(),
-                        value.column_name(),
-                        value.output_name()
-                    );
-                }
-                println!("  joins:");
-                for join in plan.joins() {
-                    let on = join.on();
-                    let join_kind = match join.kind() {
-                        sqlite_query_plan::SQLiteJoinKind::Inner => "inner join",
-                        sqlite_query_plan::SQLiteJoinKind::Left => "left join",
-                    };
-                    println!(
-                        "    {} {} as {} on {}.{} = {}.{}",
-                        join_kind,
-                        join.target_table(),
-                        join.target_alias(),
-                        on.left_alias(),
-                        on.left_column(),
-                        on.right_alias(),
-                        on.right_column()
-                    );
-                }
                 println!("SQL:\n{}", statement.sql());
-                println!("Bind values:\n{:#?}", statement.bind_values());
-            } else {
-                println!("{}", statement.sql());
+                println!("Bind values: {:?}", statement.bind_values());
             }
-            Ok(())
+
+            Ok(statement)
         }
         Err(error) => {
             eprintln!("failed to resolve query: {error:#?}");
             Err(())
         }
+    }
+}
+
+fn print_query_result(result: &SQLiteQueryResult) {
+    if !result.columns().is_empty() {
+        println!("{}", result.columns().join("\t"));
+    }
+
+    for row in result.rows() {
+        let values = row
+            .iter()
+            .map(format_cell_value)
+            .collect::<Vec<_>>()
+            .join("\t");
+        println!("{values}");
+    }
+
+    if result.rows().is_empty() {
+        println!("(0 rows)");
+    }
+}
+
+fn format_cell_value(value: &SQLiteCellValue) -> String {
+    match value {
+        SQLiteCellValue::Integer(value) => value.to_string(),
+        SQLiteCellValue::Real(value) => value.to_string(),
+        SQLiteCellValue::Text(value) => value.clone(),
+        SQLiteCellValue::Null => "NULL".to_string(),
     }
 }
 

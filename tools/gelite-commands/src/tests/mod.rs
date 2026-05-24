@@ -1,9 +1,31 @@
 mod fixtures;
 
+use sqlite_runner::{SQLiteRunner, SQLiteRunnerError};
 use sqlite_schema_plan::SQLiteValuePlan;
 
-use crate::{SchemaPlanStatement, plan_schema};
+use crate::{SchemaPlanStatement, apply_schema, plan_schema};
 use fixtures::blog_schema_source;
+
+#[derive(Default)]
+struct RecordingRunner {
+    calls: Vec<String>,
+}
+
+impl SQLiteRunner for RecordingRunner {
+    fn execute(&mut self, sql: &str) -> Result<(), SQLiteRunnerError> {
+        self.calls.push(sql.to_string());
+        Ok(())
+    }
+
+    fn execute_with_values(
+        &mut self,
+        sql: &str,
+        values: &[SQLiteValuePlan],
+    ) -> Result<(), SQLiteRunnerError> {
+        self.calls.push(format!("{sql} {values:?}"));
+        Ok(())
+    }
+}
 
 #[test]
 fn schema_plan_command_renders_initial_schema_from_source() {
@@ -80,4 +102,24 @@ fn schema_plan_command_returns_parse_error_for_invalid_schema() {
 
     assert!(error.message().contains("failed to parse schema"));
     assert!(!error.message().is_empty());
+}
+
+#[test]
+fn schema_apply_command_executes_rendered_schema_statements() {
+    let mut runner = RecordingRunner::default();
+
+    apply_schema(blog_schema_source(), &mut runner).expect("schema apply command should succeed");
+
+    assert_eq!(runner.calls.len(), 13);
+    assert!(
+        runner.calls[0].starts_with("CREATE TABLE _engine_schema_versions"),
+        "metadata table should be created first"
+    );
+    assert!(
+        runner
+            .calls
+            .iter()
+            .any(|call| call.contains("INSERT INTO _engine_catalog_objects")),
+        "catalog object metadata should be inserted"
+    );
 }
