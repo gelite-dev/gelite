@@ -1,5 +1,6 @@
-use crate::{Keyword, LexErrorKind, TokenKind, lex};
+use crate::{Keyword, LexErrorKind, ParseErrorKind, TokenKind, lex, parse_schema};
 use alloc::string::ToString;
+use schema::{Cardinality, Field, ScalarType, SchemaError, Uniqueness};
 
 #[test]
 fn lexer_tokenizes_empty_type_declaration() {
@@ -86,4 +87,250 @@ fn lexer_reports_unexpected_character_position() {
     assert_eq!(error.position().line(), 2);
     assert_eq!(error.position().column(), 3);
     assert_eq!(error.position().byte(), 14);
+}
+
+#[test]
+fn parser_can_parse_empty_object_type() {
+    let catalog = parse_schema("type User {}").expect("schema should parse");
+
+    let user = catalog
+        .find_type("User")
+        .expect("catalog should contain User");
+
+    assert_eq!(catalog.object_types().len(), 1);
+    assert_eq!(user.name(), "User");
+    assert!(user.declared_fields().is_empty());
+}
+
+#[test]
+fn parser_can_parse_required_scalar_field() {
+    let catalog = parse_schema(
+        "type User {
+  required name: str
+}",
+    )
+    .expect("schema should parse");
+
+    let user = catalog
+        .find_type("User")
+        .expect("catalog should contain User");
+    let field = user
+        .find_declared_field("name")
+        .expect("User should contain name");
+
+    match field {
+        Field::Scalar(scalar) => {
+            assert_eq!(scalar.scalar_type(), ScalarType::Str);
+            assert_eq!(field.cardinality(), Cardinality::Required);
+            assert_eq!(scalar.uniqueness(), Uniqueness::NotUnique);
+        }
+        Field::Link(_) => panic!("name should be a scalar field"),
+    }
+}
+
+#[test]
+fn parser_can_parse_property_keyword_scalar_field() {
+    let catalog = parse_schema(
+        "type User {
+  property name: str
+}",
+    )
+    .expect("schema should parse");
+
+    let user = catalog
+        .find_type("User")
+        .expect("catalog should contain User");
+    let field = user
+        .find_declared_field("name")
+        .expect("User should contain name");
+
+    match field {
+        Field::Scalar(scalar) => {
+            assert_eq!(scalar.scalar_type(), ScalarType::Str);
+            assert_eq!(field.cardinality(), Cardinality::Optional);
+        }
+        Field::Link(_) => panic!("name should be a scalar field"),
+    }
+}
+
+#[test]
+fn parser_can_parse_required_unique_scalar_field() {
+    let catalog = parse_schema(
+        "type User {
+  required unique email: str
+}",
+    )
+    .expect("schema should parse");
+
+    let user = catalog
+        .find_type("User")
+        .expect("catalog should contain User");
+    let field = user
+        .find_declared_field("email")
+        .expect("User should contain email");
+
+    match field {
+        Field::Scalar(scalar) => {
+            assert_eq!(scalar.scalar_type(), ScalarType::Str);
+            assert_eq!(field.cardinality(), Cardinality::Required);
+            assert_eq!(scalar.uniqueness(), Uniqueness::Unique);
+        }
+        Field::Link(_) => panic!("email should be a scalar field"),
+    }
+}
+
+#[test]
+fn parser_can_parse_required_link_field() {
+    let catalog = parse_schema(
+        "type User {}
+
+type Post {
+  required link author: User
+}",
+    )
+    .expect("schema should parse");
+
+    let post = catalog
+        .find_type("Post")
+        .expect("catalog should contain Post");
+    let field = post
+        .find_declared_field("author")
+        .expect("Post should contain author");
+
+    match field {
+        Field::Link(link) => {
+            assert_eq!(link.target_type_name(), "User");
+            assert_eq!(link.cardinality(), Cardinality::Required);
+        }
+        Field::Scalar(_) => panic!("author should be a link field"),
+    }
+}
+
+#[test]
+fn parser_can_parse_multi_link_field() {
+    let catalog = parse_schema(
+        "type User {}
+
+type Post {
+  multi link likers: User
+}",
+    )
+    .expect("schema should parse");
+
+    let post = catalog
+        .find_type("Post")
+        .expect("catalog should contain Post");
+    let field = post
+        .find_declared_field("likers")
+        .expect("Post should contain likers");
+
+    match field {
+        Field::Link(link) => {
+            assert_eq!(link.target_type_name(), "User");
+            assert_eq!(link.cardinality(), Cardinality::Many);
+        }
+        Field::Scalar(_) => panic!("likers should be a link field"),
+    }
+}
+
+#[test]
+fn parser_rejects_multi_scalar_field() {
+    let error = parse_schema(
+        "type User {
+  multi name: str
+}",
+    )
+    .expect_err("schema should fail");
+
+    assert_eq!(
+        error.kind(),
+        &ParseErrorKind::IncompatibleModifiers {
+            message: "`multi` is only valid on link fields"
+        }
+    );
+}
+
+#[test]
+fn parser_rejects_unique_link_field() {
+    let error = parse_schema(
+        "type User {}
+
+type Post {
+  unique link author: User
+}",
+    )
+    .expect_err("schema should fail");
+
+    assert_eq!(
+        error.kind(),
+        &ParseErrorKind::IncompatibleModifiers {
+            message: "`unique` is only valid on scalar fields"
+        }
+    );
+}
+
+#[test]
+fn parser_rejects_duplicate_type_names_through_catalog_validation() {
+    let error = parse_schema("type User {} type User {}").expect_err("schema should fail");
+
+    assert_eq!(
+        error.kind(),
+        &ParseErrorKind::InvalidCatalog(SchemaError::DuplicateTypeName {
+            name: "User".to_string(),
+        })
+    );
+}
+
+#[test]
+fn parser_rejects_duplicate_modifiers() {
+    let error = parse_schema(
+        "type User {
+  required required name: str
+}",
+    )
+    .expect_err("schema should fail");
+
+    assert_eq!(
+        error.kind(),
+        &ParseErrorKind::DuplicateModifier {
+            modifier: "required"
+        }
+    );
+}
+
+#[test]
+fn parser_can_parse_all_scalar_types() {
+    let catalog = parse_schema(
+        "type User {
+  text: str
+  count: int64
+  score: float64
+  active: bool
+  token: uuid
+  created_at: datetime
+}",
+    )
+    .expect("schema should parse");
+
+    let user = catalog
+        .find_type("User")
+        .expect("catalog should contain User");
+    let expected = [
+        ("text", ScalarType::Str),
+        ("count", ScalarType::Int64),
+        ("score", ScalarType::Float64),
+        ("active", ScalarType::Bool),
+        ("token", ScalarType::Uuid),
+        ("created_at", ScalarType::DateTime),
+    ];
+
+    for (field_name, scalar_type) in expected {
+        let field = user
+            .find_declared_field(field_name)
+            .expect("field should exist");
+        match field {
+            Field::Scalar(scalar) => assert_eq!(scalar.scalar_type(), scalar_type),
+            Field::Link(_) => panic!("field should be scalar"),
+        }
+    }
 }
