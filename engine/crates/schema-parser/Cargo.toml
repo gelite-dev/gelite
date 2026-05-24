@@ -1,0 +1,8 @@
+[package]
+name = "schema-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+logos = "0.16.1"
+schema = { path = "../schema" }

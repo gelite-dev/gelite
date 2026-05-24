@@ -9,6 +9,7 @@ members = [
   "engine/crates/sqlite-schema-sqlgen",
   "engine/crates/sqlite-sqlgen",
   "engine/crates/query-parser",
+  "engine/crates/schema-parser",
   "tools/repl",
 ]
 
