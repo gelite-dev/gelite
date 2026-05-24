@@ -270,7 +270,8 @@ These should be revisited only after the MVP works end to end:
 
 - enums
 - custom scalars
-- uniqueness constraints
+- advanced uniqueness constraints, such as composite unique constraints and
+  named constraints
 - indexes declared in schema
 - computed fields
 - deletion behavior annotations
