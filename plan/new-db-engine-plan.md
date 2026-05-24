@@ -105,6 +105,8 @@ The initial target is not:
 - Command-style schema workflows such as `schema plan` and `schema apply`
 - REPL query workflow with optional schema meta commands that delegate to the
   same schema command implementation
+- CLI and browser tooling details are tracked in
+  `plan/cli-and-tooling-plan.md`
 - Auth/session strategy
 - Logging and diagnostics
 
@@ -114,6 +116,9 @@ The initial target is not:
 - Schema browser
 - Query console
 - Migration/status UI
+- A later browser SQL demo can reuse the `no_std` engine crates and
+  WASM-compatible SQLite runner once runtime execution is tested outside the
+  browser
 
 ## Recommended Build Sequence
 

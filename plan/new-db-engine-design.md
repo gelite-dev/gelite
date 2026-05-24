@@ -231,7 +231,9 @@ Anything beyond that should be added only after IR and lowering are stable.
 
 - HTTP: `axum`
 - Runtime: `tokio`
-- DB access: `sqlx` or `rusqlite`
+- DB access: an engine-owned wrapper around `vlcn-io/sqlite-rs-embedded`, if
+  the binding proves suitable for prepared statements, bind values, stepping,
+  and metadata reads
 - Error reporting: `miette`
 - Logging/tracing: `tracing`
 - Config: environment-based plus local project config file
@@ -240,9 +242,12 @@ Anything beyond that should be added only after IR and lowering are stable.
 
 - `solid-js`
 - `vite` or `SolidStart`
+- `optique` for TypeScript-side demo command parsing if the browser tooling
+  needs a CLI-like command palette
 - query editor/playground UI
 - schema exploration UI
 - migration/status UI
+- optional in-browser SQL demo after the SQLite runner works in a WASM target
 
 The frontend should start as tooling for developers, not as a consumer app.
 

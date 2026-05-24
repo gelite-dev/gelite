@@ -935,9 +935,10 @@ This test is the bridge to query execution without fixture catalogs.
 17. Add metadata insert rendering with placeholders and separate values.
 18. Add deterministic full initial schema rendering.
 19. Add command-style `schema plan` output once `.geli` parsing exists.
-20. Add command-style `schema apply` once runtime execution exists.
-21. Add REPL schema meta commands that delegate to the command implementation.
-22. Evaluate `sqlite-rs-embedded` with a small engine-owned execution wrapper.
+20. Add `sqlite-runner` with the smallest `sqlite-rs-embedded` wrapper needed
+    for schema apply.
+21. Add command-style `schema apply` once runtime execution exists.
+22. Add REPL schema meta commands that delegate to the command implementation.
 23. Implement metadata-to-`schema::SchemaCatalog` loading only after metadata
     rows are tested.
 
@@ -958,6 +959,90 @@ also means the project must wrap the unsafe and low-level API carefully.
 until pure planning and rendering are tested. The execution wrapper should live
 in an engine runtime crate so planning remains inspectable without opening a
 connection.
+
+### `sqlite-runner` crate
+
+Add a runtime crate after schema parsing and schema SQL rendering are stable:
+
+```text
+engine/crates/sqlite-runner
+```
+
+Initial dependency direction:
+
+```text
+sqlite-runner
+  -> sqlite-schema-sqlgen
+  -> sqlite-schema
+  -> schema
+```
+
+The runner may depend on `sqlite-rs-embedded`. Pure planning crates must not.
+
+The first runner target is schema application, not query execution:
+
+```text
+schema source
+-> schema-parser
+-> schema::SchemaCatalog
+-> sqlite-schema::plan_initial_schema
+-> sqlite-schema-sqlgen::render_initial_schema
+-> sqlite-runner
+-> SQLite database
+```
+
+The runner should start with a narrow API:
+
+```rust
+pub fn apply_schema_statements(
+    connection: &mut SQLiteConnection,
+    statements: &[sqlite_schema_sqlgen::RenderedSchemaStatement],
+) -> Result<(), SQLiteRunnerError>
+```
+
+`SQLiteConnection` may be a wrapper around the concrete `sqlite-rs-embedded`
+connection handle. Do not expose the low-level binding type from public Gelite
+APIs until the binding surface is understood. Keep the wrapper small enough
+that it can be replaced if the binding turns out to be unsuitable.
+
+The first implementation should support only:
+
+- executing raw DDL statements from `RenderedSchemaStatement::Sql`
+- preparing metadata insert statements from `RenderedSchemaStatement::Insert`
+- binding `sqlite_schema::SQLiteValuePlan::Integer`
+- binding `sqlite_schema::SQLiteValuePlan::Text`
+- binding `sqlite_schema::SQLiteValuePlan::Null`
+- finalizing statements without leaking SQLite resources
+
+Do not add SELECT query execution, row decoding, result shaping, migrations, or
+catalog loading in the first runner step. Those require additional contracts
+around statement lifetimes and returned values.
+
+Because `sqlite-rs-embedded` stays close to the SQLite C API, the wrapper must
+make unsafe and lifetime-sensitive behavior explicit. The upstream README notes
+that statement values can be invalidated by stepping or finalizing the
+statement. Gelite code should not return borrowed SQLite values across a step
+or finalize boundary.
+
+Initial runner tests:
+
+1. `runner_can_execute_create_table_statement`
+   - open an in-memory database
+   - execute one `RenderedSchemaStatement::Sql`
+   - query SQLite metadata to prove the table exists
+
+2. `runner_can_execute_insert_statement_with_bind_values`
+   - create `_engine_catalog_objects`
+   - execute a `RenderedSchemaStatement::Insert`
+   - query the row back and verify integer and text values
+
+3. `runner_can_apply_rendered_initial_schema`
+   - parse a small `.geli` source
+   - plan and render the initial schema
+   - apply all statements in order
+   - verify object tables and metadata tables exist
+
+These tests should be written before adding command-line `schema apply`.
 
 ### Schema SQL ownership
 
