@@ -16,6 +16,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
@@ -268,6 +269,9 @@ pub enum ResolvedPathStepKind {
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+    Not(Box<Expr>),
 }
 
 /// Resolved comparison expression.
