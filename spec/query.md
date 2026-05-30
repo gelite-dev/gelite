@@ -102,11 +102,6 @@ Supported filter expressions:
 Supported comparison operators:
 
 - `=`
-- `!=`
-- `>`
-- `>=`
-- `<`
-- `<=`
 
 Supported filter example:
 
@@ -146,7 +141,7 @@ not_expr          := "not" not_expr
 compare_expr      := in_expr
                   | primary_expr compare_op primary_expr
                   | primary_expr
-compare_op        := "=" | "!=" | ">" | ">=" | "<" | "<="
+compare_op        := "="
 in_expr           := primary_expr "in" in_rhs
 primary_expr      := literal
                   | path
@@ -193,6 +188,7 @@ The MVP does not support:
 - `exists`
 - `in`
 - function calls
+- comparison operators other than `=`
 - path scoping with aliases
 
 ## Insert
@@ -389,6 +385,7 @@ These are intentionally out of scope until the end-to-end path is stable:
 - aggregation
 - grouping
 - `in`
+- comparison operators other than `=`
 - pagination cursors
 - function calls
 - subqueries

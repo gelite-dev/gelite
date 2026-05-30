@@ -299,15 +299,13 @@ Minimum fields:
 Supported operators:
 
 - `=`
-- `!=`
-- `>`
-- `>=`
-- `<`
-- `<=`
 
 Comparison expressions must resolve to a boolean result. The resolver is
 responsible for rejecting incompatible operands before the expression reaches
 SQLite planning.
+
+Comparison operators other than `=` are deferred until the lexer, parser,
+resolver, SQLite planner, and SQL generator all support them.
 
 ### Boolean Expressions
 
