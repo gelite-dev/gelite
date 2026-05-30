@@ -163,7 +163,7 @@ impl<'a> Parser<'a> {
     fn parse_or_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_and_expr()?;
 
-        while self.consume_keyword_if_present(Keyword::Or) {
+        while self.consume_contextual_keyword_if_present("or") {
             let right = self.parse_and_expr()?;
             expr = Expr::Or(Box::new(expr), Box::new(right));
         }
@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
     fn parse_and_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_not_expr()?;
 
-        while self.consume_keyword_if_present(Keyword::And) {
+        while self.consume_contextual_keyword_if_present("and") {
             let right = self.parse_not_expr()?;
             expr = Expr::And(Box::new(expr), Box::new(right));
         }
@@ -183,7 +183,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_not_expr(&mut self) -> Result<Expr, ParseError> {
-        if self.consume_keyword_if_present(Keyword::Not) {
+        if self.consume_contextual_keyword_if_present("not") {
             return Ok(Expr::Not(Box::new(self.parse_not_expr()?)));
         }
 
@@ -545,9 +545,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn consume_keyword_if_present(&mut self, keyword: Keyword) -> bool {
+    fn consume_contextual_keyword_if_present(&mut self, keyword: &str) -> bool {
         match self.peek() {
-            Some(token) if token.kind() == &TokenKind::Keyword(keyword) => {
+            Some(token) if token_is_ident(token, keyword) => {
                 self.advance();
                 true
             }
@@ -557,6 +557,10 @@ impl<'a> Parser<'a> {
 }
 
 fn is_primary_expr_start(token: &Token) -> bool {
+    if token_is_ident(token, "and") || token_is_ident(token, "or") {
+        return false;
+    }
+
     matches!(
         token.kind(),
         TokenKind::Dot
@@ -568,4 +572,8 @@ fn is_primary_expr_start(token: &Token) -> bool {
             | TokenKind::Keyword(Keyword::False)
             | TokenKind::Keyword(Keyword::Null)
     )
+}
+
+fn token_is_ident(token: &Token, expected: &str) -> bool {
+    matches!(token.kind(), TokenKind::Ident(value) if value == expected)
 }

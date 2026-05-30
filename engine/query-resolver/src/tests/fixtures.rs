@@ -50,9 +50,7 @@ pub fn post_with_author_catalog() -> SchemaCatalog {
 }
 
 pub fn path_expr(path: &[&str]) -> Expr {
-    Expr::Path(Path::new(
-        path.iter().copied().map(PathStep::new).collect(),
-    ))
+    Expr::Path(Path::new(path.iter().copied().map(PathStep::new).collect()))
 }
 
 pub fn literal_string_expr(value: &str) -> Expr {
@@ -76,5 +74,13 @@ pub fn filter_eq_null(path: &[&str]) -> Expr {
         path_expr(path),
         CompareOp::Eq,
         literal_null_expr(),
+    ))
+}
+
+pub fn filter_null_eq(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        literal_null_expr(),
+        CompareOp::Eq,
+        path_expr(path),
     ))
 }

@@ -143,19 +143,24 @@ fn resolve_expr(
 ) -> Result<query_ir::Expr, ResolveError> {
     match expr {
         query_ast::Expr::Compare(compare) => {
-            let left = resolve_value_expr(catalog, source_object_type, compare.left())?;
-
-            match compare.right() {
-                query_ast::Expr::Literal(query_ast::Literal::Null) => Ok(query_ir::Expr::IsNull(left)),
-                right_expr => {
-                    let right = resolve_value_expr(catalog, source_object_type, right_expr)?;
-                    Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
-                        left,
-                        query_ir::CompareOp::Eq,
-                        right,
-                    )))
-                }
+            if is_null_literal(compare.right()) {
+                let left = resolve_path_value_expr(catalog, source_object_type, compare.left())?;
+                return Ok(query_ir::Expr::IsNull(left));
             }
+
+            if is_null_literal(compare.left()) {
+                let right = resolve_path_value_expr(catalog, source_object_type, compare.right())?;
+                return Ok(query_ir::Expr::IsNull(right));
+            }
+
+            let left = resolve_value_expr(catalog, source_object_type, compare.left())?;
+            let right = resolve_value_expr(catalog, source_object_type, compare.right())?;
+
+            Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
+                left,
+                query_ir::CompareOp::Eq,
+                right,
+            )))
         }
         query_ast::Expr::And(left, right) => Ok(query_ir::Expr::And(
             Box::new(resolve_expr(catalog, source_object_type, left)?),
@@ -175,6 +180,23 @@ fn resolve_expr(
         }),
         query_ast::Expr::Path(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "path".to_string(),
+        }),
+    }
+}
+
+fn is_null_literal(expr: &query_ast::Expr) -> bool {
+    matches!(expr, query_ast::Expr::Literal(query_ast::Literal::Null))
+}
+
+fn resolve_path_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    match resolve_value_expr(catalog, source_object_type, expr)? {
+        query_ir::ValueExpr::Path(path) => Ok(query_ir::ValueExpr::Path(path)),
+        query_ir::ValueExpr::Literal(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison literal".to_string(),
         }),
     }
 }

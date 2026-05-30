@@ -5,7 +5,7 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    filter_eq_null, filter_eq_string, post_only_catalog, post_with_author_catalog,
+    filter_eq_null, filter_eq_string, filter_null_eq, post_only_catalog, post_with_author_catalog,
     post_with_title_catalog,
 };
 use query_ast::{Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
@@ -321,6 +321,39 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
     let catalog = post_with_title_catalog();
 
     let filter = filter_eq_null(&["title"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_null_eq(&["title"]);
 
     let query = SelectQuery::new(
         "Post",

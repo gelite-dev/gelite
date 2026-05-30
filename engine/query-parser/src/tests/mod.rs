@@ -171,12 +171,12 @@ fn lexer_can_tokenize_literal_keywords() {
 }
 
 #[test]
-fn lexer_can_tokenize_boolean_operator_keywords() {
+fn lexer_treats_boolean_operator_words_as_identifiers() {
     let tokens = lex("and or not").expect("query should lex");
 
-    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::And));
-    assert_eq!(tokens[1].kind(), &TokenKind::Keyword(Keyword::Or));
-    assert_eq!(tokens[2].kind(), &TokenKind::Keyword(Keyword::Not));
+    assert_eq!(tokens[0].kind(), &TokenKind::Ident("and".to_string()));
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("or".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::Ident("not".to_string()));
 }
 
 #[test]
@@ -225,6 +225,17 @@ fn parser_preserves_shape_item_order() {
     assert!(query.order_by().is_empty());
     assert_eq!(query.limit(), None);
     assert_eq!(query.offset(), None);
+}
+
+#[test]
+fn parser_can_parse_shape_item_named_boolean_operator_word() {
+    let query = parse_select("select Post { or }").expect("query should parse");
+
+    assert_eq!(query.shape().items().len(), 1);
+
+    let item = &query.shape().items()[0];
+    assert_eq!(item.path().steps()[0].field_name(), "or");
+    assert!(item.child_shape().is_none());
 }
 
 #[test]
