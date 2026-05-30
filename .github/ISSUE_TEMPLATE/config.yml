@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project documentation
+    url: https://github.com/dodok8/gelite/tree/main/spec
+    about: Read the specs before opening issues about language or storage semantics.

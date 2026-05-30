@@ -1,0 +1,103 @@
+name: Feature or task
+description: Propose or track a scoped change to Gelite.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for new behavior, planned implementation work, and
+        documentation changes that should be tracked before opening a pull
+        request.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: State the concrete result this issue should deliver.
+      placeholder: Add `gelite query plan` so users can inspect the SQLite query plan for a parsed select query.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation or use case
+      description: Explain the workflow, bug prevention, learning goal, or project need behind the change.
+      placeholder: This exposes an existing compiler stage from the CLI and makes query planning easier to test manually.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_outcome
+    attributes:
+      label: Expected outcome
+      description: Describe the behavior, API, command, documentation, or internal contract that should exist when this is done.
+      placeholder: |
+        `gelite query plan <query.geliql> --schema <schema.geli>` prints ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the crates, commands, docs, or tests expected to change. Use "unknown" if this issue still needs design.
+      placeholder: |
+        - `tools/gelite-cli`
+        - `tools/gelite-commands`
+        - CLI tests for success and parse failure paths
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Related specs and plans
+      description: Link the relevant files and note whether they already define the change.
+      placeholder: |
+        - `spec/query.md`: defines ...
+        - `plan/cli-and-tooling-plan.md`: tracks ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries and non-goals
+      description: List behavior that should stay out of this issue.
+      placeholder: This issue does not add query execution or result shaping.
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use concrete, testable statements when the scope is known.
+      placeholder: |
+        - The command returns a non-zero exit code for invalid query syntax.
+        - The command prints the structured SQLite plan for valid input.
+        - `cargo test --workspace` passes.
+    validations:
+      required: false
+
+  - type: textarea
+    id: branch
+    attributes:
+      label: Branch
+      description: Name the branch that should carry this work, if known.
+      placeholder: issue-123-query-plan-command
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for the same request or task.
+          required: true
+        - label: I checked the relevant `spec/` or `plan/` document when one exists.
+          required: true

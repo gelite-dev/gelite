@@ -1,0 +1,85 @@
+name: Bug report
+description: Report behavior that does not match the specs or current docs.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for behavior that is implemented but incorrect.
+        For missing behavior, use the feature or task template.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the incorrect behavior in one or two paragraphs.
+      placeholder: The resolver accepts a path that should be rejected by spec/query.md.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest command, input, or test case that reproduces the bug.
+      placeholder: |
+        1. Run `cargo test -p query-resolver ...`
+        2. Use this schema/query input:
+           ```text
+           ...
+           ```
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State what should happen and cite the relevant spec or plan when possible.
+      placeholder: The resolver should reject the path because spec/query.md only allows ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error, panic, SQL output, or test failure when available.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_area
+    attributes:
+      label: Affected area
+      description: Name the crate, command, spec section, or plan step involved.
+      placeholder: query-parser, query-resolver, sqlite-query-plan, gelite repl, spec/query.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide versions that can affect the result.
+      value: |
+        - OS:
+        - Rust:
+        - Cargo:
+        - SQLite, if relevant:
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for the same report.
+          required: true
+        - label: I checked the relevant `spec/` or `plan/` document when one exists.
+          required: true
