@@ -109,17 +109,24 @@ fn compare_expr_can_reference_path_and_literal() {
 
     let right_literal = Literal::String("00000000-0000-0000-0000-000000000001".to_string());
 
-    let expr = Expr::Compare(CompareExpr::new(left_path, CompareOp::Eq, right_literal));
+    let expr = Expr::Compare(CompareExpr::new(
+        Expr::Path(left_path),
+        CompareOp::Eq,
+        Expr::Literal(right_literal),
+    ));
 
     match expr {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 2);
-            assert_eq!(compare.left().steps()[0].field_name(), "author");
-            assert_eq!(compare.left().steps()[1].field_name(), "id");
+            let Expr::Path(left) = compare.left() else {
+                panic!("expected compare expression left side to be a path");
+            };
+            assert_eq!(left.steps().len(), 2);
+            assert_eq!(left.steps()[0].field_name(), "author");
+            assert_eq!(left.steps()[1].field_name(), "id");
             assert_eq!(compare.op(), CompareOp::Eq);
 
             match compare.right() {
-                Literal::String(value) => {
+                Expr::Literal(Literal::String(value)) => {
                     assert_eq!(value, "00000000-0000-0000-0000-000000000001");
                 }
                 _ => panic!("expected compare expression right side to be a string literal"),
@@ -147,9 +154,14 @@ fn select_query_can_store_filter_order_and_limit() {
     ]);
 
     let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("author"), PathStep::new("id")]),
+        Expr::Path(Path::new(vec![
+            PathStep::new("author"),
+            PathStep::new("id"),
+        ])),
         CompareOp::Eq,
-        Literal::String("00000000-0000-0000-0000-000000000001".to_string()),
+        Expr::Literal(Literal::String(
+            "00000000-0000-0000-0000-000000000001".to_string(),
+        )),
     ));
 
     let order = OrderExpr::new(Path::new(vec![PathStep::new("title")]), OrderDirection::Asc);
@@ -165,13 +177,16 @@ fn select_query_can_store_filter_order_and_limit() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 2);
-            assert_eq!(compare.left().steps()[0].field_name(), "author");
-            assert_eq!(compare.left().steps()[1].field_name(), "id");
+            let Expr::Path(left) = compare.left() else {
+                panic!("expected select query filter left side to be a path");
+            };
+            assert_eq!(left.steps().len(), 2);
+            assert_eq!(left.steps()[0].field_name(), "author");
+            assert_eq!(left.steps()[1].field_name(), "id");
             assert_eq!(compare.op(), CompareOp::Eq);
 
             match compare.right() {
-                Literal::String(value) => {
+                Expr::Literal(Literal::String(value)) => {
                     assert_eq!(value, "00000000-0000-0000-0000-000000000001");
                 }
                 _ => panic!("expected select query filter to store a string literal"),
