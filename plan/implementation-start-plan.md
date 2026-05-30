@@ -804,12 +804,12 @@ early.
 Run these commands from the repository root:
 
 ```bash
-mkdir -p engine/crates
+mkdir -p engine
 mkdir -p tools
-cargo new --lib engine/crates/schema
-cargo new --lib engine/crates/query-ast
-cargo new --lib engine/crates/ir
-cargo new --lib engine/crates/resolver
+cargo new --lib engine/schema
+cargo new --lib engine/query-ast
+cargo new --lib engine/ir
+cargo new --lib engine/resolver
 cargo new --bin tools/repl
 ```
 
@@ -818,10 +818,10 @@ Then create the repository-root `Cargo.toml` as a workspace manifest:
 ```toml
 [workspace]
 members = [
-  "engine/crates/schema",
-  "engine/crates/query-ast",
-  "engine/crates/ir",
-  "engine/crates/resolver",
+  "engine/schema",
+  "engine/query-ast",
+  "engine/ir",
+  "engine/resolver",
   "tools/repl",
 ]
 

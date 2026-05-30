@@ -269,7 +269,7 @@ source context to map those errors back to declarations.
 Use the same file layout style as the other parser crate:
 
 ```text
-engine/crates/schema-parser/
+engine/schema-parser/
   Cargo.toml
   src/
     lib.rs

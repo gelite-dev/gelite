@@ -11,6 +11,6 @@ path = "src/main.rs"
 clap = { version = "4.5.53", features = ["derive"] }
 gelite-commands = { path = "../gelite-commands" }
 repl = { path = "../repl" }
-schema-parser = { path = "../../engine/crates/schema-parser" }
-sqlite-query-sqlgen = { path = "../../engine/crates/sqlite-query-sqlgen" }
-sqlite-runner = { path = "../../engine/crates/sqlite-runner", features = ["native"] }
+schema-parser = { path = "../../engine/schema-parser" }
+sqlite-query-sqlgen = { path = "../../engine/sqlite-query-sqlgen" }
+sqlite-runner = { path = "../../engine/sqlite-runner", features = ["native"] }

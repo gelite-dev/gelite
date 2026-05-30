@@ -58,7 +58,7 @@ The next layer should consume `ir`, not `query-ast`.
 Add a new crate:
 
 ```text
-engine/crates/sqlite-query-plan
+engine/sqlite-query-plan
 ```
 
 Workspace dependency direction:

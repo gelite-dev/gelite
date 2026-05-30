@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-schema-parser = { path = "../../engine/crates/schema-parser" }
-sqlite-schema-plan = { path = "../../engine/crates/sqlite-schema-plan" }
-sqlite-schema-sqlgen = { path = "../../engine/crates/sqlite-schema-sqlgen" }
-sqlite-runner = { path = "../../engine/crates/sqlite-runner" }
+schema-parser = { path = "../../engine/schema-parser" }
+sqlite-schema-plan = { path = "../../engine/sqlite-schema-plan" }
+sqlite-schema-sqlgen = { path = "../../engine/sqlite-schema-sqlgen" }
+sqlite-runner = { path = "../../engine/sqlite-runner" }

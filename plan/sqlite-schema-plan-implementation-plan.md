@@ -21,7 +21,7 @@ applied to the database instead of from test fixtures.
 Add a new crate:
 
 ```text
-engine/crates/sqlite-schema-plan
+engine/sqlite-schema-plan
 ```
 
 The crate is SQLite-specific and may depend on SQLite naming, SQLite DDL, and
@@ -160,7 +160,7 @@ one backend-specific location.
 Candidate options:
 
 - keep naming functions in `sqlite-query-plan` and later extract them
-- introduce `engine/crates/sqlite-naming`
+- introduce `engine/sqlite-naming`
 - put naming in `sqlite-schema-plan` and make `sqlite-query-plan` depend on it later
 
 Do not create `sqlite-naming` before a test proves duplication is causing real
@@ -916,7 +916,7 @@ This test is the bridge to query execution without fixture catalogs.
 
 ## Initial Implementation Sequence
 
-1. Create `engine/crates/sqlite-schema-plan` with `schema` as its only dependency.
+1. Create `engine/sqlite-schema-plan` with `schema` as its only dependency.
 2. Add it to the workspace.
 3. Define inspectable plan structs without SQL strings.
 4. Implement metadata table planning.
@@ -973,7 +973,7 @@ in `sqlite-runner`.
 Add a runtime crate after schema parsing and schema SQL rendering are stable:
 
 ```text
-engine/crates/sqlite-runner
+engine/sqlite-runner
 ```
 
 Initial dependency direction:

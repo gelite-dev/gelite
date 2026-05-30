@@ -116,7 +116,7 @@ tools/repl
 `tools/gelite-commands` should depend on engine crates and runner-facing
 traits, not on a concrete SQLite binding. Native CLI setup can construct a
 native runner backend and pass it to the command layer. This keeps command
-orchestration out of `engine/crates` while still allowing `tools/repl` and
+orchestration out of `engine` while still allowing `tools/repl` and
 `tools/gelite-cli` to share the same command behavior.
 
 `tools/gelite-cli` must stay a binary entrypoint. It should translate process
