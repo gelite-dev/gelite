@@ -8,12 +8,12 @@
 //! field, relation, and cardinality checks.
 //!
 //! The implemented AST currently covers `select` queries with explicit result
-//! shapes, simple comparison filters, ordering, limit, and offset. Insert,
-//! update, and delete are specified in `spec/query.md` but are not represented
-//! here yet.
+//! shapes, filter expression trees, ordering, limit, and offset. Insert, update,
+//! and delete are specified in `spec/query.md` but are not represented here yet.
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -64,24 +64,23 @@ pub struct PathStep {
     field_name: String,
 }
 
-/// Parsed expression forms currently accepted by the AST.
-///
-/// The resolver supports comparison expressions for filters. Bare literals and
-/// bare paths are present as syntax-level values but are not valid top-level
-/// filter expressions in the current pipeline.
+/// Parsed expression forms accepted by the query syntax tree.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Literal),
     Path(Path),
     Compare(CompareExpr),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+    Not(Box<Expr>),
 }
 
 /// Binary comparison expression parsed from a filter clause.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompareExpr {
-    left: Path,
+    left: Box<Expr>,
     op: CompareOp,
-    right: Literal,
+    right: Box<Expr>,
 }
 
 /// Comparison operators implemented by the current parser and resolver.
@@ -219,16 +218,20 @@ impl OrderExpr {
 }
 
 impl CompareExpr {
-    pub fn new(left: Path, op: CompareOp, right: Literal) -> Self {
-        Self { left, op, right }
+    pub fn new(left: Expr, op: CompareOp, right: Expr) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        }
     }
-    pub fn left(&self) -> &Path {
+    pub fn left(&self) -> &Expr {
         &self.left
     }
     pub fn op(&self) -> CompareOp {
         self.op
     }
-    pub fn right(&self) -> &Literal {
+    pub fn right(&self) -> &Expr {
         &self.right
     }
 }

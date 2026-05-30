@@ -37,9 +37,14 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             RawTokenKind::True => TokenKind::Keyword(Keyword::True),
             RawTokenKind::False => TokenKind::Keyword(Keyword::False),
             RawTokenKind::Null => TokenKind::Keyword(Keyword::Null),
+            RawTokenKind::And => TokenKind::Keyword(Keyword::And),
+            RawTokenKind::Or => TokenKind::Keyword(Keyword::Or),
+            RawTokenKind::Not => TokenKind::Keyword(Keyword::Not),
 
             RawTokenKind::LBrace => TokenKind::LBrace,
             RawTokenKind::RBrace => TokenKind::RBrace,
+            RawTokenKind::LParen => TokenKind::LParen,
+            RawTokenKind::RParen => TokenKind::RParen,
             RawTokenKind::Comma => TokenKind::Comma,
             RawTokenKind::Colon => TokenKind::Colon,
             RawTokenKind::Dot => TokenKind::Dot,
@@ -102,11 +107,26 @@ enum RawTokenKind {
     #[token("null")]
     Null,
 
+    #[token("and")]
+    And,
+
+    #[token("or")]
+    Or,
+
+    #[token("not")]
+    Not,
+
     #[token("{")]
     LBrace,
 
     #[token("}")]
     RBrace,
+
+    #[token("(")]
+    LParen,
+
+    #[token(")")]
+    RParen,
 
     #[token(",")]
     Comma,
@@ -163,6 +183,8 @@ pub enum TokenKind {
     Int(String),
     LBrace,
     RBrace,
+    LParen,
+    RParen,
     Comma,
     Colon,
     Dot,
@@ -183,6 +205,9 @@ pub enum Keyword {
     True,
     False,
     Null,
+    And,
+    Or,
+    Not,
 }
 
 impl Keyword {
@@ -199,6 +224,9 @@ impl Keyword {
             Keyword::True => "true",
             Keyword::False => "false",
             Keyword::Null => "null",
+            Keyword::And => "and",
+            Keyword::Or => "or",
+            Keyword::Not => "not",
         }
     }
 }
