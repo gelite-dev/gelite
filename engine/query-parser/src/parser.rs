@@ -557,7 +557,7 @@ impl<'a> Parser<'a> {
 }
 
 fn is_primary_expr_start(token: &Token) -> bool {
-    if token_is_ident(token, "and") || token_is_ident(token, "or") {
+    if token_is_ident(token, "and") || token_is_ident(token, "or") || token_is_ident(token, "in") {
         return false;
     }
 

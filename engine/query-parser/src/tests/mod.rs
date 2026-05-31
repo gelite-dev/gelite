@@ -180,6 +180,13 @@ fn lexer_treats_boolean_operator_words_as_identifiers() {
 }
 
 #[test]
+fn lexer_treats_membership_operator_word_as_identifier() {
+    let tokens = lex("in").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Ident("in".to_string()));
+}
+
+#[test]
 fn lexer_reports_unexpected_character_byte_offset() {
     let error = lex("select Post { @ }").expect_err("query should fail");
 
@@ -235,6 +242,17 @@ fn parser_can_parse_shape_item_named_boolean_operator_word() {
 
     let item = &query.shape().items()[0];
     assert_eq!(item.path().steps()[0].field_name(), "or");
+    assert!(item.child_shape().is_none());
+}
+
+#[test]
+fn parser_can_parse_shape_item_named_membership_operator_word() {
+    let query = parse_select("select Post { in }").expect("query should parse");
+
+    assert_eq!(query.shape().items().len(), 1);
+
+    let item = &query.shape().items()[0];
+    assert_eq!(item.path().steps()[0].field_name(), "in");
     assert!(item.child_shape().is_none());
 }
 
