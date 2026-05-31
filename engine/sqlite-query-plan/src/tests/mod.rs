@@ -4,6 +4,7 @@ use crate::{
     SQLiteCompareOp, SQLiteJoinKind, SQLiteJoinReason, SQLiteLiteral, SQLiteOrderDirection,
     SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
@@ -503,6 +504,131 @@ fn sqlite_select_plan_can_filter_root_scalar_field_is_null() {
             SQLiteValueExpr::Literal(_) => panic!("is null value should be a column"),
         },
         _ => panic!("expected is null filter"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_and_expression() {
+    let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("hello".to_string())),
+    ));
+    let right = query_ir::Expr::IsNull(post_id_path_value());
+    let expr = query_ir::Expr::And(Box::new(left), Box::new(right));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::And(left, right)) = plan.filter() else {
+        panic!("expected and filter");
+    };
+
+    assert!(matches!(left.as_ref(), SQLiteWhereExpr::Compare(_)));
+    assert!(matches!(right.as_ref(), SQLiteWhereExpr::IsNull(_)));
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_or_expression() {
+    let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("hello".to_string())),
+    ));
+    let right = query_ir::Expr::IsNull(post_id_path_value());
+    let expr = query_ir::Expr::Or(Box::new(left), Box::new(right));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::Or(left, right)) = plan.filter() else {
+        panic!("expected or filter");
+    };
+
+    assert!(matches!(left.as_ref(), SQLiteWhereExpr::Compare(_)));
+    assert!(matches!(right.as_ref(), SQLiteWhereExpr::IsNull(_)));
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_not_expression() {
+    let inner = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("hello".to_string())),
+    ));
+    let expr = query_ir::Expr::Not(Box::new(inner));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::Not(inner)) = plan.filter() else {
+        panic!("expected not filter");
+    };
+
+    assert!(matches!(inner.as_ref(), SQLiteWhereExpr::Compare(_)));
+}
+
+#[test]
+fn sqlite_select_plan_can_join_filter_boolean_expression_paths() {
+    let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_author_name_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("Sheri".to_string())),
+    ));
+    let right = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("hello".to_string())),
+    ));
+    let expr = query_ir::Expr::And(Box::new(left), Box::new(right));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 1);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_alias(), "author");
+
+    match joins[0].reason() {
+        SQLiteJoinReason::PathTraversal { path } => {
+            assert_eq!(path, &vec!["author".to_string()]);
+        }
+        SQLiteJoinReason::SelectedSingleLink { .. } => {
+            panic!("boolean filter path join should be marked as path traversal")
+        }
     }
 }
 

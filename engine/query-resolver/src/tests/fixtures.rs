@@ -1,4 +1,6 @@
+use alloc::string::String;
 use alloc::vec;
+use query_ast::{CompareExpr, CompareOp, Expr, Literal, Path, PathStep};
 use schema_model::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
 pub fn post_only_catalog() -> SchemaCatalog {
@@ -45,4 +47,40 @@ pub fn post_with_author_catalog() -> SchemaCatalog {
         ),
     ])
     .expect("post-with-author schema catalog should be valid")
+}
+
+pub fn path_expr(path: &[&str]) -> Expr {
+    Expr::Path(Path::new(path.iter().copied().map(PathStep::new).collect()))
+}
+
+pub fn literal_string_expr(value: &str) -> Expr {
+    Expr::Literal(Literal::String(String::from(value)))
+}
+
+pub fn literal_null_expr() -> Expr {
+    Expr::Literal(Literal::Null)
+}
+
+pub fn filter_eq_string(path: &[&str], value: &str) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Eq,
+        literal_string_expr(value),
+    ))
+}
+
+pub fn filter_eq_null(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Eq,
+        literal_null_expr(),
+    ))
+}
+
+pub fn filter_null_eq(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        literal_null_expr(),
+        CompareOp::Eq,
+        path_expr(path),
+    ))
 }

@@ -68,7 +68,6 @@ order_clause     := "order" "by" order_item ("," order_item)*
 order_item       := path ("asc" | "desc")?
 limit_clause     := "limit" INT
 offset_clause    := "offset" INT
-path             := IDENT ("." IDENT)*
 ```
 
 ### Select Semantics
@@ -85,17 +84,24 @@ path             := IDENT ("." IDENT)*
 
 ### Filters
 
-Supported filter operators:
+Filters use the shared expression grammar. The first implemented expression
+surface is intentionally small, but it must be represented as a general
+expression tree in the parser, AST, resolver, and Semantic IR so later select
+features do not require another filter rewrite.
 
-- `=`
-- `!=`
-- `>`
-- `>=`
-- `<`
-- `<=`
+Supported filter expressions:
+
+- root-relative field paths
+- literal values
+- comparisons
 - `and`
 - `or`
 - `not`
+- parentheses
+
+Supported comparison operators:
+
+- `=`
 
 Supported filter example:
 
@@ -111,6 +117,59 @@ limit 20
 
 The leading `.` in filter paths refers to the current row root.
 
+Parentheses control boolean grouping:
+
+```text
+select Post {
+  id,
+  title
+}
+filter (.title = "Hello" or .title = "Draft") and not .archived = true
+```
+
+### Expression Grammar
+
+The expression grammar is shared by filters and later value positions such as
+mutation assignments and computed shape fields.
+
+```text
+expr              := or_expr
+or_expr           := and_expr ("or" and_expr)*
+and_expr          := not_expr ("and" not_expr)*
+not_expr          := "not" not_expr
+                  | compare_expr
+compare_expr      := in_expr
+                  | primary_expr compare_op primary_expr
+                  | primary_expr
+compare_op        := "="
+in_expr           := primary_expr "in" in_rhs
+primary_expr      := literal
+                  | path
+                  | "(" expr ")"
+                  | function_call
+                  | subquery_expr
+path              := "."? IDENT ("." IDENT)*
+function_call     := IDENT "(" argument_list? ")"
+argument_list     := expr ("," expr)*
+in_rhs            := "[" expr_list? "]"
+                  | "(" select_stmt ")"
+expr_list         := expr ("," expr)*
+subquery_expr     := "(" select_stmt ")"
+```
+
+Only path, literal, comparison, boolean, and parenthesized expressions are
+accepted by the resolver in the first expression refactor. `function_call`,
+`in_expr`, and `subquery_expr` are reserved syntax positions. The parser may
+produce AST nodes for them before the resolver accepts specific forms.
+
+Precedence from strongest to weakest:
+
+1. primary expressions
+2. comparisons
+3. `not`
+4. `and`
+5. `or`
+
 ### Filter Expression Scope
 
 The MVP supports:
@@ -119,6 +178,7 @@ The MVP supports:
 - traversal through declared single relation fields
 - scalar comparisons against literals
 - boolean composition
+- parenthesized grouping
 
 The MVP does not support:
 
@@ -126,6 +186,9 @@ The MVP does not support:
 - arbitrary subqueries
 - aggregation
 - `exists`
+- `in`
+- function calls
+- comparison operators other than `=`
 - path scoping with aliases
 
 ## Insert
@@ -247,8 +310,10 @@ The first version does not support:
 
 - array literals
 - nested object literals in expressions
-- function calls
 - computed expressions in assignment
+- function calls
+- `in`
+- subqueries
 
 ## Error Conditions
 
@@ -263,6 +328,7 @@ The analyzer should report:
 - `id` assignment in insert or update
 - type mismatches in assignment
 - type mismatches in filter comparisons
+- unsupported expression forms
 - invalid cardinality usage
 - use of backlink or inferred inverse traversal
 
@@ -318,7 +384,10 @@ These are intentionally out of scope until the end-to-end path is stable:
 - multi relation mutation syntax
 - aggregation
 - grouping
+- `in`
+- comparison operators other than `=`
 - pagination cursors
 - function calls
+- subqueries
 - query parameters
 - upsert

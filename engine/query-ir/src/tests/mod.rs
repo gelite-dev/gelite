@@ -5,6 +5,7 @@ use crate::{
     ResolvedPathError, ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField,
     SelectQuery, ValueExpr,
 };
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
@@ -430,4 +431,96 @@ fn value_expr_can_store_literal() {
         }
         ValueExpr::Path(_) => panic!("value expression should store a literal"),
     }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_and_expr() {
+    let left = Expr::Compare(CompareExpr::new(
+        post_title_path_value(),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::String("Hello".to_string())),
+    ));
+
+    let right = Expr::Compare(CompareExpr::new(
+        post_subtitle_path_value(),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::String("Draft".to_string())),
+    ));
+
+    let filter = Expr::And(Box::new(left), Box::new(right));
+
+    let query = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::And(left, right) = query.filter().expect("select query has filter") else {
+        panic!("filter should be an and expression");
+    };
+
+    assert!(matches!(left.as_ref(), Expr::Compare(_)));
+    assert!(matches!(right.as_ref(), Expr::Compare(_)));
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_or_expr() {
+    let left = Expr::Compare(CompareExpr::new(
+        post_title_path_value(),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::String("Hello".to_string())),
+    ));
+
+    let right = Expr::Compare(CompareExpr::new(
+        post_subtitle_path_value(),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::String("Draft".to_string())),
+    ));
+
+    let filter = Expr::Or(Box::new(left), Box::new(right));
+
+    let query = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::Or(left, right) = query.filter().expect("select query has filter") else {
+        panic!("filter should be an or expression");
+    };
+
+    assert!(matches!(left.as_ref(), Expr::Compare(_)));
+    assert!(matches!(right.as_ref(), Expr::Compare(_)));
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_not_expr() {
+    let inner = Expr::Compare(CompareExpr::new(
+        post_title_path_value(),
+        CompareOp::Eq,
+        ValueExpr::Literal(Literal::String("Hello".to_string())),
+    ));
+
+    let filter = Expr::Not(Box::new(inner));
+
+    let query = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::Not(inner) = query.filter().expect("select query has filter") else {
+        panic!("filter should be a not expression");
+    };
+
+    assert!(matches!(inner.as_ref(), Expr::Compare(_)));
 }

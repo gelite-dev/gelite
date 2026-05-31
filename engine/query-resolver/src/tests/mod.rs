@@ -1,12 +1,14 @@
 mod fixtures;
 
 use crate::{ResolveError, resolve_select};
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
-use fixtures::{post_only_catalog, post_with_author_catalog, post_with_title_catalog};
-use query_ast::{
-    CompareExpr, CompareOp, Expr, Literal, Path, PathStep, SelectQuery, Shape, ShapeItem,
+use fixtures::{
+    filter_eq_null, filter_eq_string, filter_null_eq, post_only_catalog, post_with_author_catalog,
+    post_with_title_catalog,
 };
+use query_ast::{Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
 #[test]
 fn resolves_select_root_object_type() {
@@ -276,11 +278,7 @@ fn preserves_shape_field_order() {
 fn resolves_filter_compare_path_to_field_and_literal() {
     let catalog = post_with_title_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("title")]),
-        CompareOp::Eq,
-        Literal::String("Hello".to_string()),
-    ));
+    let filter = filter_eq_string(&["title"], "Hello");
 
     let query = SelectQuery::new(
         "Post",
@@ -322,11 +320,7 @@ fn resolves_filter_compare_path_to_field_and_literal() {
 fn resolves_filter_compare_null_literal_to_is_null_expr() {
     let catalog = post_with_title_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("title")]),
-        CompareOp::Eq,
-        Literal::Null,
-    ));
+    let filter = filter_eq_null(&["title"]);
 
     let query = SelectQuery::new(
         "Post",
@@ -356,14 +350,132 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
 }
 
 #[test]
+fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_null_eq(&["title"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_and_expression() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::And(
+        Box::new(filter_eq_string(&["title"], "Hello")),
+        Box::new(filter_eq_null(&["title"])),
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+
+    let query_ir::Expr::And(left, right) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an and expression");
+    };
+
+    assert!(matches!(left.as_ref(), query_ir::Expr::Compare(_)));
+    assert!(matches!(right.as_ref(), query_ir::Expr::IsNull(_)));
+}
+
+#[test]
+fn resolves_filter_or_expression() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::Or(
+        Box::new(filter_eq_string(&["title"], "Hello")),
+        Box::new(filter_eq_null(&["title"])),
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+
+    let query_ir::Expr::Or(left, right) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an or expression");
+    };
+
+    assert!(matches!(left.as_ref(), query_ir::Expr::Compare(_)));
+    assert!(matches!(right.as_ref(), query_ir::Expr::IsNull(_)));
+}
+
+#[test]
+fn resolves_filter_not_expression() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::Not(Box::new(filter_eq_string(&["title"], "Hello")));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+
+    let query_ir::Expr::Not(inner) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a not expression");
+    };
+
+    assert!(matches!(inner.as_ref(), query_ir::Expr::Compare(_)));
+}
+
+#[test]
 fn rejects_filter_path_with_unknown_field() {
     let catalog = post_with_title_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("missing")]),
-        CompareOp::Eq,
-        Literal::String("Hello".to_string()),
-    ));
+    let filter = filter_eq_string(&["missing"], "Hello");
 
     let query = SelectQuery::new(
         "Post",
@@ -392,11 +504,7 @@ fn rejects_filter_path_with_unknown_field() {
 fn rejects_filter_path_with_link_field() {
     let catalog = post_with_author_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("author")]),
-        CompareOp::Eq,
-        Literal::String("Sheri".to_string()),
-    ));
+    let filter = filter_eq_string(&["author"], "Sheri");
 
     let query = SelectQuery::new(
         "Post",
@@ -506,11 +614,7 @@ fn passes_limit_and_offset_through() {
 fn resolves_filter_path_through_single_link_to_scalar_field() {
     let catalog = post_with_author_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        Path::new(vec![PathStep::new("author"), PathStep::new("name")]),
-        CompareOp::Eq,
-        Literal::String("Sheri".to_string()),
-    ));
+    let filter = filter_eq_string(&["author", "name"], "Sheri");
 
     let query = SelectQuery::new(
         "Post",

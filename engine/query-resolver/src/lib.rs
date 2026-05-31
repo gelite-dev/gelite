@@ -12,6 +12,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -142,26 +143,80 @@ fn resolve_expr(
 ) -> Result<query_ir::Expr, ResolveError> {
     match expr {
         query_ast::Expr::Compare(compare) => {
-            let left = resolve_path_expr(catalog, source_object_type, compare.left())?;
-
-            match compare.right() {
-                query_ast::Literal::Null => Ok(query_ir::Expr::IsNull(left)),
-                literal => {
-                    let right = resolve_literal_expr(literal)?;
-                    Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
-                        left,
-                        query_ir::CompareOp::Eq,
-                        right,
-                    )))
-                }
+            if is_null_literal(compare.right()) {
+                let left = resolve_path_value_expr(catalog, source_object_type, compare.left())?;
+                return Ok(query_ir::Expr::IsNull(left));
             }
+
+            if is_null_literal(compare.left()) {
+                let right = resolve_path_value_expr(catalog, source_object_type, compare.right())?;
+                return Ok(query_ir::Expr::IsNull(right));
+            }
+
+            let left = resolve_value_expr(catalog, source_object_type, compare.left())?;
+            let right = resolve_value_expr(catalog, source_object_type, compare.right())?;
+
+            Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
+                left,
+                query_ir::CompareOp::Eq,
+                right,
+            )))
         }
+        query_ast::Expr::And(left, right) => Ok(query_ir::Expr::And(
+            Box::new(resolve_expr(catalog, source_object_type, left)?),
+            Box::new(resolve_expr(catalog, source_object_type, right)?),
+        )),
+        query_ast::Expr::Or(left, right) => Ok(query_ir::Expr::Or(
+            Box::new(resolve_expr(catalog, source_object_type, left)?),
+            Box::new(resolve_expr(catalog, source_object_type, right)?),
+        )),
+        query_ast::Expr::Not(inner) => Ok(query_ir::Expr::Not(Box::new(resolve_expr(
+            catalog,
+            source_object_type,
+            inner,
+        )?))),
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "literal".to_string(),
         }),
         query_ast::Expr::Path(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "path".to_string(),
         }),
+    }
+}
+
+fn is_null_literal(expr: &query_ast::Expr) -> bool {
+    matches!(expr, query_ast::Expr::Literal(query_ast::Literal::Null))
+}
+
+fn resolve_path_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    match resolve_value_expr(catalog, source_object_type, expr)? {
+        query_ir::ValueExpr::Path(path) => Ok(query_ir::ValueExpr::Path(path)),
+        query_ir::ValueExpr::Literal(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison literal".to_string(),
+        }),
+    }
+}
+
+fn resolve_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    match expr {
+        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path),
+        query_ast::Expr::Literal(literal) => resolve_literal_expr(literal),
+        query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "comparison value".to_string(),
+        }),
+        query_ast::Expr::And(_, _) | query_ast::Expr::Or(_, _) | query_ast::Expr::Not(_) => {
+            Err(ResolveError::UnsupportedExpr {
+                expr_type: "boolean value".to_string(),
+            })
+        }
     }
 }
 

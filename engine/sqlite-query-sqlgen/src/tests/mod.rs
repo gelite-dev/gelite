@@ -1,6 +1,7 @@
 mod fixtures;
 
 use crate::{SQLiteBindValue, render_select};
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
@@ -150,6 +151,90 @@ fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
     );
 
     assert!(statement.bind_values().is_empty());
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_and_filter() {
+    let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello".to_string())),
+    ));
+    let right = query_ir::Expr::IsNull(post_title_path_value());
+    let filter = query_ir::Expr::And(Box::new(left), Box::new(right));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE (root.title = ? AND root.title IS NULL)"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::String("Hello".to_string())]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_or_filter_with_bind_order() {
+    let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello".to_string())),
+    ));
+    let right = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Draft".to_string())),
+    ));
+    let filter = query_ir::Expr::Or(Box::new(left), Box::new(right));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE (root.title = ? OR root.title = ?)"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("Hello".to_string()),
+            SQLiteBindValue::String("Draft".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_not_filter() {
+    let inner = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello".to_string())),
+    ));
+    let filter = query_ir::Expr::Not(Box::new(inner));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE NOT (root.title = ?)"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::String("Hello".to_string())]
+    );
 }
 
 #[test]

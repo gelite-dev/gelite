@@ -16,6 +16,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
@@ -389,6 +390,9 @@ impl SQLiteOrder {
 pub enum SQLiteWhereExpr {
     Compare(SQLiteCompareExpr),
     IsNull(SQLiteValueExpr),
+    And(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
+    Or(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
+    Not(Box<SQLiteWhereExpr>),
 }
 
 /// Backend-specific comparison expression.
@@ -554,6 +558,38 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNull(value.value),
                 joins: value.joins,
+            }
+        }
+        Expr::And(left, right) => {
+            let left = plan_where_expr(left);
+            let right = plan_where_expr(right);
+
+            let mut joins = left.joins;
+            joins.extend(right.joins);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::And(Box::new(left.expr), Box::new(right.expr)),
+                joins,
+            }
+        }
+        Expr::Or(left, right) => {
+            let left = plan_where_expr(left);
+            let right = plan_where_expr(right);
+
+            let mut joins = left.joins;
+            joins.extend(right.joins);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::Or(Box::new(left.expr), Box::new(right.expr)),
+                joins,
+            }
+        }
+        Expr::Not(inner) => {
+            let inner = plan_where_expr(inner);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::Not(Box::new(inner.expr)),
+                joins: inner.joins,
             }
         }
     }

@@ -70,6 +70,7 @@ The MVP Semantic IR should define at least these top-level node categories:
 - `FieldRef`
 - `ObjectTypeRef`
 - `ScalarTypeRef`
+- `Expr`
 - `LiteralExpr`
 - `PathExpr`
 - `CompareExpr`
@@ -228,7 +229,37 @@ The Semantic IR MVP does not support:
 
 ## Expression Model
 
-The MVP expression system is intentionally small.
+The Semantic IR expression model is a resolved expression tree. Query parsing
+may produce syntax nodes for future expression forms, but the resolver should
+only emit IR expression variants that are semantically accepted for the current
+milestone.
+
+Each resolved expression should carry enough information for later stages to
+validate and lower it without re-reading schema names from source text.
+
+### `Expr`
+
+Minimum variants:
+
+- literal
+- path
+- comparison
+- boolean `and`
+- boolean `or`
+- boolean `not`
+
+Minimum metadata:
+
+- result type
+- result cardinality
+
+The result type may be a scalar type, an object type for future subquery work,
+or a dedicated boolean type for predicates. The first implementation only needs
+literal scalar values, resolved scalar paths, and boolean predicate results.
+
+The expression tree does not store SQLite SQL fragments. SQLite-specific
+operator spelling, parentheses, bind placeholders, and joins belong to SQLite
+planning and SQL generation.
 
 ### `LiteralExpr`
 
@@ -240,9 +271,22 @@ Supported literal kinds:
 - boolean
 - null
 
+Minimum fields:
+
+- literal kind
+- literal value
+- result type
+- result cardinality
+
 ### `PathExpr`
 
 Wraps a resolved path used in a filter or ordering context.
+
+Minimum fields:
+
+- resolved path
+- result type
+- result cardinality
 
 ### `CompareExpr`
 
@@ -255,11 +299,13 @@ Minimum fields:
 Supported operators:
 
 - `=`
-- `!=`
-- `>`
-- `>=`
-- `<`
-- `<=`
+
+Comparison expressions must resolve to a boolean result. The resolver is
+responsible for rejecting incompatible operands before the expression reaches
+SQLite planning.
+
+Comparison operators other than `=` are deferred until the lexer, parser,
+resolver, SQLite planner, and SQL generator all support them.
 
 ### Boolean Expressions
 
@@ -268,6 +314,22 @@ The MVP also needs:
 - `AndExpr`
 - `OrExpr`
 - `NotExpr`
+
+Boolean expression operands must resolve to boolean expressions. Parentheses do
+not need a dedicated IR node; they affect the parsed tree shape. SQL generation
+must preserve grouping when rendering `and` and `or` combinations.
+
+### Reserved Expression Forms
+
+The parser and AST may reserve syntax for these forms before they become
+accepted Semantic IR:
+
+- `InExpr`
+- `FunctionCallExpr`
+- `SubqueryExpr`
+
+The resolver must reject unsupported forms with diagnostics. Do not pass an
+unsupported expression through IR as an opaque node.
 
 ## Ordering Model
 

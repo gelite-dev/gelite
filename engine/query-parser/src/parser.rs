@@ -1,4 +1,5 @@
 use crate::{Keyword, LexError, Span, Token, TokenKind, lex};
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 use query_ast::{
@@ -149,13 +150,99 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Filter) => {
                 self.expect_keyword(Keyword::Filter)?;
-                let left = self.parse_path(true)?;
-                let op = self.expect_compare_op()?;
-                let right = self.expect_literal()?;
-
-                Ok(Some(Expr::Compare(CompareExpr::new(left, op, right))))
+                Ok(Some(self.parse_expr()?))
             }
             _ => Ok(None),
+        }
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
+        self.parse_or_expr()
+    }
+
+    fn parse_or_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_and_expr()?;
+
+        while self.consume_contextual_keyword_if_present("or") {
+            let right = self.parse_and_expr()?;
+            expr = Expr::Or(Box::new(expr), Box::new(right));
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_and_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_not_expr()?;
+
+        while self.consume_contextual_keyword_if_present("and") {
+            let right = self.parse_not_expr()?;
+            expr = Expr::And(Box::new(expr), Box::new(right));
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_not_expr(&mut self) -> Result<Expr, ParseError> {
+        if self.consume_contextual_keyword_if_present("not") {
+            return Ok(Expr::Not(Box::new(self.parse_not_expr()?)));
+        }
+
+        self.parse_compare_expr()
+    }
+
+    fn parse_compare_expr(&mut self) -> Result<Expr, ParseError> {
+        let left = self.parse_primary_expr()?;
+
+        if self.is_compare_op() {
+            let op = self.expect_compare_op()?;
+            let right = self.parse_primary_expr()?;
+            return Ok(Expr::Compare(CompareExpr::new(left, op, right)));
+        }
+
+        if self.peek().is_some_and(is_primary_expr_start) {
+            let token = self.peek().expect("peek checked token exists");
+            return Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken {
+                    expected: "comparison operator",
+                },
+                Some(token.span()),
+            ));
+        }
+
+        Ok(left)
+    }
+
+    fn parse_primary_expr(&mut self) -> Result<Expr, ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::LParen => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                self.expect_rparen()?;
+                Ok(expr)
+            }
+            Some(token) if token.kind() == &TokenKind::Dot => {
+                Ok(Expr::Path(self.parse_path(true)?))
+            }
+            Some(token) => match token.kind() {
+                TokenKind::Ident(_) => Ok(Expr::Path(self.parse_path(false)?)),
+                TokenKind::Int(_)
+                | TokenKind::String(_)
+                | TokenKind::Keyword(Keyword::True)
+                | TokenKind::Keyword(Keyword::False)
+                | TokenKind::Keyword(Keyword::Null) => Ok(Expr::Literal(self.expect_literal()?)),
+                _ => Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: "expression",
+                    },
+                    Some(token.span()),
+                )),
+            },
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof {
+                    expected: "expression",
+                },
+                None,
+            )),
         }
     }
 
@@ -352,6 +439,28 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn expect_rparen(&mut self) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::RParen => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken { expected: ")" },
+                Some(token.span()),
+            )),
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof { expected: ")" },
+                None,
+            )),
+        }
+    }
+
+    fn is_compare_op(&self) -> bool {
+        self.peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Eq)
+    }
+
     fn expect_compare_op(&mut self) -> Result<query_ast::CompareOp, ParseError> {
         match self.peek() {
             Some(token) if token.kind() == &TokenKind::Eq => {
@@ -435,4 +544,36 @@ impl<'a> Parser<'a> {
             _ => false,
         }
     }
+
+    fn consume_contextual_keyword_if_present(&mut self, keyword: &str) -> bool {
+        match self.peek() {
+            Some(token) if token_is_ident(token, keyword) => {
+                self.advance();
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+fn is_primary_expr_start(token: &Token) -> bool {
+    if token_is_ident(token, "and") || token_is_ident(token, "or") {
+        return false;
+    }
+
+    matches!(
+        token.kind(),
+        TokenKind::Dot
+            | TokenKind::Ident(_)
+            | TokenKind::Int(_)
+            | TokenKind::String(_)
+            | TokenKind::LParen
+            | TokenKind::Keyword(Keyword::True)
+            | TokenKind::Keyword(Keyword::False)
+            | TokenKind::Keyword(Keyword::Null)
+    )
+}
+
+fn token_is_ident(token: &Token, expected: &str) -> bool {
+    matches!(token.kind(), TokenKind::Ident(value) if value == expected)
 }

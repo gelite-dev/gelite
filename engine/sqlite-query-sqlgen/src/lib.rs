@@ -73,22 +73,45 @@ fn render_from_clause(plan: &SQLiteSelectPlan) -> String {
 fn render_where_clause(plan: &SQLiteSelectPlan) -> (Option<String>, Vec<SQLiteBindValue>) {
     match plan.filter() {
         None => (None, vec![]),
-        Some(SQLiteWhereExpr::Compare(compare)) => {
+        Some(expr) => {
             let mut bind_values = Vec::new();
-            let left_sql = render_value_expr(compare.left(), &mut bind_values);
-            let op_sql = render_compare_op(compare.op());
-            let right_sql = render_value_expr(compare.right(), &mut bind_values);
+            let expr_sql = render_where_expr(expr, &mut bind_values);
 
-            (
-                Some(format!("WHERE {left_sql} {op_sql} {right_sql}")),
-                bind_values,
-            )
+            (Some(format!("WHERE {expr_sql}")), bind_values)
         }
-        Some(SQLiteWhereExpr::IsNull(value)) => {
-            let mut bind_values = Vec::new();
-            let value_sql = render_value_expr(value, &mut bind_values);
+    }
+}
 
-            (Some(format!("WHERE {value_sql} IS NULL")), bind_values)
+fn render_where_expr(expr: &SQLiteWhereExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
+    match expr {
+        SQLiteWhereExpr::Compare(compare) => {
+            let left_sql = render_value_expr(compare.left(), bind_values);
+            let op_sql = render_compare_op(compare.op());
+            let right_sql = render_value_expr(compare.right(), bind_values);
+
+            format!("{left_sql} {op_sql} {right_sql}")
+        }
+        SQLiteWhereExpr::IsNull(value) => {
+            let value_sql = render_value_expr(value, bind_values);
+
+            format!("{value_sql} IS NULL")
+        }
+        SQLiteWhereExpr::And(left, right) => {
+            let left_sql = render_where_expr(left, bind_values);
+            let right_sql = render_where_expr(right, bind_values);
+
+            format!("({left_sql} AND {right_sql})")
+        }
+        SQLiteWhereExpr::Or(left, right) => {
+            let left_sql = render_where_expr(left, bind_values);
+            let right_sql = render_where_expr(right, bind_values);
+
+            format!("({left_sql} OR {right_sql})")
+        }
+        SQLiteWhereExpr::Not(inner) => {
+            let inner_sql = render_where_expr(inner, bind_values);
+
+            format!("NOT ({inner_sql})")
         }
     }
 }

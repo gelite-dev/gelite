@@ -1,5 +1,11 @@
-use crate::{Keyword, LexErrorKind, TokenKind, lex, parse_select};
+mod fixtures;
+
+use crate::{
+    Keyword::{self},
+    LexErrorKind, TokenKind, lex, parse_select,
+};
 use alloc::string::ToString;
+use fixtures::{assert_literal_expr, assert_path_expr};
 use query_ast::{CompareOp, Expr, Literal, OrderDirection};
 
 #[test]
@@ -165,7 +171,7 @@ fn lexer_can_tokenize_literal_keywords() {
 }
 
 #[test]
-fn lexer_treats_boolean_operator_words_as_identifiers_until_supported() {
+fn lexer_treats_boolean_operator_words_as_identifiers() {
     let tokens = lex("and or not").expect("query should lex");
 
     assert_eq!(tokens[0].kind(), &TokenKind::Ident("and".to_string()));
@@ -219,6 +225,17 @@ fn parser_preserves_shape_item_order() {
     assert!(query.order_by().is_empty());
     assert_eq!(query.limit(), None);
     assert_eq!(query.offset(), None);
+}
+
+#[test]
+fn parser_can_parse_shape_item_named_boolean_operator_word() {
+    let query = parse_select("select Post { or }").expect("query should parse");
+
+    assert_eq!(query.shape().items().len(), 1);
+
+    let item = &query.shape().items()[0];
+    assert_eq!(item.path().steps()[0].field_name(), "or");
+    assert!(item.child_shape().is_none());
 }
 
 #[test]
@@ -300,10 +317,9 @@ fn parser_can_parse_filter_compare_path_equals_string_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 1);
-            assert_eq!(compare.left().steps()[0].field_name(), "title");
+            assert_path_expr(compare.left(), &["title"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::String("Hello".to_string()));
+            assert_literal_expr(compare.right(), &Literal::String("Hello".to_string()));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -318,11 +334,9 @@ fn parser_can_parse_filter_compare_nested_path_equals_string_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 2);
-            assert_eq!(compare.left().steps()[0].field_name(), "author");
-            assert_eq!(compare.left().steps()[1].field_name(), "name");
+            assert_path_expr(compare.left(), &["author", "name"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::String("Sheri".to_string()));
+            assert_literal_expr(compare.right(), &Literal::String("Sheri".to_string()));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -337,10 +351,9 @@ fn parser_can_parse_filter_compare_path_equals_integer_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 1);
-            assert_eq!(compare.left().steps()[0].field_name(), "view_count");
+            assert_path_expr(compare.left(), &["view_count"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::Int64(42));
+            assert_literal_expr(compare.right(), &Literal::Int64(42));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -355,10 +368,9 @@ fn parser_can_parse_filter_compare_path_equals_true_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 1);
-            assert_eq!(compare.left().steps()[0].field_name(), "published");
+            assert_path_expr(compare.left(), &["published"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::Bool(true));
+            assert_literal_expr(compare.right(), &Literal::Bool(true));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -373,10 +385,9 @@ fn parser_can_parse_filter_compare_path_equals_false_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 1);
-            assert_eq!(compare.left().steps()[0].field_name(), "published");
+            assert_path_expr(compare.left(), &["published"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::Bool(false));
+            assert_literal_expr(compare.right(), &Literal::Bool(false));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -391,10 +402,9 @@ fn parser_can_parse_filter_compare_path_equals_null_literal() {
 
     match filter {
         Expr::Compare(compare) => {
-            assert_eq!(compare.left().steps().len(), 1);
-            assert_eq!(compare.left().steps()[0].field_name(), "deleted_at");
+            assert_path_expr(compare.left(), &["deleted_at"]);
             assert_eq!(compare.op(), CompareOp::Eq);
-            assert_eq!(compare.right(), &Literal::Null);
+            assert_literal_expr(compare.right(), &Literal::Null);
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -414,7 +424,9 @@ fn parser_rejects_filter_without_path() {
 
     assert_eq!(
         error.kind(),
-        &crate::ParseErrorKind::UnexpectedToken { expected: "IDENT" }
+        &crate::ParseErrorKind::UnexpectedToken {
+            expected: "expression"
+        }
     );
 }
 
@@ -439,7 +451,7 @@ fn parser_rejects_filter_without_literal() {
     assert_eq!(
         error.kind(),
         &crate::ParseErrorKind::UnexpectedEof {
-            expected: "literal"
+            expected: "expression"
         }
     );
 }
