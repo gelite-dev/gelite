@@ -549,9 +549,9 @@ fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
             }
         }
         query_ir::ValueExpr::Literal(query_ir::Literal::String(value)) => PlannedValueExpr {
-            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(
-                &query_ir::Literal::String(value.clone()),
-            )),
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::String(
+                value.clone(),
+            ))),
             joins: vec![],
         },
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => PlannedValueExpr {
@@ -615,11 +615,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
         }
         Expr::In(in_expr) => {
             let left = plan_value_expr(in_expr.left());
-            let right = in_expr
-                .right()
-                .iter()
-                .map(sqlite_literal_from_ir)
-                .collect();
+            let right = in_expr.right().iter().map(sqlite_literal_from_ir).collect();
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::In(SQLiteInExpr {
