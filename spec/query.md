@@ -94,6 +94,8 @@ Supported filter expressions:
 - root-relative field paths
 - literal values
 - comparisons
+- literal-list `in`
+- literal-list `not in`
 - `and`
 - `or`
 - `not`
@@ -127,6 +129,16 @@ select Post {
 filter (.title = "Hello" or .title = "Draft") and not .archived = true
 ```
 
+Literal-list membership checks use bracketed literal values:
+
+```text
+select Post {
+  id,
+  title
+}
+filter .status not in ["archived", "deleted"]
+```
+
 ### Expression Grammar
 
 The expression grammar is shared by filters and later value positions such as
@@ -142,7 +154,9 @@ compare_expr      := in_expr
                   | primary_expr compare_op primary_expr
                   | primary_expr
 compare_op        := "="
-in_expr           := primary_expr "in" in_rhs
+in_expr           := primary_expr in_op in_rhs
+in_op             := "in"
+                  | "not" "in"
 primary_expr      := literal
                   | path
                   | "(" expr ")"
@@ -157,15 +171,21 @@ expr_list         := expr ("," expr)*
 subquery_expr     := "(" select_stmt ")"
 ```
 
-Only path, literal, comparison, boolean, and parenthesized expressions are
-accepted by the resolver in the first expression refactor. `function_call`,
-`in_expr`, and `subquery_expr` are reserved syntax positions. The parser may
-produce AST nodes for them before the resolver accepts specific forms.
+Only path, literal, comparison, literal-list `in`, literal-list `not in`,
+boolean, and parenthesized expressions are accepted by the resolver in the
+literal-list `in` milestone. `function_call` and `subquery_expr` are reserved
+syntax positions. The parser may produce AST nodes for them before the resolver
+accepts specific forms.
+
+The first accepted `in_rhs` form is a non-empty bracketed list. The resolver
+must reject `in []`, `not in []`, and list items that are not literals.
+Subquery RHS forms such as `.author.id in (select User { id })` are reserved by
+the grammar but rejected until subquery expression scope is defined.
 
 Precedence from strongest to weakest:
 
 1. primary expressions
-2. comparisons
+2. membership and comparisons
 3. `not`
 4. `and`
 5. `or`
@@ -177,6 +197,7 @@ The MVP supports:
 - field paths from the root object
 - traversal through declared single relation fields
 - scalar comparisons against literals
+- scalar membership checks against non-empty lists of literals
 - boolean composition
 - parenthesized grouping
 
@@ -186,7 +207,7 @@ The MVP does not support:
 - arbitrary subqueries
 - aggregation
 - `exists`
-- `in`
+- subquery `in`
 - function calls
 - comparison operators other than `=`
 - path scoping with aliases
