@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::string::ToString;
 use fixtures::{assert_literal_expr, assert_path_expr};
-use query_ast::{CompareOp, Expr, Literal, OrderDirection};
+use query_ast::{CompareOp, Expr, InOp, Literal, OrderDirection};
 
 #[test]
 fn lexer_can_tokenize_select_shape() {
@@ -39,6 +39,24 @@ fn lexer_can_tokenize_filter_path_and_string_literal() {
     assert_eq!(tokens[2].kind(), &TokenKind::Ident("title".to_string()));
     assert_eq!(tokens[3].kind(), &TokenKind::Eq);
     assert_eq!(tokens[4].kind(), &TokenKind::String("Hello".to_string()));
+}
+
+#[test]
+fn lexer_can_tokenize_membership_list_brackets() {
+    let tokens = lex("filter .status in [\"draft\", \"published\"]").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
+    assert_eq!(tokens[1].kind(), &TokenKind::Dot);
+    assert_eq!(tokens[2].kind(), &TokenKind::Ident("status".to_string()));
+    assert_eq!(tokens[3].kind(), &TokenKind::Ident("in".to_string()));
+    assert_eq!(tokens[4].kind(), &TokenKind::LBracket);
+    assert_eq!(tokens[5].kind(), &TokenKind::String("draft".to_string()));
+    assert_eq!(tokens[6].kind(), &TokenKind::Comma);
+    assert_eq!(
+        tokens[7].kind(),
+        &TokenKind::String("published".to_string())
+    );
+    assert_eq!(tokens[8].kind(), &TokenKind::RBracket);
 }
 
 #[test]
@@ -425,6 +443,102 @@ fn parser_can_parse_filter_compare_path_equals_null_literal() {
             assert_literal_expr(compare.right(), &Literal::Null);
         }
         _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_in_literal_list() {
+    let query = parse_select("select Post { title } filter .status in [\"draft\", \"published\"]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["status"]);
+            assert_eq!(in_expr.op(), InOp::In);
+            assert_eq!(in_expr.right().len(), 2);
+            assert_literal_expr(&in_expr.right()[0], &Literal::String("draft".to_string()));
+            assert_literal_expr(
+                &in_expr.right()[1],
+                &Literal::String("published".to_string()),
+            );
+        }
+        _ => panic!("filter should be an in expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_not_in_literal_list() {
+    let query = parse_select("select Post { title } filter .status not in [\"archived\"]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["status"]);
+            assert_eq!(in_expr.op(), InOp::NotIn);
+            assert_eq!(in_expr.right().len(), 1);
+            assert_literal_expr(
+                &in_expr.right()[0],
+                &Literal::String("archived".to_string()),
+            );
+        }
+        _ => panic!("filter should be a not in expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_in_empty_list() {
+    let query =
+        parse_select("select Post { title } filter .status in []").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["status"]);
+            assert_eq!(in_expr.op(), InOp::In);
+            assert!(in_expr.right().is_empty());
+        }
+        _ => panic!("filter should be an in expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_null_and_path_membership_items_for_resolver() {
+    let query = parse_select("select Post { title } filter .status in [null, .other_status]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["status"]);
+            assert_eq!(in_expr.op(), InOp::In);
+            assert_eq!(in_expr.right().len(), 2);
+            assert_literal_expr(&in_expr.right()[0], &Literal::Null);
+            assert_path_expr(&in_expr.right()[1], &["other_status"]);
+        }
+        _ => panic!("filter should be an in expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_membership_precedence_with_boolean_or() {
+    let query =
+        parse_select("select Post { title } filter .status in [\"draft\"] or .title = \"Hello\"")
+            .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Or(left, right) => {
+            assert!(matches!(left.as_ref(), Expr::In(_)));
+            assert!(matches!(right.as_ref(), Expr::Compare(_)));
+        }
+        _ => panic!("filter should be an or expression"),
     }
 }
 

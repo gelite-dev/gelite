@@ -40,6 +40,8 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
 
             RawTokenKind::LBrace => TokenKind::LBrace,
             RawTokenKind::RBrace => TokenKind::RBrace,
+            RawTokenKind::LBracket => TokenKind::LBracket,
+            RawTokenKind::RBracket => TokenKind::RBracket,
             RawTokenKind::LParen => TokenKind::LParen,
             RawTokenKind::RParen => TokenKind::RParen,
             RawTokenKind::Comma => TokenKind::Comma,
@@ -110,6 +112,12 @@ enum RawTokenKind {
     #[token("}")]
     RBrace,
 
+    #[token("[")]
+    LBracket,
+
+    #[token("]")]
+    RBracket,
+
     #[token("(")]
     LParen,
 
@@ -171,6 +179,8 @@ pub enum TokenKind {
     Int(String),
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     LParen,
     RParen,
     Comma,
