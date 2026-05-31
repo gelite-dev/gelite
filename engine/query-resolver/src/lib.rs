@@ -175,6 +175,16 @@ fn resolve_expr(
             source_object_type,
             inner,
         )?))),
+        query_ast::Expr::In(in_expr) => {
+            let left = resolve_value_expr(catalog, source_object_type, in_expr.left())?;
+            let op = match in_expr.op() {
+                query_ast::InOp::In => query_ir::InOp::In,
+                query_ast::InOp::NotIn => query_ir::InOp::NotIn,
+            };
+            let right = resolve_membership_literals(in_expr.right())?;
+
+            Ok(query_ir::Expr::In(query_ir::InExpr::new(left, op, right)))
+        }
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "literal".to_string(),
         }),
@@ -212,11 +222,12 @@ fn resolve_value_expr(
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
         }),
-        query_ast::Expr::And(_, _) | query_ast::Expr::Or(_, _) | query_ast::Expr::Not(_) => {
-            Err(ResolveError::UnsupportedExpr {
-                expr_type: "boolean value".to_string(),
-            })
-        }
+        query_ast::Expr::And(_, _)
+        | query_ast::Expr::Or(_, _)
+        | query_ast::Expr::Not(_)
+        | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "boolean value".to_string(),
+        }),
     }
 }
 
@@ -288,6 +299,45 @@ fn resolve_literal_expr(literal: &query_ast::Literal) -> Result<query_ir::ValueE
         query_ast::Literal::String(value) => Ok(query_ir::ValueExpr::Literal(
             query_ir::Literal::String(value.clone()),
         )),
+        query_ast::Literal::Int64(value) => Ok(query_ir::ValueExpr::Literal(
+            query_ir::Literal::Int64(*value),
+        )),
+        query_ast::Literal::Bool(value) => Ok(query_ir::ValueExpr::Literal(
+            query_ir::Literal::Bool(*value),
+        )),
+        query_ast::Literal::Null => Ok(query_ir::ValueExpr::Literal(query_ir::Literal::Null)),
+        _ => Err(ResolveError::UnsupportedLiteral {
+            literal: format!("{literal:?}"),
+        }),
+    }
+}
+
+fn resolve_membership_literals(
+    exprs: &[query_ast::Expr],
+) -> Result<Vec<query_ir::Literal>, ResolveError> {
+    if exprs.is_empty() {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "empty membership list".to_string(),
+        });
+    }
+
+    exprs.iter().map(resolve_membership_literal).collect()
+}
+
+fn resolve_membership_literal(expr: &query_ast::Expr) -> Result<query_ir::Literal, ResolveError> {
+    let query_ast::Expr::Literal(literal) = expr else {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "membership list item".to_string(),
+        });
+    };
+
+    match literal {
+        query_ast::Literal::String(value) => Ok(query_ir::Literal::String(value.clone())),
+        query_ast::Literal::Int64(value) => Ok(query_ir::Literal::Int64(*value)),
+        query_ast::Literal::Bool(value) => Ok(query_ir::Literal::Bool(*value)),
+        query_ast::Literal::Null => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null membership item".to_string(),
+        }),
         _ => Err(ResolveError::UnsupportedLiteral {
             literal: format!("{literal:?}"),
         }),

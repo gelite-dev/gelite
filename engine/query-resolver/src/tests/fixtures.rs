@@ -1,6 +1,6 @@
 use alloc::string::String;
 use alloc::vec;
-use query_ast::{CompareExpr, CompareOp, Expr, Literal, Path, PathStep};
+use query_ast::{CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path, PathStep};
 use schema_model::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
 pub fn post_only_catalog() -> SchemaCatalog {
@@ -82,5 +82,41 @@ pub fn filter_null_eq(path: &[&str]) -> Expr {
         literal_null_expr(),
         CompareOp::Eq,
         path_expr(path),
+    ))
+}
+
+pub fn filter_in_strings(path: &[&str], values: &[&str]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        values.iter().copied().map(literal_string_expr).collect(),
+    ))
+}
+
+pub fn filter_not_in_strings(path: &[&str], values: &[&str]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::NotIn,
+        values.iter().copied().map(literal_string_expr).collect(),
+    ))
+}
+
+pub fn filter_in_empty(path: &[&str]) -> Expr {
+    Expr::In(InExpr::new(path_expr(path), InOp::In, vec![]))
+}
+
+pub fn filter_in_null(path: &[&str]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        vec![literal_null_expr()],
+    ))
+}
+
+pub fn filter_in_path_item(path: &[&str], item_path: &[&str]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        vec![path_expr(item_path)],
     ))
 }
