@@ -5,9 +5,10 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    filter_eq_null, filter_eq_string, filter_in_empty, filter_in_null, filter_in_path_item,
-    filter_in_strings, filter_not_in_strings, filter_null_eq, post_only_catalog,
-    post_with_author_catalog, post_with_title_catalog,
+    filter_eq_bool, filter_eq_int, filter_eq_null, filter_eq_string, filter_in_bools,
+    filter_in_empty, filter_in_ints, filter_in_null, filter_in_path_item, filter_in_strings,
+    filter_not_in_strings, filter_null_eq, post_only_catalog, post_with_author_catalog,
+    post_with_scalar_fields_catalog, post_with_title_catalog,
 };
 use query_ast::{Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
@@ -318,6 +319,153 @@ fn resolves_filter_compare_path_to_field_and_literal() {
 }
 
 #[test]
+fn resolves_filter_compare_int_path_to_int_literal() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_eq_int(&["view_count"], 42);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    match compare.right() {
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => assert_eq!(*value, 42),
+        _ => panic!("filter right side should resolve to an int64 literal"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_bool_path_to_bool_literal() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_eq_bool(&["published"], true);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("published")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    match compare.right() {
+        query_ir::ValueExpr::Literal(query_ir::Literal::Bool(value)) => assert!(*value),
+        _ => panic!("filter right side should resolve to a bool literal"),
+    }
+}
+
+#[test]
+fn rejects_filter_compare_string_path_to_int_literal() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_eq_int(&["title"], 42);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "str".to_string(),
+            actual: "int64".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_compare_bool_path_to_string_literal() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_eq_string(&["published"], "true");
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("published")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "bool".to_string(),
+            actual: "str".to_string()
+        })
+    );
+}
+
+#[test]
+fn resolves_filter_compare_uuid_path_to_string_literal() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_eq_string(&["id"], "01987211-d8f1-7b31-8b3e-f5043e6b08f0");
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("id")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    match compare.right() {
+        query_ir::ValueExpr::Literal(query_ir::Literal::String(value)) => {
+            assert_eq!(value, "01987211-d8f1-7b31-8b3e-f5043e6b08f0");
+        }
+        _ => panic!("filter right side should resolve to a string literal"),
+    }
+}
+
+#[test]
 fn resolves_filter_compare_null_literal_to_is_null_expr() {
     let catalog = post_with_title_catalog();
 
@@ -421,6 +569,163 @@ fn resolves_filter_in_literal_list_to_in_expr() {
         &[
             query_ir::Literal::String("Draft".to_string()),
             query_ir::Literal::String("Published".to_string())
+        ]
+    );
+}
+
+#[test]
+fn resolves_filter_in_int_literal_list_to_in_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_in_ints(&["view_count"], &[1, 2]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    assert_eq!(
+        in_expr.right(),
+        &[query_ir::Literal::Int64(1), query_ir::Literal::Int64(2)]
+    );
+}
+
+#[test]
+fn resolves_filter_in_bool_literal_list_to_in_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_in_bools(&["published"], &[true, false]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("published")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    assert_eq!(
+        in_expr.right(),
+        &[
+            query_ir::Literal::Bool(true),
+            query_ir::Literal::Bool(false)
+        ]
+    );
+}
+
+#[test]
+fn rejects_filter_in_literal_list_with_incompatible_item() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_in_ints(&["title"], &[1]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "str".to_string(),
+            actual: "int64".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_bool_path_with_string_literal_item() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_in_strings(&["published"], &["true"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("published")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "bool".to_string(),
+            actual: "str".to_string()
+        })
+    );
+}
+
+#[test]
+fn resolves_filter_in_uuid_path_with_string_literal_list() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_in_strings(
+        &["id"],
+        &[
+            "01987211-d8f1-7b31-8b3e-f5043e6b08f0",
+            "01987211-e162-7a3f-9934-7ab05658ef7f",
+        ],
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("id")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    assert_eq!(
+        in_expr.right(),
+        &[
+            query_ir::Literal::String("01987211-d8f1-7b31-8b3e-f5043e6b08f0".to_string()),
+            query_ir::Literal::String("01987211-e162-7a3f-9934-7ab05658ef7f".to_string())
         ]
     );
 }

@@ -20,6 +20,30 @@ pub fn post_with_title_catalog() -> SchemaCatalog {
     .expect("post-with-title-catalog schema catalog should be valid")
 }
 
+pub fn post_with_scalar_fields_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "Post",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "view_count",
+                ScalarType::Int64,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "published",
+                ScalarType::Bool,
+                schema_model::SingleCardinality::Required,
+            )),
+        ],
+    )])
+    .expect("post-with-scalar-fields catalog should be valid")
+}
+
 pub fn post_with_author_catalog() -> SchemaCatalog {
     SchemaCatalog::try_new(vec![
         ObjectType::new(
@@ -57,6 +81,14 @@ pub fn literal_string_expr(value: &str) -> Expr {
     Expr::Literal(Literal::String(String::from(value)))
 }
 
+pub fn literal_int_expr(value: i64) -> Expr {
+    Expr::Literal(Literal::Int64(value))
+}
+
+pub fn literal_bool_expr(value: bool) -> Expr {
+    Expr::Literal(Literal::Bool(value))
+}
+
 pub fn literal_null_expr() -> Expr {
     Expr::Literal(Literal::Null)
 }
@@ -66,6 +98,22 @@ pub fn filter_eq_string(path: &[&str], value: &str) -> Expr {
         path_expr(path),
         CompareOp::Eq,
         literal_string_expr(value),
+    ))
+}
+
+pub fn filter_eq_int(path: &[&str], value: i64) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Eq,
+        literal_int_expr(value),
+    ))
+}
+
+pub fn filter_eq_bool(path: &[&str], value: bool) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Eq,
+        literal_bool_expr(value),
     ))
 }
 
@@ -90,6 +138,22 @@ pub fn filter_in_strings(path: &[&str], values: &[&str]) -> Expr {
         path_expr(path),
         InOp::In,
         values.iter().copied().map(literal_string_expr).collect(),
+    ))
+}
+
+pub fn filter_in_ints(path: &[&str], values: &[i64]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        values.iter().copied().map(literal_int_expr).collect(),
+    ))
+}
+
+pub fn filter_in_bools(path: &[&str], values: &[bool]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        values.iter().copied().map(literal_bool_expr).collect(),
     ))
 }
 
