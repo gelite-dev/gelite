@@ -1,6 +1,6 @@
 use crate::{
-    CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, Path, PathStep, SelectQuery,
-    Shape, ShapeItem,
+    CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderDirection, OrderExpr, Path, PathStep,
+    SelectQuery, Shape, ShapeItem,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -200,4 +200,84 @@ fn select_query_can_store_filter_order_and_limit() {
     assert_eq!(query.order_by()[0].direction(), OrderDirection::Asc);
     assert_eq!(query.limit(), Some(10));
     assert_eq!(query.offset(), Some(0));
+}
+
+#[test]
+fn in_expr_can_reference_path_and_literal_list() {
+    let left_path = Path::new(vec![PathStep::new("status")]);
+
+    let expr = Expr::In(InExpr::new(
+        Expr::Path(left_path),
+        InOp::In,
+        vec![
+            Expr::Literal(Literal::String("draft".to_string())),
+            Expr::Literal(Literal::String("published".to_string())),
+        ],
+    ));
+
+    match expr {
+        Expr::In(in_expr) => {
+            let Expr::Path(left) = in_expr.left() else {
+                panic!("expected in expression left side to be a path");
+            };
+            assert_eq!(left.steps().len(), 1);
+            assert_eq!(left.steps()[0].field_name(), "status");
+            assert_eq!(in_expr.op(), InOp::In);
+
+            assert_eq!(in_expr.right().len(), 2);
+            match &in_expr.right()[0] {
+                Expr::Literal(Literal::String(value)) => {
+                    assert_eq!(value, "draft");
+                }
+                _ => panic!("expected first in expression item to be a string literal"),
+            }
+            match &in_expr.right()[1] {
+                Expr::Literal(Literal::String(value)) => {
+                    assert_eq!(value, "published");
+                }
+                _ => panic!("expected second in expression item to be a string literal"),
+            }
+        }
+        _ => panic!("expected expression to be an in expression"),
+    }
+}
+
+#[test]
+fn not_in_expr_can_store_membership_operator() {
+    let left_path = Path::new(vec![PathStep::new("status")]);
+
+    let expr = Expr::In(InExpr::new(
+        Expr::Path(left_path),
+        InOp::NotIn,
+        vec![
+            Expr::Literal(Literal::String("draft".to_string())),
+            Expr::Literal(Literal::String("published".to_string())),
+        ],
+    ));
+
+    match expr {
+        Expr::In(in_expr) => {
+            let Expr::Path(left) = in_expr.left() else {
+                panic!("expected in expression left side to be a path");
+            };
+            assert_eq!(left.steps().len(), 1);
+            assert_eq!(left.steps()[0].field_name(), "status");
+            assert_eq!(in_expr.op(), InOp::NotIn);
+
+            assert_eq!(in_expr.right().len(), 2);
+            match &in_expr.right()[0] {
+                Expr::Literal(Literal::String(value)) => {
+                    assert_eq!(value, "draft");
+                }
+                _ => panic!("expected first in expression item to be a string literal"),
+            }
+            match &in_expr.right()[1] {
+                Expr::Literal(Literal::String(value)) => {
+                    assert_eq!(value, "published");
+                }
+                _ => panic!("expected second in expression item to be a string literal"),
+            }
+        }
+        _ => panic!("expected expression to be an in expression"),
+    };
 }
