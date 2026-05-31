@@ -177,8 +177,16 @@ literal-list `in` milestone. `function_call` and `subquery_expr` are reserved
 syntax positions. The parser may produce AST nodes for them before the resolver
 accepts specific forms.
 
-The first accepted `in_rhs` form is a non-empty bracketed list. The resolver
-must reject `in []`, `not in []`, and list items that are not literals.
+The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
+accept `null` as a list item because it is a literal expression, but the
+resolver must reject `in []`, `not in []`, `null` list items, and list items
+that are not literals. Use an explicit null comparison when a filter should
+match null and non-null values together:
+
+```text
+filter .deleted_at = null or .deleted_at in ["2323"]
+```
+
 Subquery RHS forms such as `.author.id in (select User { id })` are reserved by
 the grammar but rejected until subquery expression scope is defined.
 
@@ -197,7 +205,7 @@ The MVP supports:
 - field paths from the root object
 - traversal through declared single relation fields
 - scalar comparisons against literals
-- scalar membership checks against non-empty lists of literals
+- scalar membership checks against non-empty lists of non-null literals
 - boolean composition
 - parenthesized grouping
 

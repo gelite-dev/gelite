@@ -318,12 +318,12 @@ Minimum fields:
 
 Supported right-hand side:
 
-- a non-empty list of scalar literals
+- a non-empty list of non-null scalar literals
 
 Membership expressions must resolve to a boolean result. The resolver is
 responsible for rejecting empty lists, subquery RHS forms, incompatible operand
-types, non-literal list items, and non-scalar list items before the expression
-reaches SQLite planning.
+types, `null` list items, non-literal list items, and non-scalar list items
+before the expression reaches SQLite planning.
 
 The Semantic IR should model `not in` explicitly instead of rewriting it to a
 boolean `not` around `in`. Keeping the operator in the membership node lets
