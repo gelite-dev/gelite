@@ -1,8 +1,8 @@
 mod fixtures;
 
 use crate::{
-    SQLiteCompareOp, SQLiteJoinKind, SQLiteJoinReason, SQLiteLiteral, SQLiteOrderDirection,
-    SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
+    SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteJoinReason, SQLiteLiteral,
+    SQLiteOrderDirection, SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -477,6 +477,95 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_bool_literal() {
         }
         _ => panic!("expected compare filter"),
     }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
+    let expr = query_ir::Expr::In(query_ir::InExpr::new(
+        post_title_path_value(),
+        query_ir::InOp::In,
+        vec![
+            Literal::String("Draft".to_string()),
+            Literal::String("Published".to_string()),
+        ],
+    ));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let filter = plan.filter();
+
+    match filter {
+        Some(SQLiteWhereExpr::In(in_expr)) => {
+            match in_expr.left() {
+                SQLiteValueExpr::Column(column) => {
+                    assert_eq!(column.source_alias(), "root");
+                    assert_eq!(column.column_name(), "title");
+                }
+                SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
+            }
+
+            assert_eq!(in_expr.op(), SQLiteInOp::In);
+            assert_eq!(
+                in_expr.right(),
+                &[
+                    SQLiteLiteral::String("Draft".to_string()),
+                    SQLiteLiteral::String("Published".to_string())
+                ]
+            );
+        }
+        _ => panic!("expected in filter"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_single_link_scalar_path_not_in_literal_list() {
+    let expr = query_ir::Expr::In(query_ir::InExpr::new(
+        post_author_name_path_value(),
+        query_ir::InOp::NotIn,
+        vec![Literal::String("Sheri".to_string())],
+    ));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let filter = plan.filter();
+
+    match filter {
+        Some(SQLiteWhereExpr::In(in_expr)) => {
+            match in_expr.left() {
+                SQLiteValueExpr::Column(column) => {
+                    assert_eq!(column.source_alias(), "author");
+                    assert_eq!(column.column_name(), "name");
+                }
+                SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
+            }
+
+            assert_eq!(in_expr.op(), SQLiteInOp::NotIn);
+            assert_eq!(
+                in_expr.right(),
+                &[SQLiteLiteral::String("Sheri".to_string())]
+            );
+        }
+        _ => panic!("expected not in filter"),
+    }
+
+    assert_eq!(plan.joins().len(), 1);
+    assert_eq!(plan.joins()[0].target_alias(), "author");
 }
 
 #[test]

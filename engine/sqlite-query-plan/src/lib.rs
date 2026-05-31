@@ -21,7 +21,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use query_ir::{CompareOp, Expr, SelectQuery};
+use query_ir::{CompareOp, Expr, InOp, SelectQuery};
 use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
 
 /// Lowers a resolved select query to a structured SQLite select plan.
@@ -390,6 +390,7 @@ impl SQLiteOrder {
 pub enum SQLiteWhereExpr {
     Compare(SQLiteCompareExpr),
     IsNull(SQLiteValueExpr),
+    In(SQLiteInExpr),
     And(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
     Or(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
     Not(Box<SQLiteWhereExpr>),
@@ -420,6 +421,43 @@ impl SQLiteCompareExpr {
 pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
+}
+
+/// Backend-specific membership expression.
+pub struct SQLiteInExpr {
+    left: SQLiteValueExpr,
+    op: SQLiteInOp,
+    right: Vec<SQLiteLiteral>,
+}
+
+impl SQLiteInExpr {
+    pub fn left(&self) -> &SQLiteValueExpr {
+        &self.left
+    }
+
+    pub fn op(&self) -> SQLiteInOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &[SQLiteLiteral] {
+        &self.right
+    }
+}
+
+/// Backend-specific membership operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteInOp {
+    In,
+    NotIn,
+}
+
+impl SQLiteInOp {
+    pub fn from_ir(op: InOp) -> Self {
+        match op {
+            InOp::In => Self::In,
+            InOp::NotIn => Self::NotIn,
+        }
+    }
 }
 
 /// Physical column reference.
@@ -511,21 +549,36 @@ fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
             }
         }
         query_ir::ValueExpr::Literal(query_ir::Literal::String(value)) => PlannedValueExpr {
-            value: SQLiteValueExpr::Literal(SQLiteLiteral::String(value.clone())),
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(
+                &query_ir::Literal::String(value.clone()),
+            )),
             joins: vec![],
         },
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => PlannedValueExpr {
-            value: SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value.clone())),
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Int64(
+                *value,
+            ))),
             joins: vec![],
         },
         query_ir::ValueExpr::Literal(query_ir::Literal::Bool(value)) => PlannedValueExpr {
-            value: SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value.clone())),
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Bool(
+                *value,
+            ))),
             joins: vec![],
         },
         query_ir::ValueExpr::Literal(query_ir::Literal::Null) => PlannedValueExpr {
-            value: SQLiteValueExpr::Literal(SQLiteLiteral::Null),
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Null)),
             joins: vec![],
         },
+    }
+}
+
+fn sqlite_literal_from_ir(literal: &query_ir::Literal) -> SQLiteLiteral {
+    match literal {
+        query_ir::Literal::String(value) => SQLiteLiteral::String(value.clone()),
+        query_ir::Literal::Int64(value) => SQLiteLiteral::Int64(*value),
+        query_ir::Literal::Bool(value) => SQLiteLiteral::Bool(*value),
+        query_ir::Literal::Null => SQLiteLiteral::Null,
     }
 }
 
@@ -558,6 +611,23 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNull(value.value),
                 joins: value.joins,
+            }
+        }
+        Expr::In(in_expr) => {
+            let left = plan_value_expr(in_expr.left());
+            let right = in_expr
+                .right()
+                .iter()
+                .map(sqlite_literal_from_ir)
+                .collect();
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::In(SQLiteInExpr {
+                    left: left.value,
+                    op: SQLiteInOp::from_ir(in_expr.op()),
+                    right,
+                }),
+                joins: left.joins,
             }
         }
         Expr::And(left, right) => {
@@ -618,6 +688,7 @@ fn plan_order_expr(order: &query_ir::OrderExpr) -> PlannedOrder {
 }
 
 /// Literal values supported by SQLite SQL generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SQLiteLiteral {
     String(String),
     Int64(i64),

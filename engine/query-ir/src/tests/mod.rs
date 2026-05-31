@@ -1,7 +1,7 @@
 mod fixtures;
 
 use crate::{
-    CompareExpr, CompareOp, Expr, Literal, OrderDirection, OrderExpr, ResolvedPath,
+    CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderDirection, OrderExpr, ResolvedPath,
     ResolvedPathError, ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField,
     SelectQuery, ValueExpr,
 };
@@ -395,6 +395,69 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
     }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_in_expr() {
+    let filter = Expr::In(InExpr::new(
+        post_title_path_value(),
+        InOp::In,
+        vec![
+            Literal::String("Draft".to_string()),
+            Literal::String("Published".to_string()),
+        ],
+    ));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::In(in_expr) = query.filter().expect("select query has filter") else {
+        panic!("filter should be an in expression");
+    };
+
+    match in_expr.left() {
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+    }
+
+    assert_eq!(in_expr.op(), InOp::In);
+    assert_eq!(in_expr.right().len(), 2);
+    assert_eq!(in_expr.right()[0], Literal::String("Draft".to_string()));
+    assert_eq!(in_expr.right()[1], Literal::String("Published".to_string()));
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_not_in_expr() {
+    let filter = Expr::In(InExpr::new(
+        post_title_path_value(),
+        InOp::NotIn,
+        vec![Literal::String("Archived".to_string())],
+    ));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::In(in_expr) = query.filter().expect("select query has filter") else {
+        panic!("filter should be an in expression");
+    };
+
+    assert_eq!(in_expr.op(), InOp::NotIn);
 }
 
 #[test]

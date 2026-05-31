@@ -17,8 +17,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteCompareOp, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan,
-    SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection,
+    SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 /// Renders a structured SQLite select plan into SQL text and bind values.
@@ -96,6 +96,18 @@ fn render_where_expr(expr: &SQLiteWhereExpr, bind_values: &mut Vec<SQLiteBindVal
 
             format!("{value_sql} IS NULL")
         }
+        SQLiteWhereExpr::In(in_expr) => {
+            let left_sql = render_value_expr(in_expr.left(), bind_values);
+            let op_sql = render_in_op(in_expr.op());
+            let placeholders = in_expr
+                .right()
+                .iter()
+                .map(|literal| render_literal(literal, bind_values))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!("{left_sql} {op_sql} ({placeholders})")
+        }
         SQLiteWhereExpr::And(left, right) => {
             let left_sql = render_where_expr(left, bind_values);
             let right_sql = render_where_expr(right, bind_values);
@@ -146,28 +158,42 @@ fn render_compare_op(op: SQLiteCompareOp) -> &'static str {
     }
 }
 
+fn render_in_op(op: SQLiteInOp) -> &'static str {
+    match op {
+        SQLiteInOp::In => "IN",
+        SQLiteInOp::NotIn => "NOT IN",
+    }
+}
+
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
             format!("{}.{}", column.source_alias(), column.column_name())
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::String(value)) => {
-            bind_values.push(SQLiteBindValue::String(value.clone()));
-            "?".to_string()
+            render_literal(&SQLiteLiteral::String(value.clone()), bind_values)
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => {
-            bind_values.push(SQLiteBindValue::Int64(*value));
-            "?".to_string()
+            render_literal(&SQLiteLiteral::Int64(*value), bind_values)
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value)) => {
-            bind_values.push(SQLiteBindValue::Bool(*value));
-            "?".to_string()
+            render_literal(&SQLiteLiteral::Bool(*value), bind_values)
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::Null) => {
-            bind_values.push(SQLiteBindValue::Null);
-            "?".to_string()
+            render_literal(&SQLiteLiteral::Null, bind_values)
         }
     }
+}
+
+fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue>) -> String {
+    match literal {
+        SQLiteLiteral::String(value) => bind_values.push(SQLiteBindValue::String(value.clone())),
+        SQLiteLiteral::Int64(value) => bind_values.push(SQLiteBindValue::Int64(*value)),
+        SQLiteLiteral::Bool(value) => bind_values.push(SQLiteBindValue::Bool(*value)),
+        SQLiteLiteral::Null => bind_values.push(SQLiteBindValue::Null),
+    }
+
+    "?".to_string()
 }
 
 fn render_order_clause(plan: &SQLiteSelectPlan) -> Option<String> {
