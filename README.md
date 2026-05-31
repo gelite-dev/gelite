@@ -244,6 +244,12 @@ Run one query through the CLI:
 cargo run -p gelite-cli -- repl --database app.db 'select Post { title, author: { email } } filter .title = "Hello" order by .title desc limit 10'
 ```
 
+Run a membership filter through the CLI:
+
+```sh
+cargo run -p gelite-cli -- repl --database app.db 'select Post { title, author: { email } } filter .title in ["Draft", "Published"] and .author.email not in ["blocked@example.com"] order by .title asc limit 20'
+```
+
 Print SQL and bind values before the result rows:
 
 ```sh
