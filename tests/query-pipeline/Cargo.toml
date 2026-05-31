@@ -1,0 +1,11 @@
+[package]
+name = "query-pipeline-tests"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+query-parser = { path = "../../engine/query-parser" }
+query-resolver = { path = "../../engine/query-resolver" }
+schema-model = { path = "../../engine/schema-model" }
+sqlite-query-plan = { path = "../../engine/sqlite-query-plan" }
+sqlite-query-sqlgen = { path = "../../engine/sqlite-query-sqlgen" }

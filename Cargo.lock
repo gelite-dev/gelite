@@ -435,6 +435,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "query-pipeline-tests"
+version = "0.1.0"
+dependencies = [
+ "query-parser",
+ "query-resolver",
+ "schema-model",
+ "sqlite-query-plan",
+ "sqlite-query-sqlgen",
+]
+
+[[package]]
 name = "query-resolver"
 version = "0.1.0"
 dependencies = [

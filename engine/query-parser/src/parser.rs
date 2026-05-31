@@ -3,7 +3,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 use query_ast::{
-    CompareExpr, Expr, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+    CompareExpr, Expr, InExpr, InOp, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape,
+    ShapeItem,
 };
 
 /// Parses one MVP `select` statement from source text.
@@ -193,6 +194,11 @@ impl<'a> Parser<'a> {
     fn parse_compare_expr(&mut self) -> Result<Expr, ParseError> {
         let left = self.parse_primary_expr()?;
 
+        if let Some(op) = self.consume_in_op_if_present()? {
+            let right = self.parse_in_rhs()?;
+            return Ok(Expr::In(InExpr::new(left, op, right)));
+        }
+
         if self.is_compare_op() {
             let op = self.expect_compare_op()?;
             let right = self.parse_primary_expr()?;
@@ -210,6 +216,55 @@ impl<'a> Parser<'a> {
         }
 
         Ok(left)
+    }
+
+    fn consume_in_op_if_present(&mut self) -> Result<Option<InOp>, ParseError> {
+        match self.peek() {
+            Some(token) if token_is_ident(token, "in") => {
+                self.advance();
+                Ok(Some(InOp::In))
+            }
+            Some(token) if token_is_ident(token, "not") => {
+                let not_span = token.span();
+                self.advance();
+                match self.peek() {
+                    Some(token) if token_is_ident(token, "in") => {
+                        self.advance();
+                        Ok(Some(InOp::NotIn))
+                    }
+                    Some(_) => {
+                        self.cursor -= 1;
+                        Ok(None)
+                    }
+                    None => Err(ParseError::new(
+                        ParseErrorKind::UnexpectedEof { expected: "in" },
+                        Some(not_span),
+                    )),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn parse_in_rhs(&mut self) -> Result<Vec<Expr>, ParseError> {
+        self.expect_lbracket()?;
+
+        let mut values = vec![];
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::RBracket)
+        {
+            self.expect_rbracket()?;
+            return Ok(values);
+        }
+
+        values.push(self.parse_expr()?);
+        while self.consume_comma_if_present() {
+            values.push(self.parse_expr()?);
+        }
+
+        self.expect_rbracket()?;
+        Ok(values)
     }
 
     fn parse_primary_expr(&mut self) -> Result<Expr, ParseError> {
@@ -439,6 +494,40 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn expect_lbracket(&mut self) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::LBracket => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken { expected: "[" },
+                Some(token.span()),
+            )),
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof { expected: "[" },
+                None,
+            )),
+        }
+    }
+
+    fn expect_rbracket(&mut self) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::RBracket => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken { expected: "]" },
+                Some(token.span()),
+            )),
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof { expected: "]" },
+                None,
+            )),
+        }
+    }
+
     fn expect_rparen(&mut self) -> Result<(), ParseError> {
         match self.peek() {
             Some(token) if token.kind() == &TokenKind::RParen => {
@@ -557,7 +646,7 @@ impl<'a> Parser<'a> {
 }
 
 fn is_primary_expr_start(token: &Token) -> bool {
-    if token_is_ident(token, "and") || token_is_ident(token, "or") {
+    if token_is_ident(token, "and") || token_is_ident(token, "or") || token_is_ident(token, "in") {
         return false;
     }
 

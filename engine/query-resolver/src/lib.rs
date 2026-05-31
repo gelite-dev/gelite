@@ -18,6 +18,24 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use query_ast::Path;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypedValueExpr {
+    value: query_ir::ValueExpr,
+    source: ValueSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueSource {
+    Path(schema_model::ScalarType),
+    Literal(schema_model::ScalarType),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypedLiteral {
+    value: query_ir::Literal,
+    scalar_type: schema_model::ScalarType,
+}
+
 /// Resolves a parsed select query against a validated schema catalog.
 ///
 /// The current implementation supports explicit shape fields, nested shapes on
@@ -153,13 +171,15 @@ fn resolve_expr(
                 return Ok(query_ir::Expr::IsNull(right));
             }
 
-            let left = resolve_value_expr(catalog, source_object_type, compare.left())?;
-            let right = resolve_value_expr(catalog, source_object_type, compare.right())?;
+            let left = resolve_typed_value_expr(catalog, source_object_type, compare.left())?;
+            let right = resolve_typed_value_expr(catalog, source_object_type, compare.right())?;
+
+            ensure_compatible_comparison(&left.source, &right.source)?;
 
             Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
-                left,
+                left.value,
                 query_ir::CompareOp::Eq,
-                right,
+                right.value,
             )))
         }
         query_ast::Expr::And(left, right) => Ok(query_ir::Expr::And(
@@ -175,6 +195,24 @@ fn resolve_expr(
             source_object_type,
             inner,
         )?))),
+        query_ast::Expr::In(in_expr) => {
+            let left = resolve_typed_value_expr(catalog, source_object_type, in_expr.left())?;
+            let op = match in_expr.op() {
+                query_ast::InOp::In => query_ir::InOp::In,
+                query_ast::InOp::NotIn => query_ir::InOp::NotIn,
+            };
+            let right = resolve_membership_literals(in_expr.right())?;
+
+            for item in &right {
+                ensure_compatible_membership_item(&left.source, item.scalar_type)?;
+            }
+
+            let right = right.into_iter().map(|literal| literal.value).collect();
+
+            Ok(query_ir::Expr::In(query_ir::InExpr::new(
+                left.value, op, right,
+            )))
+        }
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "literal".to_string(),
         }),
@@ -206,17 +244,26 @@ fn resolve_value_expr(
     source_object_type: &schema_model::ObjectTypeRef,
     expr: &query_ast::Expr,
 ) -> Result<query_ir::ValueExpr, ResolveError> {
+    resolve_typed_value_expr(catalog, source_object_type, expr).map(|typed| typed.value)
+}
+
+fn resolve_typed_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<TypedValueExpr, ResolveError> {
     match expr {
-        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path),
-        query_ast::Expr::Literal(literal) => resolve_literal_expr(literal),
+        query_ast::Expr::Path(path) => resolve_typed_path_expr(catalog, source_object_type, path),
+        query_ast::Expr::Literal(literal) => resolve_typed_literal_expr(literal),
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
         }),
-        query_ast::Expr::And(_, _) | query_ast::Expr::Or(_, _) | query_ast::Expr::Not(_) => {
-            Err(ResolveError::UnsupportedExpr {
-                expr_type: "boolean value".to_string(),
-            })
-        }
+        query_ast::Expr::And(_, _)
+        | query_ast::Expr::Or(_, _)
+        | query_ast::Expr::Not(_)
+        | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "boolean value".to_string(),
+        }),
     }
 }
 
@@ -225,9 +272,18 @@ fn resolve_path_expr(
     source_object_type: &schema_model::ObjectTypeRef,
     path: &Path,
 ) -> Result<query_ir::ValueExpr, ResolveError> {
+    resolve_typed_path_expr(catalog, source_object_type, path).map(|typed| typed.value)
+}
+
+fn resolve_typed_path_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    path: &Path,
+) -> Result<TypedValueExpr, ResolveError> {
     let steps = path.steps();
     let mut current_object_type = source_object_type.clone();
     let mut resolved_steps = Vec::new();
+    let mut terminal_scalar_type = None;
 
     for (index, step) in steps.iter().enumerate() {
         let is_last = index == steps.len() - 1;
@@ -245,7 +301,7 @@ fn resolve_path_expr(
             .expect("field ref should exist for a field already found in the catalog");
 
         match field {
-            schema_model::Field::Scalar(_) => {
+            schema_model::Field::Scalar(scalar) => {
                 if !is_last {
                     return Err(ResolveError::UnsupportedPath);
                 }
@@ -254,6 +310,7 @@ fn resolve_path_expr(
                     field_ref,
                     field.cardinality(),
                 ));
+                terminal_scalar_type = Some(scalar.scalar_type());
             }
             schema_model::Field::Link(link) => {
                 if is_last {
@@ -280,17 +337,160 @@ fn resolve_path_expr(
     let resolved_path = query_ir::ResolvedPath::try_new(source_object_type.clone(), resolved_steps)
         .map_err(|_| ResolveError::UnsupportedPath)?;
 
-    Ok(query_ir::ValueExpr::Path(resolved_path))
+    let scalar_type = terminal_scalar_type.ok_or(ResolveError::UnsupportedPath)?;
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::Path(resolved_path),
+        source: ValueSource::Path(scalar_type),
+    })
 }
 
-fn resolve_literal_expr(literal: &query_ast::Literal) -> Result<query_ir::ValueExpr, ResolveError> {
+fn resolve_typed_literal_expr(
+    literal: &query_ast::Literal,
+) -> Result<TypedValueExpr, ResolveError> {
     match literal {
-        query_ast::Literal::String(value) => Ok(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String(value.clone()),
-        )),
+        query_ast::Literal::String(value) => Ok(TypedValueExpr {
+            value: query_ir::ValueExpr::Literal(query_ir::Literal::String(value.clone())),
+            source: ValueSource::Literal(schema_model::ScalarType::Str),
+        }),
+        query_ast::Literal::Int64(value) => Ok(TypedValueExpr {
+            value: query_ir::ValueExpr::Literal(query_ir::Literal::Int64(*value)),
+            source: ValueSource::Literal(schema_model::ScalarType::Int64),
+        }),
+        query_ast::Literal::Bool(value) => Ok(TypedValueExpr {
+            value: query_ir::ValueExpr::Literal(query_ir::Literal::Bool(*value)),
+            source: ValueSource::Literal(schema_model::ScalarType::Bool),
+        }),
+        query_ast::Literal::Null => Ok(TypedValueExpr {
+            value: query_ir::ValueExpr::Literal(query_ir::Literal::Null),
+            source: ValueSource::Literal(schema_model::ScalarType::Str),
+        }),
         _ => Err(ResolveError::UnsupportedLiteral {
             literal: format!("{literal:?}"),
         }),
+    }
+}
+
+fn resolve_membership_literals(
+    exprs: &[query_ast::Expr],
+) -> Result<Vec<TypedLiteral>, ResolveError> {
+    if exprs.is_empty() {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "empty membership list".to_string(),
+        });
+    }
+
+    exprs.iter().map(resolve_membership_literal).collect()
+}
+
+fn resolve_membership_literal(expr: &query_ast::Expr) -> Result<TypedLiteral, ResolveError> {
+    let query_ast::Expr::Literal(literal) = expr else {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "membership list item".to_string(),
+        });
+    };
+
+    match literal {
+        query_ast::Literal::String(value) => Ok(TypedLiteral {
+            value: query_ir::Literal::String(value.clone()),
+            scalar_type: schema_model::ScalarType::Str,
+        }),
+        query_ast::Literal::Int64(value) => Ok(TypedLiteral {
+            value: query_ir::Literal::Int64(*value),
+            scalar_type: schema_model::ScalarType::Int64,
+        }),
+        query_ast::Literal::Bool(value) => Ok(TypedLiteral {
+            value: query_ir::Literal::Bool(*value),
+            scalar_type: schema_model::ScalarType::Bool,
+        }),
+        query_ast::Literal::Null => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null membership item".to_string(),
+        }),
+        _ => Err(ResolveError::UnsupportedLiteral {
+            literal: format!("{literal:?}"),
+        }),
+    }
+}
+
+fn ensure_compatible_comparison(
+    left: &ValueSource,
+    right: &ValueSource,
+) -> Result<(), ResolveError> {
+    if value_sources_are_compatible(*left, *right) {
+        return Ok(());
+    }
+
+    Err(type_mismatch_error(
+        source_scalar_type(*left),
+        source_scalar_type(*right),
+    ))
+}
+
+fn ensure_compatible_membership_item(
+    left: &ValueSource,
+    item_type: schema_model::ScalarType,
+) -> Result<(), ResolveError> {
+    let item = ValueSource::Literal(item_type);
+
+    if value_sources_are_compatible(*left, item) {
+        return Ok(());
+    }
+
+    Err(type_mismatch_error(source_scalar_type(*left), item_type))
+}
+
+fn value_sources_are_compatible(left: ValueSource, right: ValueSource) -> bool {
+    match (left, right) {
+        (ValueSource::Path(left), ValueSource::Path(right))
+        | (ValueSource::Literal(left), ValueSource::Literal(right)) => left == right,
+        (ValueSource::Path(expected), ValueSource::Literal(actual))
+        | (ValueSource::Literal(actual), ValueSource::Path(expected)) => {
+            literal_type_matches_scalar(expected, actual)
+        }
+    }
+}
+
+fn literal_type_matches_scalar(
+    expected: schema_model::ScalarType,
+    actual: schema_model::ScalarType,
+) -> bool {
+    expected == actual
+        || matches!(
+            (expected, actual),
+            (
+                schema_model::ScalarType::Uuid,
+                schema_model::ScalarType::Str
+            ) | (
+                schema_model::ScalarType::DateTime,
+                schema_model::ScalarType::Str
+            )
+        )
+}
+
+fn source_scalar_type(source: ValueSource) -> schema_model::ScalarType {
+    match source {
+        ValueSource::Path(scalar_type) | ValueSource::Literal(scalar_type) => scalar_type,
+    }
+}
+
+fn type_mismatch_error(
+    expected: schema_model::ScalarType,
+    actual: schema_model::ScalarType,
+) -> ResolveError {
+    ResolveError::IncompatibleOperandTypes {
+        expected: scalar_type_name(expected).to_string(),
+        actual: scalar_type_name(actual).to_string(),
+    }
+}
+
+fn scalar_type_name(scalar_type: schema_model::ScalarType) -> &'static str {
+    match scalar_type {
+        schema_model::ScalarType::Str => "str",
+        schema_model::ScalarType::Int64 => "int64",
+        schema_model::ScalarType::Float64 => "float64",
+        schema_model::ScalarType::Bool => "bool",
+        schema_model::ScalarType::Uuid => "uuid",
+        schema_model::ScalarType::DateTime => "datetime",
     }
 }
 
@@ -321,6 +521,7 @@ pub enum ResolveError {
     UnsupportedPath,
     UnsupportedExpr { expr_type: String },
     UnsupportedLiteral { literal: String },
+    IncompatibleOperandTypes { expected: String, actual: String },
 }
 
 #[cfg(test)]

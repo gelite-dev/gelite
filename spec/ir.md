@@ -244,6 +244,7 @@ Minimum variants:
 - literal
 - path
 - comparison
+- membership
 - boolean `and`
 - boolean `or`
 - boolean `not`
@@ -307,6 +308,27 @@ SQLite planning.
 Comparison operators other than `=` are deferred until the lexer, parser,
 resolver, SQLite planner, and SQL generator all support them.
 
+### `InExpr`
+
+Minimum fields:
+
+- left expression
+- membership operator: `in` or `not in`
+- list of right-hand literal values
+
+Supported right-hand side:
+
+- a non-empty list of non-null scalar literals
+
+Membership expressions must resolve to a boolean result. The resolver is
+responsible for rejecting empty lists, subquery RHS forms, incompatible operand
+types, `null` list items, non-literal list items, and non-scalar list items
+before the expression reaches SQLite planning.
+
+The Semantic IR should model `not in` explicitly instead of rewriting it to a
+boolean `not` around `in`. Keeping the operator in the membership node lets
+SQLite planning preserve bind order and choose a direct `NOT IN` predicate.
+
 ### Boolean Expressions
 
 The MVP also needs:
@@ -324,7 +346,6 @@ must preserve grouping when rendering `and` and `or` combinations.
 The parser and AST may reserve syntax for these forms before they become
 accepted Semantic IR:
 
-- `InExpr`
 - `FunctionCallExpr`
 - `SubqueryExpr`
 

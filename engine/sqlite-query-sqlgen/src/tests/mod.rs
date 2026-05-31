@@ -154,6 +154,60 @@ fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
+    let filter = query_ir::Expr::In(query_ir::InExpr::new(
+        post_title_path_value(),
+        query_ir::InOp::In,
+        vec![
+            query_ir::Literal::String("Draft".to_string()),
+            query_ir::Literal::String("Published".to_string()),
+        ],
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.title IN (?, ?)"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("Draft".to_string()),
+            SQLiteBindValue::String("Published".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_single_link_scalar_not_in_filter() {
+    let filter = query_ir::Expr::In(query_ir::InExpr::new(
+        post_author_name_path_value(),
+        query_ir::InOp::NotIn,
+        vec![query_ir::Literal::String("Sheri".to_string())],
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id WHERE author.name NOT IN (?)"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::String("Sheri".to_string())]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_and_filter() {
     let left = query_ir::Expr::Compare(query_ir::CompareExpr::new(
         post_title_path_value(),

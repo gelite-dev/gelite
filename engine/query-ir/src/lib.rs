@@ -269,6 +269,7 @@ pub enum ResolvedPathStepKind {
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
+    In(InExpr),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
@@ -304,6 +305,39 @@ impl CompareExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
+}
+
+/// Resolved membership expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InExpr {
+    left: ValueExpr,
+    op: InOp,
+    right: Vec<Literal>,
+}
+
+impl InExpr {
+    pub fn new(left: ValueExpr, op: InOp, right: Vec<Literal>) -> Self {
+        Self { left, op, right }
+    }
+
+    pub fn left(&self) -> &ValueExpr {
+        &self.left
+    }
+
+    pub fn op(&self) -> InOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &[Literal] {
+        &self.right
+    }
+}
+
+/// Membership operators implemented by the current IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InOp {
+    In,
+    NotIn,
 }
 
 /// Resolved ordering expression.
