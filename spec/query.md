@@ -422,8 +422,6 @@ These are intentionally out of scope until the end-to-end path is stable:
 - multi relation mutation syntax
 - aggregation
 - grouping
-- `in`
-- comparison operators other than `=`
 - pagination cursors
 - function calls
 - subqueries
