@@ -263,12 +263,15 @@ pub enum ResolvedPathStepKind {
 
 /// Resolved boolean expression.
 ///
-/// `IsNull` is used when the source query writes `field = null`. Keeping it as
-/// a separate node lets SQL generation render `IS NULL` instead of `= ?`.
+/// `IsNull` and `IsNotNull` are used when the source query compares a path to
+/// `null`. Keeping them as separate nodes lets SQL generation render
+/// `IS NULL` and `IS NOT NULL` instead of binding `null` with a comparison
+/// operator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
+    IsNotNull(ValueExpr),
     In(InExpr),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -305,6 +308,11 @@ impl CompareExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 /// Resolved membership expression.

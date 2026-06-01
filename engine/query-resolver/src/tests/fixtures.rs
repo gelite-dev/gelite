@@ -20,6 +20,25 @@ pub fn post_with_title_catalog() -> SchemaCatalog {
     .expect("post-with-title-catalog schema catalog should be valid")
 }
 
+pub fn post_with_optional_subtitle_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "Post",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "subtitle",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Optional,
+            )),
+        ],
+    )])
+    .expect("post-with-optional-subtitle catalog should be valid")
+}
+
 pub fn post_with_scalar_fields_catalog() -> SchemaCatalog {
     SchemaCatalog::try_new(vec![ObjectType::new(
         "Post",
@@ -109,6 +128,14 @@ pub fn filter_eq_int(path: &[&str], value: i64) -> Expr {
     ))
 }
 
+pub fn filter_compare_int(path: &[&str], op: CompareOp, value: i64) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        op,
+        literal_int_expr(value),
+    ))
+}
+
 pub fn filter_eq_bool(path: &[&str], value: bool) -> Expr {
     Expr::Compare(CompareExpr::new(
         path_expr(path),
@@ -130,6 +157,30 @@ pub fn filter_null_eq(path: &[&str]) -> Expr {
         literal_null_expr(),
         CompareOp::Eq,
         path_expr(path),
+    ))
+}
+
+pub fn filter_ne_null(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Ne,
+        literal_null_expr(),
+    ))
+}
+
+pub fn filter_null_ne(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        literal_null_expr(),
+        CompareOp::Ne,
+        path_expr(path),
+    ))
+}
+
+pub fn filter_lt_null(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Lt,
+        literal_null_expr(),
     ))
 }
 

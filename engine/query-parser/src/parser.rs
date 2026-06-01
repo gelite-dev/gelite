@@ -546,8 +546,17 @@ impl<'a> Parser<'a> {
     }
 
     fn is_compare_op(&self) -> bool {
-        self.peek()
-            .is_some_and(|token| token.kind() == &TokenKind::Eq)
+        self.peek().is_some_and(|token| {
+            matches!(
+                token.kind(),
+                TokenKind::Eq
+                    | TokenKind::Ne
+                    | TokenKind::Lt
+                    | TokenKind::Le
+                    | TokenKind::Gt
+                    | TokenKind::Ge
+            )
+        })
     }
 
     fn expect_compare_op(&mut self) -> Result<query_ast::CompareOp, ParseError> {
@@ -555,6 +564,26 @@ impl<'a> Parser<'a> {
             Some(token) if token.kind() == &TokenKind::Eq => {
                 self.advance();
                 Ok(query_ast::CompareOp::Eq)
+            }
+            Some(token) if token.kind() == &TokenKind::Ne => {
+                self.advance();
+                Ok(query_ast::CompareOp::Ne)
+            }
+            Some(token) if token.kind() == &TokenKind::Lt => {
+                self.advance();
+                Ok(query_ast::CompareOp::Lt)
+            }
+            Some(token) if token.kind() == &TokenKind::Le => {
+                self.advance();
+                Ok(query_ast::CompareOp::Le)
+            }
+            Some(token) if token.kind() == &TokenKind::Gt => {
+                self.advance();
+                Ok(query_ast::CompareOp::Gt)
+            }
+            Some(token) if token.kind() == &TokenKind::Ge => {
+                self.advance();
+                Ok(query_ast::CompareOp::Ge)
             }
             Some(token) => Err(ParseError::new(
                 ParseErrorKind::UnexpectedToken {

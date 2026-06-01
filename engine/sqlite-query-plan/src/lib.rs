@@ -390,6 +390,7 @@ impl SQLiteOrder {
 pub enum SQLiteWhereExpr {
     Compare(SQLiteCompareExpr),
     IsNull(SQLiteValueExpr),
+    IsNotNull(SQLiteValueExpr),
     In(SQLiteInExpr),
     And(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
     Or(Box<SQLiteWhereExpr>, Box<SQLiteWhereExpr>),
@@ -613,6 +614,14 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
                 joins: value.joins,
             }
         }
+        Expr::IsNotNull(value) => {
+            let value = plan_value_expr(value);
+
+            PlannedWhereExpr {
+                expr: SQLiteWhereExpr::IsNotNull(value.value),
+                joins: value.joins,
+            }
+        }
         Expr::In(in_expr) => {
             let left = plan_value_expr(in_expr.left());
             let right = in_expr.right().iter().map(sqlite_literal_from_ir).collect();
@@ -696,12 +705,22 @@ pub enum SQLiteLiteral {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLiteCompareOp {
     Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 impl SQLiteCompareOp {
     pub fn from_ir(compare_op: CompareOp) -> Self {
         match compare_op {
             CompareOp::Eq => Self::Eq,
+            CompareOp::Ne => Self::Ne,
+            CompareOp::Lt => Self::Lt,
+            CompareOp::Le => Self::Le,
+            CompareOp::Gt => Self::Gt,
+            CompareOp::Ge => Self::Ge,
         }
     }
 }

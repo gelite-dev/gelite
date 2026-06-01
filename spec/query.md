@@ -104,6 +104,11 @@ Supported filter expressions:
 Supported comparison operators:
 
 - `=`
+- `!=`
+- `<`
+- `<=`
+- `>`
+- `>=`
 
 Supported filter example:
 
@@ -139,6 +144,11 @@ select Post {
 filter .status not in ["archived", "deleted"]
 ```
 
+`null` comparisons are supported only with equality operators. `= null` and
+`null = .field` match absent optional values. `!= null` and `null != .field`
+match present values. Other comparison operators with `null` are rejected by
+the resolver before SQLite planning.
+
 ### Expression Grammar
 
 The expression grammar is shared by filters and later value positions such as
@@ -153,7 +163,7 @@ not_expr          := "not" not_expr
 compare_expr      := in_expr
                   | primary_expr compare_op primary_expr
                   | primary_expr
-compare_op        := "="
+compare_op        := "=" | "!=" | "<" | "<=" | ">" | ">="
 in_expr           := primary_expr in_op in_rhs
 in_op             := "in"
                   | "not" "in"
@@ -217,7 +227,6 @@ The MVP does not support:
 - `exists`
 - subquery `in`
 - function calls
-- comparison operators other than `=`
 - path scoping with aliases
 
 ## Insert
@@ -413,8 +422,6 @@ These are intentionally out of scope until the end-to-end path is stable:
 - multi relation mutation syntax
 - aggregation
 - grouping
-- `in`
-- comparison operators other than `=`
 - pagination cursors
 - function calls
 - subqueries

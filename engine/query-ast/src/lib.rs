@@ -125,6 +125,11 @@ pub struct CompareExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 /// Literal values accepted by the query parser.

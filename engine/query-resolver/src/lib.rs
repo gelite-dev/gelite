@@ -162,12 +162,50 @@ fn resolve_expr(
     match expr {
         query_ast::Expr::Compare(compare) => {
             if is_null_literal(compare.right()) {
-                let left = resolve_path_value_expr(catalog, source_object_type, compare.left())?;
+                if compare.op() == query_ast::CompareOp::Ne {
+                    let left = resolve_null_comparable_path_value_expr(
+                        catalog,
+                        source_object_type,
+                        compare.left(),
+                    )?;
+                    return Ok(query_ir::Expr::IsNotNull(left));
+                }
+
+                if compare.op() != query_ast::CompareOp::Eq {
+                    return Err(ResolveError::UnsupportedExpr {
+                        expr_type: "null comparison operator".to_string(),
+                    });
+                }
+
+                let left = resolve_null_comparable_path_value_expr(
+                    catalog,
+                    source_object_type,
+                    compare.left(),
+                )?;
                 return Ok(query_ir::Expr::IsNull(left));
             }
 
             if is_null_literal(compare.left()) {
-                let right = resolve_path_value_expr(catalog, source_object_type, compare.right())?;
+                if compare.op() == query_ast::CompareOp::Ne {
+                    let right = resolve_null_comparable_path_value_expr(
+                        catalog,
+                        source_object_type,
+                        compare.right(),
+                    )?;
+                    return Ok(query_ir::Expr::IsNotNull(right));
+                }
+
+                if compare.op() != query_ast::CompareOp::Eq {
+                    return Err(ResolveError::UnsupportedExpr {
+                        expr_type: "null comparison operator".to_string(),
+                    });
+                }
+
+                let right = resolve_null_comparable_path_value_expr(
+                    catalog,
+                    source_object_type,
+                    compare.right(),
+                )?;
                 return Ok(query_ir::Expr::IsNull(right));
             }
 
@@ -178,7 +216,7 @@ fn resolve_expr(
 
             Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
                 left.value,
-                query_ir::CompareOp::Eq,
+                resolve_compare_op(compare.op()),
                 right.value,
             )))
         }
@@ -226,6 +264,17 @@ fn is_null_literal(expr: &query_ast::Expr) -> bool {
     matches!(expr, query_ast::Expr::Literal(query_ast::Literal::Null))
 }
 
+fn resolve_compare_op(op: query_ast::CompareOp) -> query_ir::CompareOp {
+    match op {
+        query_ast::CompareOp::Eq => query_ir::CompareOp::Eq,
+        query_ast::CompareOp::Ne => query_ir::CompareOp::Ne,
+        query_ast::CompareOp::Lt => query_ir::CompareOp::Lt,
+        query_ast::CompareOp::Le => query_ir::CompareOp::Le,
+        query_ast::CompareOp::Gt => query_ir::CompareOp::Gt,
+        query_ast::CompareOp::Ge => query_ir::CompareOp::Ge,
+    }
+}
+
 fn resolve_path_value_expr(
     catalog: &schema_model::SchemaCatalog,
     source_object_type: &schema_model::ObjectTypeRef,
@@ -235,6 +284,24 @@ fn resolve_path_value_expr(
         query_ir::ValueExpr::Path(path) => Ok(query_ir::ValueExpr::Path(path)),
         query_ir::ValueExpr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "null comparison literal".to_string(),
+        }),
+    }
+}
+
+fn resolve_null_comparable_path_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    let value = resolve_path_value_expr(catalog, source_object_type, expr)?;
+    let query_ir::ValueExpr::Path(path) = &value else {
+        unreachable!("resolve_path_value_expr should only return path values");
+    };
+
+    match path.result_cardinality() {
+        schema_model::Cardinality::Optional => Ok(value),
+        cardinality => Err(ResolveError::NullComparisonOnNonOptionalPath {
+            cardinality: cardinality_name(cardinality).to_string(),
         }),
     }
 }
@@ -494,6 +561,14 @@ fn scalar_type_name(scalar_type: schema_model::ScalarType) -> &'static str {
     }
 }
 
+fn cardinality_name(cardinality: schema_model::Cardinality) -> &'static str {
+    match cardinality {
+        schema_model::Cardinality::Optional => "optional",
+        schema_model::Cardinality::Required => "required",
+        schema_model::Cardinality::Many => "many",
+    }
+}
+
 fn resolve_order_expr(
     catalog: &schema_model::SchemaCatalog,
     source_object_type: &schema_model::ObjectTypeRef,
@@ -522,6 +597,7 @@ pub enum ResolveError {
     UnsupportedExpr { expr_type: String },
     UnsupportedLiteral { literal: String },
     IncompatibleOperandTypes { expected: String, actual: String },
+    NullComparisonOnNonOptionalPath { cardinality: String },
 }
 
 #[cfg(test)]

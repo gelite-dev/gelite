@@ -369,6 +369,30 @@ fn resolved_select_query_can_store_filter_compare_bool_literal() {
 }
 
 #[test]
+fn resolved_select_query_can_store_filter_non_equality_compare_expr() {
+    let filter = Expr::Compare(CompareExpr::new(
+        post_title_path_value(),
+        CompareOp::Ne,
+        ValueExpr::Literal(Literal::String("Archived".to_string())),
+    ));
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let Expr::Compare(compare) = query.filter().expect("select query has filter") else {
+        panic!("filter should be a compare expression");
+    };
+
+    assert_eq!(compare.op(), CompareOp::Ne);
+}
+
+#[test]
 fn resolved_select_query_can_store_filter_is_null_expr() {
     let filter = Expr::IsNull(post_subtitle_path_value());
 
@@ -385,6 +409,35 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
 
     let Expr::IsNull(value) = filter else {
         panic!("filter should be an is null expression");
+    };
+
+    match value {
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
+        }
+        ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+    }
+}
+
+#[test]
+fn resolved_select_query_can_store_filter_is_not_null_expr() {
+    let filter = Expr::IsNotNull(post_subtitle_path_value());
+
+    let query = SelectQuery::new(
+        post_type(),
+        empty_post_shape(),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let filter = query.filter().expect("select query has filter");
+
+    let Expr::IsNotNull(value) = filter else {
+        panic!("filter should be an is not null expression");
     };
 
     match value {

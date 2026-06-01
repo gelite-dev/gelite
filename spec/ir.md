@@ -300,13 +300,20 @@ Minimum fields:
 Supported operators:
 
 - `=`
+- `!=`
+- `<`
+- `<=`
+- `>`
+- `>=`
 
 Comparison expressions must resolve to a boolean result. The resolver is
 responsible for rejecting incompatible operands before the expression reaches
 SQLite planning.
 
-Comparison operators other than `=` are deferred until the lexer, parser,
-resolver, SQLite planner, and SQL generator all support them.
+`= null` and `null = <path>` lower to `IsNull`. `!= null` and `null != <path>`
+lower to `IsNotNull`. Other comparison operators with `null` are rejected by
+the resolver because SQL three-valued null comparison semantics are not the
+Gelite filter contract.
 
 ### `InExpr`
 

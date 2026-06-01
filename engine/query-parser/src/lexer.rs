@@ -48,6 +48,11 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             RawTokenKind::Colon => TokenKind::Colon,
             RawTokenKind::Dot => TokenKind::Dot,
             RawTokenKind::Eq => TokenKind::Eq,
+            RawTokenKind::Ne => TokenKind::Ne,
+            RawTokenKind::Le => TokenKind::Le,
+            RawTokenKind::Lt => TokenKind::Lt,
+            RawTokenKind::Ge => TokenKind::Ge,
+            RawTokenKind::Gt => TokenKind::Gt,
 
             RawTokenKind::Ident => TokenKind::Ident(lexer.slice().to_string()),
             RawTokenKind::Int => TokenKind::Int(lexer.slice().to_string()),
@@ -136,6 +141,21 @@ enum RawTokenKind {
     #[token("=")]
     Eq,
 
+    #[token("!=")]
+    Ne,
+
+    #[token("<=")]
+    Le,
+
+    #[token("<")]
+    Lt,
+
+    #[token(">=")]
+    Ge,
+
+    #[token(">")]
+    Gt,
+
     #[regex(r#""[^"]*""#)]
     String,
 
@@ -187,6 +207,11 @@ pub enum TokenKind {
     Colon,
     Dot,
     Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 /// Reserved keywords recognized by the parser.

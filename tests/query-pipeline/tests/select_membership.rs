@@ -22,6 +22,11 @@ fn blog_catalog() -> SchemaCatalog {
                     ScalarType::Str,
                     SingleCardinality::Required,
                 )),
+                Field::Scalar(ScalarField::new(
+                    "view_count",
+                    ScalarType::Int64,
+                    SingleCardinality::Required,
+                )),
                 Field::Link(LinkField::new("author", "User", Cardinality::Required)),
             ],
         ),
@@ -70,4 +75,15 @@ fn select_pipeline_can_render_not_in_filter_through_single_link_from_query_text(
         statement.bind_values(),
         &[SQLiteBindValue::String("blocked@example.com".to_string())]
     );
+}
+
+#[test]
+fn select_pipeline_can_render_comparison_filter_from_query_text() {
+    let statement = render_query(r#"select Post { title } filter .view_count >= 10"#);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.view_count >= ?"
+    );
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(10)]);
 }

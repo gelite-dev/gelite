@@ -96,6 +96,11 @@ fn render_where_expr(expr: &SQLiteWhereExpr, bind_values: &mut Vec<SQLiteBindVal
 
             format!("{value_sql} IS NULL")
         }
+        SQLiteWhereExpr::IsNotNull(value) => {
+            let value_sql = render_value_expr(value, bind_values);
+
+            format!("{value_sql} IS NOT NULL")
+        }
         SQLiteWhereExpr::In(in_expr) => {
             let left_sql = render_value_expr(in_expr.left(), bind_values);
             let op_sql = render_in_op(in_expr.op());
@@ -155,6 +160,11 @@ fn render_join_clauses(plan: &SQLiteSelectPlan) -> Vec<String> {
 fn render_compare_op(op: SQLiteCompareOp) -> &'static str {
     match op {
         SQLiteCompareOp::Eq => "=",
+        SQLiteCompareOp::Ne => "!=",
+        SQLiteCompareOp::Lt => "<",
+        SQLiteCompareOp::Le => "<=",
+        SQLiteCompareOp::Gt => ">",
+        SQLiteCompareOp::Ge => ">=",
     }
 }
 

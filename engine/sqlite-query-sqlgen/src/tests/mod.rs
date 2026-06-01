@@ -71,6 +71,42 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_string_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_comparison_operators() {
+    let cases = [
+        (query_ir::CompareOp::Ne, "!="),
+        (query_ir::CompareOp::Lt, "<"),
+        (query_ir::CompareOp::Le, "<="),
+        (query_ir::CompareOp::Gt, ">"),
+        (query_ir::CompareOp::Ge, ">="),
+    ];
+
+    for (op, expected_sql_op) in cases {
+        let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+            post_title_path_value(),
+            op,
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Archived".to_string())),
+        ));
+
+        let ir = post_query_with_filter(filter);
+        let plan = sqlite_query_plan::plan_select(&ir);
+
+        let statement = render_select(&plan);
+
+        assert_eq!(
+            statement.sql(),
+            alloc::format!(
+                "SELECT root.title FROM post AS root WHERE root.title {expected_sql_op} ?"
+            )
+        );
+
+        assert_eq!(
+            statement.bind_values(),
+            &[SQLiteBindValue::String("Archived".to_string())]
+        );
+    }
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_single_link_scalar_equals_string_filter() {
     let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
         post_author_name_path_value(),
@@ -148,6 +184,23 @@ fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
     assert_eq!(
         statement.sql(),
         "SELECT root.title FROM post AS root WHERE root.title IS NULL"
+    );
+
+    assert!(statement.bind_values().is_empty());
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_root_scalar_is_not_null_filter() {
+    let filter = query_ir::Expr::IsNotNull(post_title_path_value());
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT root.title FROM post AS root WHERE root.title IS NOT NULL"
     );
 
     assert!(statement.bind_values().is_empty());
