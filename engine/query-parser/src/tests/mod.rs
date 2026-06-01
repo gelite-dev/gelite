@@ -42,6 +42,18 @@ fn lexer_can_tokenize_filter_path_and_string_literal() {
 }
 
 #[test]
+fn lexer_can_tokenize_comparison_operators() {
+    let tokens = lex("filter .count != 1 .count < 2 .count <= 3 .count > 4 .count >= 5")
+        .expect("query should lex");
+
+    assert_eq!(tokens[3].kind(), &TokenKind::Ne);
+    assert_eq!(tokens[7].kind(), &TokenKind::Lt);
+    assert_eq!(tokens[11].kind(), &TokenKind::Le);
+    assert_eq!(tokens[15].kind(), &TokenKind::Gt);
+    assert_eq!(tokens[19].kind(), &TokenKind::Ge);
+}
+
+#[test]
 fn lexer_can_tokenize_membership_list_brackets() {
     let tokens = lex("filter .status in [\"draft\", \"published\"]").expect("query should lex");
 
@@ -443,6 +455,32 @@ fn parser_can_parse_filter_compare_path_equals_null_literal() {
             assert_literal_expr(compare.right(), &Literal::Null);
         }
         _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_comparison_operators() {
+    let cases = [
+        ("!=", CompareOp::Ne),
+        ("<", CompareOp::Lt),
+        ("<=", CompareOp::Le),
+        (">", CompareOp::Gt),
+        (">=", CompareOp::Ge),
+    ];
+
+    for (source_op, expected_op) in cases {
+        let source = alloc::format!("select Post {{ title }} filter .view_count {source_op} 42");
+        let query = parse_select(&source).expect("query should parse");
+        let filter = query.filter().expect("query should have filter");
+
+        match filter {
+            Expr::Compare(compare) => {
+                assert_path_expr(compare.left(), &["view_count"]);
+                assert_eq!(compare.op(), expected_op);
+                assert_literal_expr(compare.right(), &Literal::Int64(42));
+            }
+            _ => panic!("filter should be compare expression"),
+        }
     }
 }
 
