@@ -162,11 +162,35 @@ fn resolve_expr(
     match expr {
         query_ast::Expr::Compare(compare) => {
             if is_null_literal(compare.right()) {
+                if compare.op() == query_ast::CompareOp::Ne {
+                    let left =
+                        resolve_path_value_expr(catalog, source_object_type, compare.left())?;
+                    return Ok(query_ir::Expr::IsNotNull(left));
+                }
+
+                if compare.op() != query_ast::CompareOp::Eq {
+                    return Err(ResolveError::UnsupportedExpr {
+                        expr_type: "null comparison operator".to_string(),
+                    });
+                }
+
                 let left = resolve_path_value_expr(catalog, source_object_type, compare.left())?;
                 return Ok(query_ir::Expr::IsNull(left));
             }
 
             if is_null_literal(compare.left()) {
+                if compare.op() == query_ast::CompareOp::Ne {
+                    let right =
+                        resolve_path_value_expr(catalog, source_object_type, compare.right())?;
+                    return Ok(query_ir::Expr::IsNotNull(right));
+                }
+
+                if compare.op() != query_ast::CompareOp::Eq {
+                    return Err(ResolveError::UnsupportedExpr {
+                        expr_type: "null comparison operator".to_string(),
+                    });
+                }
+
                 let right = resolve_path_value_expr(catalog, source_object_type, compare.right())?;
                 return Ok(query_ir::Expr::IsNull(right));
             }
@@ -178,7 +202,7 @@ fn resolve_expr(
 
             Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
                 left.value,
-                query_ir::CompareOp::Eq,
+                resolve_compare_op(compare.op()),
                 right.value,
             )))
         }
@@ -224,6 +248,17 @@ fn resolve_expr(
 
 fn is_null_literal(expr: &query_ast::Expr) -> bool {
     matches!(expr, query_ast::Expr::Literal(query_ast::Literal::Null))
+}
+
+fn resolve_compare_op(op: query_ast::CompareOp) -> query_ir::CompareOp {
+    match op {
+        query_ast::CompareOp::Eq => query_ir::CompareOp::Eq,
+        query_ast::CompareOp::Ne => query_ir::CompareOp::Ne,
+        query_ast::CompareOp::Lt => query_ir::CompareOp::Lt,
+        query_ast::CompareOp::Le => query_ir::CompareOp::Le,
+        query_ast::CompareOp::Gt => query_ir::CompareOp::Gt,
+        query_ast::CompareOp::Ge => query_ir::CompareOp::Ge,
+    }
 }
 
 fn resolve_path_value_expr(

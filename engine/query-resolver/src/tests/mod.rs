@@ -5,10 +5,11 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    filter_eq_bool, filter_eq_int, filter_eq_null, filter_eq_string, filter_in_bools,
-    filter_in_empty, filter_in_ints, filter_in_null, filter_in_path_item, filter_in_strings,
-    filter_not_in_strings, filter_null_eq, post_only_catalog, post_with_author_catalog,
-    post_with_scalar_fields_catalog, post_with_title_catalog,
+    filter_compare_int, filter_eq_bool, filter_eq_int, filter_eq_null, filter_eq_string,
+    filter_in_bools, filter_in_empty, filter_in_ints, filter_in_null, filter_in_path_item,
+    filter_in_strings, filter_lt_null, filter_ne_null, filter_not_in_strings, filter_null_eq,
+    filter_null_ne, post_only_catalog, post_with_author_catalog, post_with_scalar_fields_catalog,
+    post_with_title_catalog,
 };
 use query_ast::{Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
@@ -348,6 +349,32 @@ fn resolves_filter_compare_int_path_to_int_literal() {
 }
 
 #[test]
+fn resolves_filter_compare_non_equality_operator() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_compare_int(&["view_count"], query_ast::CompareOp::Ge, 10);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    assert_eq!(compare.op(), query_ir::CompareOp::Ge);
+}
+
+#[test]
 fn resolves_filter_compare_bool_path_to_bool_literal() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -529,6 +556,98 @@ fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
     }
+}
+
+#[test]
+fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_ne_null(&["title"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is not null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_null_ne(&["title"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is not null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps()[0].field().name(), "title");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+    }
+}
+
+#[test]
+fn rejects_filter_compare_ordering_operator_with_null_literal() {
+    let catalog = post_with_title_catalog();
+
+    let filter = filter_lt_null(&["title"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison operator".to_string()
+        })
+    );
 }
 
 #[test]

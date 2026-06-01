@@ -109,6 +109,14 @@ pub fn filter_eq_int(path: &[&str], value: i64) -> Expr {
     ))
 }
 
+pub fn filter_compare_int(path: &[&str], op: CompareOp, value: i64) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        op,
+        literal_int_expr(value),
+    ))
+}
+
 pub fn filter_eq_bool(path: &[&str], value: bool) -> Expr {
     Expr::Compare(CompareExpr::new(
         path_expr(path),
@@ -130,6 +138,30 @@ pub fn filter_null_eq(path: &[&str]) -> Expr {
         literal_null_expr(),
         CompareOp::Eq,
         path_expr(path),
+    ))
+}
+
+pub fn filter_ne_null(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Ne,
+        literal_null_expr(),
+    ))
+}
+
+pub fn filter_null_ne(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        literal_null_expr(),
+        CompareOp::Ne,
+        path_expr(path),
+    ))
+}
+
+pub fn filter_lt_null(path: &[&str]) -> Expr {
+    Expr::Compare(CompareExpr::new(
+        path_expr(path),
+        CompareOp::Lt,
+        literal_null_expr(),
     ))
 }
 
