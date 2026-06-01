@@ -137,6 +137,17 @@ fn compare_expr_can_reference_path_and_literal() {
 }
 
 #[test]
+fn compare_expr_can_store_non_equality_operator() {
+    let expr = CompareExpr::new(
+        Expr::Path(Path::new(vec![PathStep::new("view_count")])),
+        CompareOp::Ge,
+        Expr::Literal(Literal::Int64(10)),
+    );
+
+    assert_eq!(expr.op(), CompareOp::Ge);
+}
+
+#[test]
 fn order_expr_can_reference_a_path() {
     let path = Path::new(vec![PathStep::new("title")]);
     let order = OrderExpr::new(path, crate::OrderDirection::Asc);
