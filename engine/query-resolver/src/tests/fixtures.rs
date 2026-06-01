@@ -20,6 +20,25 @@ pub fn post_with_title_catalog() -> SchemaCatalog {
     .expect("post-with-title-catalog schema catalog should be valid")
 }
 
+pub fn post_with_optional_subtitle_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "Post",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "title",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "subtitle",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Optional,
+            )),
+        ],
+    )])
+    .expect("post-with-optional-subtitle catalog should be valid")
+}
+
 pub fn post_with_scalar_fields_catalog() -> SchemaCatalog {
     SchemaCatalog::try_new(vec![ObjectType::new(
         "Post",

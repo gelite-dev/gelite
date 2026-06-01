@@ -8,8 +8,8 @@ use fixtures::{
     filter_compare_int, filter_eq_bool, filter_eq_int, filter_eq_null, filter_eq_string,
     filter_in_bools, filter_in_empty, filter_in_ints, filter_in_null, filter_in_path_item,
     filter_in_strings, filter_lt_null, filter_ne_null, filter_not_in_strings, filter_null_eq,
-    filter_null_ne, post_only_catalog, post_with_author_catalog, post_with_scalar_fields_catalog,
-    post_with_title_catalog,
+    filter_null_ne, post_only_catalog, post_with_author_catalog,
+    post_with_optional_subtitle_catalog, post_with_scalar_fields_catalog, post_with_title_catalog,
 };
 use query_ast::{Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
@@ -494,6 +494,136 @@ fn resolves_filter_compare_uuid_path_to_string_literal() {
 
 #[test]
 fn resolves_filter_compare_null_literal_to_is_null_expr() {
+    let catalog = post_with_optional_subtitle_catalog();
+
+    let filter = filter_eq_null(&["subtitle"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
+    let catalog = post_with_optional_subtitle_catalog();
+
+    let filter = filter_null_eq(&["subtitle"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
+    let catalog = post_with_optional_subtitle_catalog();
+
+    let filter = filter_ne_null(&["subtitle"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is not null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
+    let catalog = post_with_optional_subtitle_catalog();
+
+    let filter = filter_null_ne(&["subtitle"]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an is not null expression");
+    };
+
+    match value {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps()[0].field().name(), "subtitle");
+        }
+        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+    }
+}
+
+#[test]
+fn rejects_filter_compare_required_path_to_null_literal() {
     let catalog = post_with_title_catalog();
 
     let filter = filter_eq_null(&["title"]);
@@ -510,23 +640,18 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
         None,
     );
 
-    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
-    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
-        panic!("filter should resolve to an is null expression");
-    };
+    let resolved = resolve_select(&catalog, &query);
 
-    match value {
-        query_ir::ValueExpr::Path(path) => {
-            assert_eq!(path.root_object_type().name(), "Post");
-            assert_eq!(path.steps().len(), 1);
-            assert_eq!(path.steps()[0].field().name(), "title");
-        }
-        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
-    }
+    assert_eq!(
+        resolved,
+        Err(ResolveError::NullComparisonOnNonOptionalPath {
+            cardinality: "required".to_string()
+        })
+    );
 }
 
 #[test]
-fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
+fn rejects_filter_compare_left_null_literal_to_required_path() {
     let catalog = post_with_title_catalog();
 
     let filter = filter_null_eq(&["title"]);
@@ -543,23 +668,18 @@ fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
         None,
     );
 
-    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
-    let query_ir::Expr::IsNull(value) = resolved.filter().expect("filter should resolve") else {
-        panic!("filter should resolve to an is null expression");
-    };
+    let resolved = resolve_select(&catalog, &query);
 
-    match value {
-        query_ir::ValueExpr::Path(path) => {
-            assert_eq!(path.root_object_type().name(), "Post");
-            assert_eq!(path.steps().len(), 1);
-            assert_eq!(path.steps()[0].field().name(), "title");
-        }
-        query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
-    }
+    assert_eq!(
+        resolved,
+        Err(ResolveError::NullComparisonOnNonOptionalPath {
+            cardinality: "required".to_string()
+        })
+    );
 }
 
 #[test]
-fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
+fn rejects_filter_compare_required_path_to_not_null_literal() {
     let catalog = post_with_title_catalog();
 
     let filter = filter_ne_null(&["title"]);
@@ -576,22 +696,18 @@ fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
         None,
     );
 
-    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
-    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
-        panic!("filter should resolve to an is not null expression");
-    };
+    let resolved = resolve_select(&catalog, &query);
 
-    match value {
-        query_ir::ValueExpr::Path(path) => {
-            assert_eq!(path.root_object_type().name(), "Post");
-            assert_eq!(path.steps()[0].field().name(), "title");
-        }
-        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
-    }
+    assert_eq!(
+        resolved,
+        Err(ResolveError::NullComparisonOnNonOptionalPath {
+            cardinality: "required".to_string()
+        })
+    );
 }
 
 #[test]
-fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
+fn rejects_filter_compare_left_not_null_literal_to_required_path() {
     let catalog = post_with_title_catalog();
 
     let filter = filter_null_ne(&["title"]);
@@ -608,18 +724,14 @@ fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
         None,
     );
 
-    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
-    let query_ir::Expr::IsNotNull(value) = resolved.filter().expect("filter should resolve") else {
-        panic!("filter should resolve to an is not null expression");
-    };
+    let resolved = resolve_select(&catalog, &query);
 
-    match value {
-        query_ir::ValueExpr::Path(path) => {
-            assert_eq!(path.root_object_type().name(), "Post");
-            assert_eq!(path.steps()[0].field().name(), "title");
-        }
-        query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
-    }
+    assert_eq!(
+        resolved,
+        Err(ResolveError::NullComparisonOnNonOptionalPath {
+            cardinality: "required".to_string()
+        })
+    );
 }
 
 #[test]
@@ -961,11 +1073,11 @@ fn rejects_filter_in_non_literal_item() {
 
 #[test]
 fn resolves_filter_and_expression() {
-    let catalog = post_with_title_catalog();
+    let catalog = post_with_optional_subtitle_catalog();
 
     let filter = Expr::And(
         Box::new(filter_eq_string(&["title"], "Hello")),
-        Box::new(filter_eq_null(&["title"])),
+        Box::new(filter_eq_null(&["subtitle"])),
     );
 
     let query = SelectQuery::new(
@@ -992,11 +1104,11 @@ fn resolves_filter_and_expression() {
 
 #[test]
 fn resolves_filter_or_expression() {
-    let catalog = post_with_title_catalog();
+    let catalog = post_with_optional_subtitle_catalog();
 
     let filter = Expr::Or(
         Box::new(filter_eq_string(&["title"], "Hello")),
-        Box::new(filter_eq_null(&["title"])),
+        Box::new(filter_eq_null(&["subtitle"])),
     );
 
     let query = SelectQuery::new(
