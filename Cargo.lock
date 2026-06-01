@@ -441,8 +441,12 @@ dependencies = [
  "query-parser",
  "query-resolver",
  "schema-model",
+ "schema-parser",
  "sqlite-query-plan",
  "sqlite-query-sqlgen",
+ "sqlite-runner",
+ "sqlite-schema-plan",
+ "sqlite-schema-sqlgen",
 ]
 
 [[package]]

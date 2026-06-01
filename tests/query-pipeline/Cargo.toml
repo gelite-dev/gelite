@@ -7,5 +7,9 @@ edition.workspace = true
 query-parser = { path = "../../engine/query-parser" }
 query-resolver = { path = "../../engine/query-resolver" }
 schema-model = { path = "../../engine/schema-model" }
+schema-parser = { path = "../../engine/schema-parser" }
 sqlite-query-plan = { path = "../../engine/sqlite-query-plan" }
 sqlite-query-sqlgen = { path = "../../engine/sqlite-query-sqlgen" }
+sqlite-runner = { path = "../../engine/sqlite-runner", features = ["native"] }
+sqlite-schema-plan = { path = "../../engine/sqlite-schema-plan" }
+sqlite-schema-sqlgen = { path = "../../engine/sqlite-schema-sqlgen" }
