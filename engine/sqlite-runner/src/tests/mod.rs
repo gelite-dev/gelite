@@ -23,16 +23,16 @@ fn apply_schema_statements_executes_sql_and_insert_statements_in_order() {
 
     assert!(matches!(
         runner.calls().first(),
-        Some(RecordedCall::Execute(sql)) if sql.starts_with("CREATE TABLE _engine_schema_versions")
+        Some(RecordedCall::Execute(sql)) if sql.starts_with("CREATE TABLE \"_engine_schema_versions\"")
     ));
     assert!(runner.calls().iter().any(|call| matches!(
         call,
-        RecordedCall::Execute(sql) if sql.starts_with("CREATE TABLE post")
+        RecordedCall::Execute(sql) if sql.starts_with("CREATE TABLE \"post\"")
     )));
     assert!(runner.calls().iter().any(|call| matches!(
         call,
         RecordedCall::ExecuteWithValues(sql, values)
-            if sql == "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+            if sql == "INSERT INTO \"_engine_catalog_objects\" (\"object_id\", \"name\") VALUES (?, ?)"
                 && values == &vec![
                     SQLiteValuePlan::Integer(1),
                     SQLiteValuePlan::Text("Post".to_string()),
@@ -41,7 +41,7 @@ fn apply_schema_statements_executes_sql_and_insert_statements_in_order() {
     assert!(runner.calls().iter().any(|call| matches!(
         call,
         RecordedCall::ExecuteWithValues(sql, values)
-            if sql == "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            if sql == "INSERT INTO \"_engine_catalog_fields\" (\"object_id\", \"field_id\", \"name\", \"field_kind\", \"cardinality\", \"scalar_type\", \"target_object_id\", \"is_implicit\", \"is_unique\") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 && values == &vec![
                     SQLiteValuePlan::Integer(1),
                     SQLiteValuePlan::Integer(1),

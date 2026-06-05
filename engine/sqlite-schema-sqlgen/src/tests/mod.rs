@@ -4,13 +4,15 @@ use crate::{
     RenderedSchemaStatement, render_create_index, render_create_table, render_initial_schema,
     render_insert,
 };
+use alloc::string::ToString;
 use alloc::vec;
 use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
 use sqlite_schema_plan::{
-    SQLiteIndexPlan, SQLiteValuePlan, plan_catalog_field_inserts, plan_catalog_object_inserts,
+    SQLiteAffinity, SQLiteColumnPlan, SQLiteForeignKeyPlan, SQLiteIndexPlan, SQLitePrimaryKeyPlan,
+    SQLiteTablePlan, SQLiteValuePlan, plan_catalog_field_inserts, plan_catalog_object_inserts,
     plan_initial_schema,
 };
 
@@ -24,7 +26,34 @@ fn render_create_table_for_catalog_fields_uses_composite_primary_key() {
 
     assert_eq!(
         sql,
-        "CREATE TABLE _engine_catalog_fields (object_id INTEGER NOT NULL, field_id INTEGER NOT NULL, name TEXT NOT NULL, field_kind TEXT NOT NULL, cardinality TEXT NOT NULL, scalar_type TEXT NULL, target_object_id INTEGER NULL, is_implicit INTEGER NOT NULL, is_unique INTEGER NOT NULL, PRIMARY KEY (object_id, field_id), FOREIGN KEY (object_id) REFERENCES _engine_catalog_objects(object_id), FOREIGN KEY (target_object_id) REFERENCES _engine_catalog_objects(object_id))"
+        "CREATE TABLE \"_engine_catalog_fields\" (\"object_id\" INTEGER NOT NULL, \"field_id\" INTEGER NOT NULL, \"name\" TEXT NOT NULL, \"field_kind\" TEXT NOT NULL, \"cardinality\" TEXT NOT NULL, \"scalar_type\" TEXT NULL, \"target_object_id\" INTEGER NULL, \"is_implicit\" INTEGER NOT NULL, \"is_unique\" INTEGER NOT NULL, PRIMARY KEY (\"object_id\", \"field_id\"), FOREIGN KEY (\"object_id\") REFERENCES \"_engine_catalog_objects\"(\"object_id\"), FOREIGN KEY (\"target_object_id\") REFERENCES \"_engine_catalog_objects\"(\"object_id\"))"
+    );
+}
+
+#[test]
+fn render_create_table_quotes_identifiers() {
+    let table = SQLiteTablePlan::new_with_constraints(
+        "group",
+        vec![
+            SQLiteColumnPlan::new("select", SQLiteAffinity::Text, false, false, false),
+            SQLiteColumnPlan::new("quote\"field", SQLiteAffinity::Integer, true, false, false),
+        ],
+        Some(SQLitePrimaryKeyPlan::new(vec![
+            "select".to_string(),
+            "quote\"field".to_string(),
+        ])),
+        vec![SQLiteForeignKeyPlan::new(
+            "quote\"field",
+            "target\"table",
+            "id",
+        )],
+    );
+
+    let sql = render_create_table(&table);
+
+    assert_eq!(
+        sql,
+        "CREATE TABLE \"group\" (\"select\" TEXT NOT NULL, \"quote\"\"field\" INTEGER NULL, PRIMARY KEY (\"select\", \"quote\"\"field\"), FOREIGN KEY (\"quote\"\"field\") REFERENCES \"target\"\"table\"(\"id\"))"
     );
 }
 
@@ -58,7 +87,19 @@ fn render_create_index_for_single_link_foreign_key_index() {
 
     let sql = render_create_index(index);
 
-    assert_eq!(sql, "CREATE INDEX post__author_id_idx ON post (author_id)");
+    assert_eq!(
+        sql,
+        "CREATE INDEX \"post__author_id_idx\" ON \"post\" (\"author_id\")"
+    );
+}
+
+#[test]
+fn render_create_index_quotes_identifiers() {
+    let index = SQLiteIndexPlan::new("post index", "group", vec!["select".into()], false);
+
+    let sql = render_create_index(&index);
+
+    assert_eq!(sql, "CREATE INDEX \"post index\" ON \"group\" (\"select\")");
 }
 
 #[test]
@@ -67,7 +108,10 @@ fn render_create_unique_index_uses_create_unique_index() {
 
     let sql = render_create_index(&index);
 
-    assert_eq!(sql, "CREATE UNIQUE INDEX user__email_idx ON user (email)");
+    assert_eq!(
+        sql,
+        "CREATE UNIQUE INDEX \"user__email_idx\" ON \"user\" (\"email\")"
+    );
 }
 
 #[test]
@@ -80,7 +124,7 @@ fn render_catalog_object_insert_uses_placeholders() {
 
     assert_eq!(
         rendered.sql(),
-        "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+        "INSERT INTO \"_engine_catalog_objects\" (\"object_id\", \"name\") VALUES (?, ?)"
     );
     assert_eq!(
         rendered.values(),
@@ -101,7 +145,7 @@ fn render_catalog_field_insert_uses_placeholders_and_preserves_null_values() {
 
     assert_eq!(
         rendered.sql(),
-        "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO \"_engine_catalog_fields\" (\"object_id\", \"field_id\", \"name\", \"field_kind\", \"cardinality\", \"scalar_type\", \"target_object_id\", \"is_implicit\", \"is_unique\") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     assert_eq!(
         rendered.values(),
@@ -157,31 +201,31 @@ fn render_initial_schema_outputs_deterministic_sql() {
     assert!(
         first[0]
             .sql()
-            .starts_with("CREATE TABLE _engine_schema_versions")
+            .starts_with("CREATE TABLE \"_engine_schema_versions\"")
     );
     assert!(
         first[1]
             .sql()
-            .starts_with("CREATE TABLE _engine_catalog_objects")
+            .starts_with("CREATE TABLE \"_engine_catalog_objects\"")
     );
     assert!(
         first[2]
             .sql()
-            .starts_with("CREATE TABLE _engine_catalog_fields")
+            .starts_with("CREATE TABLE \"_engine_catalog_fields\"")
     );
-    assert!(first[3].sql().starts_with("CREATE TABLE user"));
-    assert!(first[4].sql().starts_with("CREATE TABLE post"));
+    assert!(first[3].sql().starts_with("CREATE TABLE \"user\""));
+    assert!(first[4].sql().starts_with("CREATE TABLE \"post\""));
     assert_eq!(
         first[5].sql(),
-        "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+        "INSERT INTO \"_engine_catalog_objects\" (\"object_id\", \"name\") VALUES (?, ?)"
     );
     assert_eq!(
         first[7].sql(),
-        "INSERT INTO _engine_catalog_fields (object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO \"_engine_catalog_fields\" (\"object_id\", \"field_id\", \"name\", \"field_kind\", \"cardinality\", \"scalar_type\", \"target_object_id\", \"is_implicit\", \"is_unique\") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     assert_eq!(
         first[12].sql(),
-        "CREATE INDEX post__author_id_idx ON post (author_id)"
+        "CREATE INDEX \"post__author_id_idx\" ON \"post\" (\"author_id\")"
     );
 
     match &first[5] {

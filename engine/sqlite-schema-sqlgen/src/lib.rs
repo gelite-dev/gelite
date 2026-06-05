@@ -19,6 +19,18 @@ use sqlite_schema_plan::{
     plan_catalog_field_inserts, plan_catalog_object_inserts,
 };
 
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn quote_identifier_list<'a>(identifiers: impl IntoIterator<Item = &'a str>) -> String {
+    identifiers
+        .into_iter()
+        .map(quote_identifier)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn render_create_table(table: &SQLiteTablePlan) -> String {
     let mut parts = vec![];
 
@@ -30,13 +42,17 @@ pub fn render_create_table(table: &SQLiteTablePlan) -> String {
 
     parts.extend(table.foreign_keys().iter().map(render_foreign_key));
 
-    format!("CREATE TABLE {} ({})", table.name(), parts.join(", "))
+    format!(
+        "CREATE TABLE {} ({})",
+        quote_identifier(table.name()),
+        parts.join(", ")
+    )
 }
 
 fn render_column(column: &SQLiteColumnPlan) -> String {
     let mut parts: Vec<String> = Vec::new();
 
-    parts.push(column.name().to_string());
+    parts.push(quote_identifier(column.name()));
     parts.push(render_affinity(column.affinity()).to_string());
 
     if column.is_nullable() {
@@ -65,15 +81,18 @@ fn render_affinity(affinity: SQLiteAffinity) -> &'static str {
 }
 
 fn render_primary_key(primary_key: &SQLitePrimaryKeyPlan) -> String {
-    format!("PRIMARY KEY ({})", primary_key.column_names().join(", "))
+    format!(
+        "PRIMARY KEY ({})",
+        quote_identifier_list(primary_key.column_names().iter().map(String::as_str))
+    )
 }
 
 fn render_foreign_key(foreign_key: &SQLiteForeignKeyPlan) -> String {
     format!(
         "FOREIGN KEY ({}) REFERENCES {}({})",
-        foreign_key.column_name(),
-        foreign_key.target_table(),
-        foreign_key.target_column(),
+        quote_identifier(foreign_key.column_name()),
+        quote_identifier(foreign_key.target_table()),
+        quote_identifier(foreign_key.target_column()),
     )
 }
 
@@ -87,9 +106,9 @@ pub fn render_create_index(index: &SQLiteIndexPlan) -> String {
     format!(
         "{} {} ON {} ({})",
         create,
-        index.name(),
-        index.table_name(),
-        index.column_names().join(", "),
+        quote_identifier(index.name()),
+        quote_identifier(index.table_name()),
+        quote_identifier_list(index.column_names().iter().map(String::as_str)),
     )
 }
 
@@ -108,7 +127,7 @@ impl RenderedInsert {
 }
 
 pub fn render_insert(insert: &SQLiteInsertPlan) -> RenderedInsert {
-    let columns = insert.columns().join(", ");
+    let columns = quote_identifier_list(insert.columns().iter().map(String::as_str));
     let placeholders = insert
         .columns()
         .iter()
@@ -119,7 +138,7 @@ pub fn render_insert(insert: &SQLiteInsertPlan) -> RenderedInsert {
     RenderedInsert {
         sql: format!(
             "INSERT INTO {} ({}) VALUES ({})",
-            insert.table_name(),
+            quote_identifier(insert.table_name()),
             columns,
             placeholders,
         ),
