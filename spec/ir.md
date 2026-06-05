@@ -243,6 +243,7 @@ Minimum variants:
 
 - literal
 - path
+- arithmetic
 - comparison
 - membership
 - boolean `and`
@@ -255,8 +256,9 @@ Minimum metadata:
 - result cardinality
 
 The result type may be a scalar type, an object type for future subquery work,
-or a dedicated boolean type for predicates. The first implementation only needs
-literal scalar values, resolved scalar paths, and boolean predicate results.
+or a dedicated boolean type for predicates. The current implementation needs
+literal scalar values, resolved scalar paths, arithmetic scalar values, and
+boolean predicate results.
 
 The expression tree does not store SQLite SQL fragments. SQLite-specific
 operator spelling, parentheses, bind placeholders, and joins belong to SQLite
@@ -288,6 +290,58 @@ Minimum fields:
 - resolved path
 - result type
 - result cardinality
+
+### `ArithmeticExpr`
+
+Represents a resolved numeric value expression.
+
+Minimum fields:
+
+- left expression
+- arithmetic operator
+- right expression
+- result type
+- result cardinality
+
+Supported operators:
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `%`
+
+These are binary operators. Unary arithmetic operators are not part of this
+milestone.
+
+Arithmetic operands must resolve to scalar numeric value expressions. The
+resolver must reject string, boolean, uuid, `null`, object, and link operands
+before SQLite planning.
+
+Accepted operand and result types:
+
+- `int64 + int64 -> int64`
+- `int64 - int64 -> int64`
+- `int64 * int64 -> int64`
+- `int64 / int64 -> int64`
+- `int64 % int64 -> int64`
+- `float64 + float64 -> float64`
+- `float64 - float64 -> float64`
+- `float64 * float64 -> float64`
+- `float64 / float64 -> float64`
+
+Mixed numeric operands such as `int64 + float64` are rejected until explicit
+cast expressions exist. `%` is not defined for `float64`.
+
+`int64 / int64` preserves SQLite integer division semantics. Division by zero
+is not rewritten by Semantic IR. If the divisor can only be known at runtime,
+SQLite determines the result.
+
+Arithmetic expressions may appear as value operands inside filter comparisons
+and membership expressions in the arithmetic filter milestone. Arithmetic
+expressions are not accepted as `order by` expressions or computed select
+projections until those later milestones define their own shape and result
+metadata rules.
 
 ### `CompareExpr`
 
