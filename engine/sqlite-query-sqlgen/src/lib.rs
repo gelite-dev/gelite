@@ -21,6 +21,18 @@ use sqlite_query_plan::{
     SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn render_qualified_identifier(source_alias: &str, column_name: &str) -> String {
+    format!(
+        "{}.{}",
+        quote_identifier(source_alias),
+        quote_identifier(column_name)
+    )
+}
+
 /// Renders a structured SQLite select plan into SQL text and bind values.
 pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
     let select_clause = render_select_clause(plan);
@@ -56,7 +68,7 @@ fn render_select_clause(plan: &SQLiteSelectPlan) -> String {
     let columns = plan
         .selected_values()
         .iter()
-        .map(|value| format!("{}.{}", value.source_alias(), value.column_name()))
+        .map(|value| render_qualified_identifier(value.source_alias(), value.column_name()))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -67,7 +79,11 @@ fn render_from_clause(plan: &SQLiteSelectPlan) -> String {
     let columns = plan.root_source().table_name();
     let alias = plan.root_source().alias();
 
-    format!("FROM {columns} AS {alias}")
+    format!(
+        "FROM {} AS {}",
+        quote_identifier(columns),
+        quote_identifier(alias)
+    )
 }
 
 fn render_where_clause(plan: &SQLiteSelectPlan) -> (Option<String>, Vec<SQLiteBindValue>) {
@@ -145,13 +161,11 @@ fn render_join_clauses(plan: &SQLiteSelectPlan) -> Vec<String> {
             let on = join.on();
 
             format!(
-                "{join_kind} {} AS {} ON {}.{} = {}.{}",
-                join.target_table(),
-                join.target_alias(),
-                on.left_alias(),
-                on.left_column(),
-                on.right_alias(),
-                on.right_column(),
+                "{join_kind} {} AS {} ON {} = {}",
+                quote_identifier(join.target_table()),
+                quote_identifier(join.target_alias()),
+                render_qualified_identifier(on.left_alias(), on.left_column()),
+                render_qualified_identifier(on.right_alias(), on.right_column()),
             )
         })
         .collect()
@@ -178,7 +192,7 @@ fn render_in_op(op: SQLiteInOp) -> &'static str {
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
-            format!("{}.{}", column.source_alias(), column.column_name())
+            render_qualified_identifier(column.source_alias(), column.column_name())
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::String(value)) => {
             render_literal(&SQLiteLiteral::String(value.clone()), bind_values)
@@ -223,7 +237,10 @@ fn render_order_clause(plan: &SQLiteSelectPlan) -> Option<String> {
                 SQLiteOrderDirection::Desc => "DESC",
             };
 
-            format!("{source_alias}.{column_name} {dir}")
+            format!(
+                "{} {dir}",
+                render_qualified_identifier(source_alias, column_name)
+            )
         })
         .collect::<Vec<String>>()
         .join(", ");

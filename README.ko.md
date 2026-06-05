@@ -102,11 +102,11 @@ Gelite는 query를 parse하고, schema catalog에 맞춰 이름을 resolve하고
 IR을 만들고, SQLite plan을 만든 뒤, 대략 다음과 같은 SQL을 렌더링할 수 있습니다.
 
 ```sql
-SELECT root.title, author.id, author.name
-FROM post AS root
-INNER JOIN user AS author ON root.author_id = author.id
-WHERE root.title = ?
-ORDER BY root.title DESC
+SELECT "root"."title", "author"."id", "author"."name"
+FROM "post" AS "root"
+INNER JOIN "user" AS "author" ON "root"."author_id" = "author"."id"
+WHERE "root"."title" = ?
+ORDER BY "root"."title" DESC
 LIMIT 10
 ```
 

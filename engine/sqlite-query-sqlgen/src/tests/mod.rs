@@ -5,9 +5,10 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    post_author_name_path_value, post_author_shape_field, post_id_shape_field,
-    post_query_with_filter, post_query_with_limit_and_offset, post_query_with_order_by,
-    post_query_with_shape, post_title_path_value, post_title_shape_field,
+    post_author_name_path_value, post_author_shape_field, post_id_shape_field, post_or_path_value,
+    post_or_shape_field, post_query_with_filter, post_query_with_limit_and_offset,
+    post_query_with_order_by, post_query_with_shape, post_quote_path_value, post_title_path_value,
+    post_title_shape_field,
 };
 
 #[test]
@@ -17,7 +18,23 @@ fn sqlite_sqlgen_can_render_simple_root_scalar_select() {
 
     let statement = render_select(&plan);
 
-    assert_eq!(statement.sql(), "SELECT root.title FROM post AS root");
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\""
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_quotes_select_identifiers() {
+    let ir = post_query_with_shape(vec![post_or_shape_field()]);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"or\" FROM \"post\" AS \"root\""
+    );
 }
 
 #[test]
@@ -29,7 +46,7 @@ fn sqlite_sqlgen_can_render_multiple_root_selected_values() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title, root.id FROM post AS root"
+        "SELECT \"root\".\"title\", \"root\".\"id\" FROM \"post\" AS \"root\""
     );
 }
 
@@ -42,7 +59,7 @@ fn sqlite_sqlgen_can_render_selected_single_link_join() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title, author.id, author.name FROM post AS root INNER JOIN user AS author ON root.author_id = author.id"
+        "SELECT \"root\".\"title\", \"author\".\"id\", \"author\".\"name\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\""
     );
 }
 
@@ -61,12 +78,31 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_string_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title = ?"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" = ?"
     );
 
     assert_eq!(
         statement.bind_values(),
         &[SQLiteBindValue::String("Hello".to_string())]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_quotes_filter_identifiers() {
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_quote_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello".to_string())),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"quote\"\"field\" = ?"
     );
 }
 
@@ -95,7 +131,7 @@ fn sqlite_sqlgen_can_render_comparison_operators() {
         assert_eq!(
             statement.sql(),
             alloc::format!(
-                "SELECT root.title FROM post AS root WHERE root.title {expected_sql_op} ?"
+                "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" {expected_sql_op} ?"
             )
         );
 
@@ -121,7 +157,7 @@ fn sqlite_sqlgen_can_render_single_link_scalar_equals_string_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id WHERE author.name = ?"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" WHERE \"author\".\"name\" = ?"
     );
 
     assert_eq!(
@@ -145,7 +181,7 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_int_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title = ?"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" = ?"
     );
 
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(42)]);
@@ -166,7 +202,7 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_bool_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title = ?"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" = ?"
     );
 
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Bool(true)]);
@@ -183,7 +219,7 @@ fn sqlite_sqlgen_can_render_root_scalar_is_null_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title IS NULL"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" IS NULL"
     );
 
     assert!(statement.bind_values().is_empty());
@@ -200,7 +236,7 @@ fn sqlite_sqlgen_can_render_root_scalar_is_not_null_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title IS NOT NULL"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" IS NOT NULL"
     );
 
     assert!(statement.bind_values().is_empty());
@@ -224,7 +260,7 @@ fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title IN (?, ?)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" IN (?, ?)"
     );
 
     assert_eq!(
@@ -251,7 +287,7 @@ fn sqlite_sqlgen_can_render_single_link_scalar_not_in_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id WHERE author.name NOT IN (?)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" WHERE \"author\".\"name\" NOT IN (?)"
     );
 
     assert_eq!(
@@ -277,7 +313,7 @@ fn sqlite_sqlgen_can_render_and_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE (root.title = ? AND root.title IS NULL)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"title\" = ? AND \"root\".\"title\" IS NULL)"
     );
 
     assert_eq!(
@@ -307,7 +343,7 @@ fn sqlite_sqlgen_can_render_or_filter_with_bind_order() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE (root.title = ? OR root.title = ?)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"title\" = ? OR \"root\".\"title\" = ?)"
     );
 
     assert_eq!(
@@ -335,7 +371,7 @@ fn sqlite_sqlgen_can_render_not_filter() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE NOT (root.title = ?)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE NOT (\"root\".\"title\" = ?)"
     );
 
     assert_eq!(
@@ -356,7 +392,22 @@ fn sqlite_sqlgen_can_render_order_by_root_scalar_field_desc() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root ORDER BY root.title DESC"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" ORDER BY \"root\".\"title\" DESC"
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_quotes_order_by_identifiers() {
+    let order_by = query_ir::OrderExpr::new(post_or_path_value(), query_ir::OrderDirection::Asc);
+
+    let ir = post_query_with_order_by(vec![order_by]);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" ORDER BY \"root\".\"or\" ASC"
     );
 }
 
@@ -372,7 +423,7 @@ fn sqlite_sqlgen_can_render_order_by_single_link_scalar_field() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id ORDER BY author.name ASC"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" ORDER BY \"author\".\"name\" ASC"
     );
 }
 
@@ -385,6 +436,6 @@ fn sqlite_sqlgen_can_render_limit_and_offset() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root LIMIT 10 OFFSET 20"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" LIMIT 10 OFFSET 20"
     );
 }

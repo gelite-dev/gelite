@@ -167,7 +167,7 @@ fn select_pipeline_renders_in_filter_from_query_text() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.title IN (?, ?) ORDER BY root.title ASC LIMIT 20"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" IN (?, ?) ORDER BY \"root\".\"title\" ASC LIMIT 20"
     );
     assert_eq!(
         statement.bind_values(),
@@ -186,7 +186,7 @@ fn select_pipeline_renders_not_in_filter_through_single_link_from_query_text() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root INNER JOIN user AS author ON root.author_id = author.id WHERE author.email NOT IN (?)"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" WHERE \"author\".\"email\" NOT IN (?)"
     );
     assert_eq!(
         statement.bind_values(),
@@ -200,7 +200,7 @@ fn select_pipeline_renders_comparison_filter_from_query_text() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT root.title FROM post AS root WHERE root.view_count >= ?"
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"view_count\" >= ?"
     );
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(10)]);
 }
