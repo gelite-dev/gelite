@@ -10,6 +10,14 @@ pub fn post_title_field() -> FieldRef {
     FieldRef::new(FieldId::new(2), post_type(), "title")
 }
 
+pub fn post_or_field() -> FieldRef {
+    FieldRef::new(FieldId::new(4), post_type(), "or")
+}
+
+pub fn post_quote_field() -> FieldRef {
+    FieldRef::new(FieldId::new(5), post_type(), "quote\"field")
+}
+
 pub fn post_title_path_value() -> query_ir::ValueExpr {
     query_ir::ValueExpr::Path(
         query_ir::ResolvedPath::try_new(
@@ -20,6 +28,32 @@ pub fn post_title_path_value() -> query_ir::ValueExpr {
             )],
         )
         .expect("post title path should be valid"),
+    )
+}
+
+pub fn post_or_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![query_ir::ResolvedPathStep::scalar(
+                post_or_field(),
+                schema_model::Cardinality::Required,
+            )],
+        )
+        .expect("post or path should be valid"),
+    )
+}
+
+pub fn post_quote_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![query_ir::ResolvedPathStep::scalar(
+                post_quote_field(),
+                schema_model::Cardinality::Required,
+            )],
+        )
+        .expect("post quote path should be valid"),
     )
 }
 
@@ -63,6 +97,15 @@ pub fn post_title_shape_field() -> query_ir::ResolvedShapeField {
     query_ir::ResolvedShapeField::new(
         "title",
         post_title_field(),
+        schema_model::Cardinality::Required,
+        None,
+    )
+}
+
+pub fn post_or_shape_field() -> query_ir::ResolvedShapeField {
+    query_ir::ResolvedShapeField::new(
+        "or",
+        post_or_field(),
         schema_model::Cardinality::Required,
         None,
     )

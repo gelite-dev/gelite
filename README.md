@@ -103,11 +103,11 @@ Gelite can parse the query, resolve the names against the schema catalog,
 produce Semantic IR, build a SQLite plan, and render SQL similar to:
 
 ```sql
-SELECT root.title, author.id, author.name
-FROM post AS root
-INNER JOIN user AS author ON root.author_id = author.id
-WHERE root.title = ?
-ORDER BY root.title DESC
+SELECT "root"."title", "author"."id", "author"."name"
+FROM "post" AS "root"
+INNER JOIN "user" AS "author" ON "root"."author_id" = "author"."id"
+WHERE "root"."title" = ?
+ORDER BY "root"."title" DESC
 LIMIT 10
 ```
 

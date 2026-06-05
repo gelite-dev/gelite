@@ -36,23 +36,23 @@ fn schema_plan_command_renders_initial_schema_from_source() {
     assert!(
         statements[0]
             .sql()
-            .starts_with("CREATE TABLE _engine_schema_versions")
+            .starts_with("CREATE TABLE \"_engine_schema_versions\"")
     );
     assert!(
         statements[1]
             .sql()
-            .starts_with("CREATE TABLE _engine_catalog_objects")
+            .starts_with("CREATE TABLE \"_engine_catalog_objects\"")
     );
     assert!(
         statements[2]
             .sql()
-            .starts_with("CREATE TABLE _engine_catalog_fields")
+            .starts_with("CREATE TABLE \"_engine_catalog_fields\"")
     );
-    assert!(statements[3].sql().starts_with("CREATE TABLE user"));
-    assert!(statements[4].sql().starts_with("CREATE TABLE post"));
+    assert!(statements[3].sql().starts_with("CREATE TABLE \"user\""));
+    assert!(statements[4].sql().starts_with("CREATE TABLE \"post\""));
     assert_eq!(
         statements[12].sql(),
-        "CREATE INDEX post__author_id_idx ON post (author_id)"
+        "CREATE INDEX \"post__author_id_idx\" ON \"post\" (\"author_id\")"
     );
 }
 
@@ -77,7 +77,7 @@ fn schema_plan_command_preserves_metadata_bind_values() {
 
     assert_eq!(
         post_object_insert.sql(),
-        "INSERT INTO _engine_catalog_objects (object_id, name) VALUES (?, ?)"
+        "INSERT INTO \"_engine_catalog_objects\" (\"object_id\", \"name\") VALUES (?, ?)"
     );
     assert_eq!(
         post_object_insert.values(),
@@ -112,14 +112,14 @@ fn schema_apply_command_executes_rendered_schema_statements() {
 
     assert_eq!(runner.calls.len(), 13);
     assert!(
-        runner.calls[0].starts_with("CREATE TABLE _engine_schema_versions"),
+        runner.calls[0].starts_with("CREATE TABLE \"_engine_schema_versions\""),
         "metadata table should be created first"
     );
     assert!(
         runner
             .calls
             .iter()
-            .any(|call| call.contains("INSERT INTO _engine_catalog_objects")),
+            .any(|call| call.contains("INSERT INTO \"_engine_catalog_objects\"")),
         "catalog object metadata should be inserted"
     );
 }
