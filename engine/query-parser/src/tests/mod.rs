@@ -54,6 +54,119 @@ fn lexer_can_tokenize_comparison_operators() {
 }
 
 #[test]
+fn lexer_can_tokenize_arithmetic_operators() {
+    let tokens = lex("filter .view_count + 10 - 2 * 3 / 4 % 5 >= 100")
+        .expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
+    assert_eq!(tokens[1].kind(), &TokenKind::Dot);
+    assert_eq!(
+        tokens[2].kind(),
+        &TokenKind::Ident("view_count".to_string())
+    );
+    assert_eq!(tokens[3].kind(), &TokenKind::Plus);
+    assert_eq!(tokens[4].kind(), &TokenKind::Int("10".to_string()));
+    assert_eq!(tokens[5].kind(), &TokenKind::Minus);
+    assert_eq!(tokens[6].kind(), &TokenKind::Int("2".to_string()));
+    assert_eq!(tokens[7].kind(), &TokenKind::Star);
+    assert_eq!(tokens[8].kind(), &TokenKind::Int("3".to_string()));
+    assert_eq!(tokens[9].kind(), &TokenKind::Slash);
+    assert_eq!(tokens[10].kind(), &TokenKind::Int("4".to_string()));
+    assert_eq!(tokens[11].kind(), &TokenKind::Percent);
+    assert_eq!(tokens[12].kind(), &TokenKind::Int("5".to_string()));
+    assert_eq!(tokens[13].kind(), &TokenKind::Ge);
+    assert_eq!(tokens[14].kind(), &TokenKind::Int("100".to_string()));
+}
+
+#[test]
+fn lexer_tracks_arithmetic_operator_spans() {
+    let tokens = lex("filter .x + 10 - 2 * 3 / 4 % 5").expect("query should lex");
+
+    let plus_span = tokens[3].span();
+    assert_eq!(plus_span.start().byte(), 10);
+    assert_eq!(plus_span.start().line(), 1);
+    assert_eq!(plus_span.start().column(), 11);
+    assert_eq!(plus_span.end().byte(), 11);
+    assert_eq!(plus_span.end().line(), 1);
+    assert_eq!(plus_span.end().column(), 12);
+
+    let minus_span = tokens[5].span();
+    assert_eq!(minus_span.start().byte(), 15);
+    assert_eq!(minus_span.start().line(), 1);
+    assert_eq!(minus_span.start().column(), 16);
+    assert_eq!(minus_span.end().byte(), 16);
+    assert_eq!(minus_span.end().line(), 1);
+    assert_eq!(minus_span.end().column(), 17);
+
+    let star_span = tokens[7].span();
+    assert_eq!(star_span.start().byte(), 19);
+    assert_eq!(star_span.start().line(), 1);
+    assert_eq!(star_span.start().column(), 20);
+    assert_eq!(star_span.end().byte(), 20);
+    assert_eq!(star_span.end().line(), 1);
+    assert_eq!(star_span.end().column(), 21);
+
+    let slash_span = tokens[9].span();
+    assert_eq!(slash_span.start().byte(), 23);
+    assert_eq!(slash_span.start().line(), 1);
+    assert_eq!(slash_span.start().column(), 24);
+    assert_eq!(slash_span.end().byte(), 24);
+    assert_eq!(slash_span.end().line(), 1);
+    assert_eq!(slash_span.end().column(), 25);
+
+    let percent_span = tokens[11].span();
+    assert_eq!(percent_span.start().byte(), 27);
+    assert_eq!(percent_span.start().line(), 1);
+    assert_eq!(percent_span.start().column(), 28);
+    assert_eq!(percent_span.end().byte(), 28);
+    assert_eq!(percent_span.end().line(), 1);
+    assert_eq!(percent_span.end().column(), 29);
+}
+
+#[test]
+fn lexer_can_tokenize_decimal_float_literals() {
+    let tokens = lex("filter .score / 2.5 >= 10.5").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
+    assert_eq!(tokens[1].kind(), &TokenKind::Dot);
+    assert_eq!(tokens[2].kind(), &TokenKind::Ident("score".to_string()));
+    assert_eq!(tokens[3].kind(), &TokenKind::Slash);
+    assert_eq!(tokens[4].kind(), &TokenKind::Float("2.5".to_string()));
+    assert_eq!(tokens[5].kind(), &TokenKind::Ge);
+    assert_eq!(tokens[6].kind(), &TokenKind::Float("10.5".to_string()));
+}
+
+#[test]
+fn lexer_keeps_path_dot_separate_from_decimal_float_dot() {
+    let tokens = lex("filter .score >= 0.5").expect("query should lex");
+
+    assert_eq!(tokens[1].kind(), &TokenKind::Dot);
+    assert_eq!(tokens[2].kind(), &TokenKind::Ident("score".to_string()));
+    assert_eq!(tokens[3].kind(), &TokenKind::Ge);
+    assert_eq!(tokens[4].kind(), &TokenKind::Float("0.5".to_string()));
+}
+
+#[test]
+fn lexer_rejects_float_literal_without_integer_part() {
+    let error = lex("filter .score >= .5").expect_err("query should fail");
+
+    assert_eq!(error.kind(), &LexErrorKind::UnexpectedChar('5'));
+    assert_eq!(error.position().byte(), 18);
+    assert_eq!(error.position().line(), 1);
+    assert_eq!(error.position().column(), 19);
+}
+
+#[test]
+fn lexer_rejects_float_literal_without_fractional_part() {
+    let error = lex("filter .score >= 5.").expect_err("query should fail");
+
+    assert_eq!(error.kind(), &LexErrorKind::UnexpectedChar('.'));
+    assert_eq!(error.position().byte(), 18);
+    assert_eq!(error.position().line(), 1);
+    assert_eq!(error.position().column(), 19);
+}
+
+#[test]
 fn lexer_can_tokenize_membership_list_brackets() {
     let tokens = lex("filter .status in [\"draft\", \"published\"]").expect("query should lex");
 
