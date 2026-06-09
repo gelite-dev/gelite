@@ -162,8 +162,26 @@ enum RawTokenKind {
     #[regex(r#""[^"]*"#)]
     UnterminatedString,
 
-    #[regex(r"[-+]?[0-9]+")]
+    #[regex(r"[0-9]+\.[0-9]+")]
+    Float,
+
+    #[regex(r"[0-9]+")]
     Int,
+
+    #[token("+")]
+    Plus,
+
+    #[token("-")]
+    Minus,
+
+    #[token("*")]
+    Star,
+
+    #[token("/")]
+    Slash,
+
+    #[token("%")]
+    Percent,
 
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Ident,
