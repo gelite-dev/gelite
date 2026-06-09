@@ -378,6 +378,18 @@ impl<'a> Parser<'a> {
 
         self.expect_keyword(Keyword::Limit)?;
 
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Minus)
+        {
+            return Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            ));
+        }
+
         match self.expect_literal()? {
             Literal::Int64(value) if value >= 0 => Ok(Some(value)),
             _ => Err(ParseError::new(
@@ -398,6 +410,18 @@ impl<'a> Parser<'a> {
         }
 
         self.expect_keyword(Keyword::Offset)?;
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Minus)
+        {
+            return Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            ));
+        }
+
         match self.expect_literal()? {
             Literal::Int64(value) if value >= 0 => Ok(Some(value)),
             _ => Err(ParseError::new(

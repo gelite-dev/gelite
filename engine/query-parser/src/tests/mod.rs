@@ -55,8 +55,7 @@ fn lexer_can_tokenize_comparison_operators() {
 
 #[test]
 fn lexer_can_tokenize_arithmetic_operators() {
-    let tokens = lex("filter .view_count + 10 - 2 * 3 / 4 % 5 >= 100")
-        .expect("query should lex");
+    let tokens = lex("filter .view_count + 10 - 2 * 3 / 4 % 5 >= 100").expect("query should lex");
 
     assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
     assert_eq!(tokens[1].kind(), &TokenKind::Dot);
