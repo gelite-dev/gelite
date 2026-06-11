@@ -296,5 +296,27 @@ impl CompareExpr {
     }
 }
 
+impl ArithmeticExpr {
+    pub fn new(left: Expr, op: ArithmeticOp, right: Expr) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        }
+    }
+
+    pub fn left(&self) -> &Expr {
+        &self.left
+    }
+
+    pub fn op(&self) -> ArithmeticOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &Expr {
+        &self.right
+    }
+}
+
 #[cfg(test)]
 mod tests;

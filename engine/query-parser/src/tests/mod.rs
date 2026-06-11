@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::string::ToString;
 use fixtures::{assert_literal_expr, assert_path_expr};
-use query_ast::{CompareOp, Expr, InOp, Literal, OrderDirection};
+use query_ast::{ArithmeticOp, CompareOp, Expr, InOp, Literal, OrderDirection};
 
 #[test]
 fn lexer_can_tokenize_select_shape() {
@@ -516,6 +516,313 @@ fn parser_can_parse_filter_compare_path_equals_integer_literal() {
             assert_literal_expr(compare.right(), &Literal::Int64(42));
         }
         _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_filter_arithmetic_addition() {
+    let query = parse_select("select Post { title } filter .view_count + 10 >= 100")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["view_count"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Int64(100));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_multiplicative_precedence() {
+    let query = parse_select("select Post { title } filter .likes + .view_count * 10 >= 100")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["likes"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+
+                    match arithmetic.right() {
+                        Expr::Arithmetic(arithmetic) => {
+                            assert_path_expr(arithmetic.left(), &["view_count"]);
+                            assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
+                            assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                        }
+                        other => {
+                            panic!("right side should be arithmetic expression, got {other:?}")
+                        }
+                    }
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Int64(100));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_parenthesized_arithmetic_grouping() {
+    let query = parse_select("select Post { title } filter (.likes + .view_count) * 10 >= 100")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    match arithmetic.left() {
+                        Expr::Arithmetic(arithmetic) => {
+                            assert_path_expr(arithmetic.left(), &["likes"]);
+                            assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                            assert_path_expr(arithmetic.right(), &["view_count"]);
+                        }
+                        other => {
+                            panic!("left side should be arithmetic expression, got {other:?}")
+                        }
+                    }
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Int64(100));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_arithmetic_as_left_associative() {
+    let query = parse_select("select Post { title } filter .view_count - 10 - 5 >= 0")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    match arithmetic.left() {
+                        Expr::Arithmetic(arithmetic) => {
+                            assert_path_expr(arithmetic.left(), &["view_count"]);
+                            assert_eq!(arithmetic.op(), ArithmeticOp::Sub);
+                            assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                        }
+                        other => {
+                            panic!("right side should be arithmetic expression, got {other:?}")
+                        }
+                    }
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Sub);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(5));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Int64(0));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_division_and_modulo_as_left_associative() {
+    let query = parse_select("select Post { title } filter .view_count / 2 % 3 = 1")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    match arithmetic.left() {
+                        Expr::Arithmetic(arithmetic) => {
+                            assert_path_expr(arithmetic.left(), &["view_count"]);
+                            assert_eq!(arithmetic.op(), ArithmeticOp::Div);
+                            assert_literal_expr(arithmetic.right(), &Literal::Int64(2));
+                        }
+                        other => {
+                            panic!("right side should be arithmetic expression, got {other:?}")
+                        }
+                    }
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Mod);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(3));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_literal_expr(compare.right(), &Literal::Int64(1));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_arithmetic_on_comparison_right_side() {
+    let query = parse_select("select Post { title } filter 100 <= .view_count + 10")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_literal_expr(compare.left(), &Literal::Int64(100));
+            assert_eq!(compare.op(), CompareOp::Le);
+            match compare.right() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["view_count"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                }
+                other => panic!("right side should be arithmetic expression, got {other:?}"),
+            }
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_arithmetic_in_membership_left_side() {
+    let query = parse_select("select Post { title } filter .view_count % 10 in [0, 5]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            match in_expr.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["view_count"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Mod);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+            assert_eq!(in_expr.op(), InOp::In);
+            assert_literal_expr(&in_expr.right()[0], &Literal::Int64(0));
+            assert_literal_expr(&in_expr.right()[1], &Literal::Int64(5));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_arithmetic_in_membership_rhs_for_resolver() {
+    let query = parse_select("select Post { title } filter .view_count in [1 + 1]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["view_count"]);
+            assert_eq!(in_expr.op(), InOp::In);
+            match &in_expr.right()[0] {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_literal_expr(arithmetic.left(), &Literal::Int64(1));
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
+                }
+                other => panic!("right side should be arithmetic expression, got {other:?}"),
+            }
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_boolean_precedence_with_arithmetic() {
+    let query = parse_select(
+        "select Post { title } filter .views + 1 >= 10 and .likes * 2 >= 20 or not .archived = true",
+    )
+    .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Or(left, right) => {
+            match left.as_ref() {
+                Expr::And(left, right) => {
+                    match left.as_ref() {
+                        Expr::Compare(compare) => {
+                            match compare.left() {
+                                Expr::Arithmetic(arithmetic) => {
+                                    assert_path_expr(arithmetic.left(), &["views"]);
+                                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                                    assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
+                                }
+                                other => {
+                                    panic!(
+                                        "left side should be arithmetic expression, got {other:?}"
+                                    )
+                                }
+                            }
+
+                            assert_eq!(compare.op(), CompareOp::Ge);
+                            assert_literal_expr(compare.right(), &Literal::Int64(10));
+                        }
+                        other => panic!("left side should be compare expression, got {other:?}"),
+                    }
+
+                    match right.as_ref() {
+                        Expr::Compare(compare) => {
+                            match compare.left() {
+                                Expr::Arithmetic(arithmetic) => {
+                                    assert_path_expr(arithmetic.left(), &["likes"]);
+                                    assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
+                                    assert_literal_expr(arithmetic.right(), &Literal::Int64(2));
+                                }
+                                other => {
+                                    panic!(
+                                        "left side should be arithmetic expression, got {other:?}"
+                                    )
+                                }
+                            }
+
+                            assert_eq!(compare.op(), CompareOp::Ge);
+                            assert_literal_expr(compare.right(), &Literal::Int64(20));
+                        }
+                        other => panic!("right side should be compare expression, got {other:?}"),
+                    }
+                }
+                other => panic!("left side should be and expression, got {other:?}"),
+            }
+
+            match right.as_ref() {
+                Expr::Not(inner) => match inner.as_ref() {
+                    Expr::Compare(compare) => {
+                        assert_path_expr(compare.left(), &["archived"]);
+                        assert_eq!(compare.op(), CompareOp::Eq);
+                        assert_literal_expr(compare.right(), &Literal::Bool(true));
+                    }
+                    other => panic!("not operand should be compare expression, got {other:?}"),
+                },
+                other => panic!("right side should be not expression, got {other:?}"),
+            }
+        }
+        other => panic!("filter should be or expression, got {other:?}"),
     }
 }
 
