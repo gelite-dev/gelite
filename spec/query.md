@@ -100,8 +100,8 @@ Supported filter expressions:
 - literal values
 - arithmetic value expressions
 - comparisons
-- literal-list `in`
-- literal-list `not in`
+- bracketed-list `in`
+- bracketed-list `not in`
 - `and`
 - `or`
 - `not`
@@ -140,7 +140,7 @@ select Post {
 filter (.title = "Hello" or .title = "Draft") and not .archived = true
 ```
 
-Literal-list membership checks use bracketed literal values:
+Membership checks use bracketed value expressions:
 
 ```text
 select Post {
@@ -148,6 +148,12 @@ select Post {
   title
 }
 filter .status not in ["archived", "deleted"]
+```
+
+The right-hand list may contain row-independent scalar value expressions:
+
+```text
+filter .view_count in [1 + 1, 2 * 3]
 ```
 
 `null` comparisons are supported only with equality operators. `= null` and
@@ -229,17 +235,20 @@ expr_list         := expr ("," expr)*
 subquery_expr     := "(" select_stmt ")"
 ```
 
-Only path, literal, arithmetic, comparison, literal-list `in`, literal-list
-`not in`, boolean, and parenthesized expressions are accepted by the resolver
-in the arithmetic filter milestone. `function_call` and `subquery_expr` are
-reserved syntax positions. The parser may produce AST nodes for them before
-the resolver accepts specific forms.
+Only path, literal, arithmetic, comparison, bracketed-list `in`,
+bracketed-list `not in`, boolean, and parenthesized expressions are accepted by
+the resolver in the arithmetic filter milestone. `function_call` and
+`subquery_expr` are reserved syntax positions. The parser may produce AST nodes
+for them before the resolver accepts specific forms.
 
 The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
 accept `null` as a list item because it is a literal expression, but the
 resolver must reject `in []`, `not in []`, `null` list items, and list items
-that are not literals. Use an explicit null comparison when a filter should
-match null and non-null values together:
+that are not scalar value expressions. List items must be row-independent in
+this milestone: literals and arithmetic expressions over literals are accepted,
+but paths, link traversals, subqueries, and boolean predicates inside the list
+are rejected before SQLite planning. Use an explicit null comparison when a
+filter should match null and non-null values together:
 
 ```text
 filter .deleted_at = null or .deleted_at in ["2323"]
@@ -266,7 +275,8 @@ The MVP supports:
 - traversal through declared single relation fields
 - scalar comparisons against literals
 - numeric arithmetic expressions used as comparison or membership operands
-- scalar membership checks against non-empty lists of non-null literals
+- scalar membership checks against non-empty lists of non-null scalar value
+  expressions
 - boolean composition
 - parenthesized grouping
 

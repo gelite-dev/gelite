@@ -375,16 +375,23 @@ Minimum fields:
 
 - left expression
 - membership operator: `in` or `not in`
-- list of right-hand literal values
+- list of right-hand value expressions
 
 Supported right-hand side:
 
-- a non-empty list of non-null scalar literals
+- a non-empty list of non-null scalar value expressions
 
 Membership expressions must resolve to a boolean result. The resolver is
 responsible for rejecting empty lists, subquery RHS forms, incompatible operand
-types, `null` list items, non-literal list items, and non-scalar list items
-before the expression reaches SQLite planning.
+types, `null` list items, and non-scalar list items before the expression
+reaches SQLite planning.
+
+Right-hand list items must be row-independent in the arithmetic filter
+milestone. Literals and arithmetic expressions over literals are accepted.
+Path expressions, link traversals, subqueries, boolean predicates, and any
+expression that depends on the current row are rejected. This keeps membership
+planning as a single-row predicate and avoids introducing correlated expression
+semantics before subqueries and computed projections are defined.
 
 The Semantic IR should model `not in` explicitly instead of rewriting it to a
 boolean `not` around `in`. Keeping the operator in the membership node lets

@@ -195,7 +195,7 @@ The SQLite planner needs a backend-specific predicate tree.
 Minimum supported forms:
 
 - value expression compared to value expression
-- value expression `in` or `not in` a literal list
+- value expression `in` or `not in` a value expression list
 - `is null`
 - `is not null`
 - boolean `and`
@@ -219,6 +219,11 @@ Minimum supported forms for the arithmetic filter milestone:
 - column reference
 - literal
 - arithmetic expression
+
+Membership list items use the same value expression structure. The SQLite
+planner receives only resolver-accepted list items, so list items are non-null
+scalar expressions that do not depend on the current row in this milestone.
+The planner should preserve their tree shape and bind order for SQL generation.
 
 ### `SQLiteArithmeticExpr`
 
