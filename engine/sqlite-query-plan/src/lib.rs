@@ -422,6 +422,50 @@ impl SQLiteCompareExpr {
 pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
+    Arithmetic(SQLiteArithmeticExpr),
+}
+
+/// Backend-specific arithmetic value expression.
+pub struct SQLiteArithmeticExpr {
+    left: Box<SQLiteValueExpr>,
+    op: SQLiteArithmeticOp,
+    right: Box<SQLiteValueExpr>,
+}
+
+impl SQLiteArithmeticExpr {
+    pub fn left(&self) -> &SQLiteValueExpr {
+        &self.left
+    }
+
+    pub fn op(&self) -> SQLiteArithmeticOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &SQLiteValueExpr {
+        &self.right
+    }
+}
+
+/// SQLite arithmetic operators emitted by the planner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+impl SQLiteArithmeticOp {
+    pub fn from_ir(op: query_ir::ArithmeticOp) -> Self {
+        match op {
+            query_ir::ArithmeticOp::Add => Self::Add,
+            query_ir::ArithmeticOp::Sub => Self::Sub,
+            query_ir::ArithmeticOp::Mul => Self::Mul,
+            query_ir::ArithmeticOp::Div => Self::Div,
+            query_ir::ArithmeticOp::Mod => Self::Mod,
+        }
+    }
 }
 
 /// Backend-specific membership expression.
@@ -571,6 +615,22 @@ fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
             value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Null)),
             joins: vec![],
         },
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            let left = plan_value_expr(arithmetic.left());
+            let right = plan_value_expr(arithmetic.right());
+
+            let mut joins = left.joins;
+            joins.extend(right.joins);
+
+            PlannedValueExpr {
+                value: SQLiteValueExpr::Arithmetic(SQLiteArithmeticExpr {
+                    left: Box::new(left.value),
+                    op: SQLiteArithmeticOp::from_ir(arithmetic.op()),
+                    right: Box::new(right.value),
+                }),
+                joins,
+            }
+        }
     }
 }
 
