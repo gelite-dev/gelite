@@ -1,6 +1,9 @@
 use alloc::string::String;
 use alloc::vec;
-use query_ast::{CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path, PathStep};
+use query_ast::{
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path,
+    PathStep,
+};
 use schema_model::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
 pub fn post_only_catalog() -> SchemaCatalog {
@@ -110,6 +113,10 @@ pub fn literal_bool_expr(value: bool) -> Expr {
 
 pub fn literal_null_expr() -> Expr {
     Expr::Literal(Literal::Null)
+}
+
+pub fn arithmetic_expr(left: Expr, op: ArithmeticOp, right: Expr) -> Expr {
+    Expr::Arithmetic(ArithmeticExpr::new(left, op, right))
 }
 
 pub fn filter_eq_string(path: &[&str], value: &str) -> Expr {
