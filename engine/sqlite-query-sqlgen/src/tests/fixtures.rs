@@ -93,6 +93,43 @@ pub fn post_author_field() -> FieldRef {
     FieldRef::new(FieldId::new(3), post_type(), "author")
 }
 
+pub fn post_view_count_field() -> FieldRef {
+    FieldRef::new(FieldId::new(6), post_type(), "view_count")
+}
+
+pub fn post_view_count_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![query_ir::ResolvedPathStep::scalar(
+                post_view_count_field(),
+                schema_model::Cardinality::Required,
+            )],
+        )
+        .expect("post view_count path should be valid"),
+    )
+}
+
+pub fn post_author_score_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![
+                query_ir::ResolvedPathStep::link(
+                    post_author_field(),
+                    user_type(),
+                    schema_model::Cardinality::Required,
+                ),
+                query_ir::ResolvedPathStep::scalar(
+                    user_score_field(),
+                    schema_model::Cardinality::Required,
+                ),
+            ],
+        )
+        .expect("post author score path should be valid"),
+    )
+}
+
 pub fn post_title_shape_field() -> query_ir::ResolvedShapeField {
     query_ir::ResolvedShapeField::new(
         "title",
@@ -127,6 +164,10 @@ pub fn user_name_shape_field() -> query_ir::ResolvedShapeField {
         schema_model::Cardinality::Required,
         None,
     )
+}
+
+pub fn user_score_field() -> FieldRef {
+    FieldRef::new(FieldId::new(3), user_type(), "score")
 }
 
 pub fn post_author_shape_field() -> query_ir::ResolvedShapeField {
