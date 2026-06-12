@@ -605,6 +605,12 @@ fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
             ))),
             joins: vec![],
         },
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => PlannedValueExpr {
+            value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Float64(
+                *value,
+            ))),
+            joins: vec![],
+        },
         query_ir::ValueExpr::Literal(query_ir::Literal::Bool(value)) => PlannedValueExpr {
             value: SQLiteValueExpr::Literal(sqlite_literal_from_ir(&query_ir::Literal::Bool(
                 *value,
@@ -638,6 +644,7 @@ fn sqlite_literal_from_ir(literal: &query_ir::Literal) -> SQLiteLiteral {
     match literal {
         query_ir::Literal::String(value) => SQLiteLiteral::String(value.clone()),
         query_ir::Literal::Int64(value) => SQLiteLiteral::Int64(*value),
+        query_ir::Literal::Float64(value) => SQLiteLiteral::Float64(*value),
         query_ir::Literal::Bool(value) => SQLiteLiteral::Bool(*value),
         query_ir::Literal::Null => SQLiteLiteral::Null,
     }
@@ -753,10 +760,11 @@ fn plan_order_expr(order: &query_ir::OrderExpr) -> PlannedOrder {
 }
 
 /// Literal values supported by SQLite SQL generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SQLiteLiteral {
     String(String),
     Int64(i64),
+    Float64(f64),
     Bool(bool),
     Null,
 }

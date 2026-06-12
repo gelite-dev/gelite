@@ -6,11 +6,11 @@ use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
     arithmetic_expr, filter_compare_int, filter_eq_bool, filter_eq_int, filter_eq_null,
-    filter_eq_string, filter_in_bools, filter_in_empty, filter_in_ints, filter_in_null,
-    filter_in_path_item, filter_in_strings, filter_lt_null, filter_ne_null, filter_not_in_strings,
-    filter_null_eq, filter_null_ne, literal_int_expr, literal_string_expr, path_expr,
-    post_only_catalog, post_with_author_catalog, post_with_optional_subtitle_catalog,
-    post_with_scalar_fields_catalog, post_with_title_catalog,
+    filter_eq_string, filter_in_bools, filter_in_empty, filter_in_floats, filter_in_ints,
+    filter_in_null, filter_in_path_item, filter_in_strings, filter_lt_null, filter_ne_null,
+    filter_not_in_strings, filter_null_eq, filter_null_ne, literal_float_expr, literal_int_expr,
+    literal_string_expr, path_expr, post_only_catalog, post_with_author_catalog,
+    post_with_optional_subtitle_catalog, post_with_scalar_fields_catalog, post_with_title_catalog,
 };
 use query_ast::{ArithmeticExpr, CompareExpr, Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
 
@@ -410,6 +410,53 @@ fn resolves_filter_compare_numeric_arithmetic_expr() {
 }
 
 #[test]
+fn resolves_filter_compare_float_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        arithmetic_expr(
+            path_expr(&["rating"]),
+            query_ast::ArithmeticOp::Div,
+            literal_float_expr(2.5),
+        ),
+        query_ast::CompareOp::Ge,
+        literal_float_expr(10.5),
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("rating")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    let query_ir::ValueExpr::Arithmetic(arithmetic) = compare.left() else {
+        panic!("comparison left side should resolve to an arithmetic value expression");
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Div);
+    assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Float64);
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Float64(2.5))
+    );
+    assert_eq!(
+        compare.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Float64(10.5))
+    );
+}
+
+#[test]
 fn rejects_arithmetic_expr_as_filter_root() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -433,6 +480,80 @@ fn rejects_arithmetic_expr_as_filter_root() {
 
     let _resolved =
         resolve_select(&catalog, &query).expect_err("filter root should be boolean expression");
+}
+
+#[test]
+fn rejects_mixed_numeric_arithmetic_operands() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        arithmetic_expr(
+            path_expr(&["view_count"]),
+            query_ast::ArithmeticOp::Add,
+            path_expr(&["rating"]),
+        ),
+        query_ast::CompareOp::Gt,
+        literal_int_expr(10),
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "int64".to_string(),
+            actual: "float64".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_float_modulo_arithmetic_operands() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        arithmetic_expr(
+            path_expr(&["rating"]),
+            query_ast::ArithmeticOp::Mod,
+            literal_float_expr(2.5),
+        ),
+        query_ast::CompareOp::Eq,
+        literal_float_expr(1.0),
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("rating")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "int64".to_string(),
+            actual: "float64".to_string()
+        })
+    );
 }
 
 #[test]
@@ -1003,6 +1124,72 @@ fn resolves_filter_in_int_literal_list_to_in_expr() {
         in_expr.right(),
         &[query_ir::Literal::Int64(1), query_ir::Literal::Int64(2)]
     );
+}
+
+#[test]
+fn resolves_filter_in_float_literal_list_to_in_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = filter_in_floats(&["rating"], &[1.5, 2.5]);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("rating")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    assert_eq!(
+        in_expr.right(),
+        &[
+            query_ir::Literal::Float64(1.5),
+            query_ir::Literal::Float64(2.5)
+        ]
+    );
+}
+
+#[test]
+fn resolves_filter_in_arithmetic_literal_item_to_folded_literal() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::In(query_ast::InExpr::new(
+        path_expr(&["view_count"]),
+        query_ast::InOp::In,
+        vec![arithmetic_expr(
+            literal_int_expr(1),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    assert_eq!(in_expr.right(), &[query_ir::Literal::Int64(2)]);
 }
 
 #[test]

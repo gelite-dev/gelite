@@ -199,6 +199,11 @@ impl NativeSQLiteRunner {
                         .bind_int64(parameter_index, *value)
                         .map_err(|error| self.result_error("bind int64 value", error))?;
                 }
+                sqlite_query_sqlgen::SQLiteBindValue::Float64(value) => {
+                    prepared
+                        .bind_double(parameter_index, *value)
+                        .map_err(|error| self.result_error("bind float64 value", error))?;
+                }
                 sqlite_query_sqlgen::SQLiteBindValue::Bool(value) => {
                     prepared
                         .bind_int64(parameter_index, i64::from(*value))

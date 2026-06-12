@@ -13,12 +13,11 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use query_ast::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct TypedValueExpr {
     value: query_ir::ValueExpr,
     source: ValueSource,
@@ -31,7 +30,7 @@ enum ValueSource {
     Computed(schema_model::ScalarType),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct TypedLiteral {
     value: query_ir::Literal,
     scalar_type: schema_model::ScalarType,
@@ -352,10 +351,8 @@ fn resolve_typed_arithmetic_expr(
     let left = resolve_typed_value_expr(catalog, source_object_type, arithmetic.left())?;
     let right = resolve_typed_value_expr(catalog, source_object_type, arithmetic.right())?;
 
-    ensure_numeric_arithmetic_operand(&left.source)?;
-    ensure_numeric_arithmetic_operand(&right.source)?;
-
-    let scalar_type = arithmetic_result_scalar_type(&left.source, &right.source);
+    let scalar_type =
+        ensure_compatible_arithmetic_operands(arithmetic.op(), &left.source, &right.source)?;
 
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
@@ -468,6 +465,10 @@ fn resolve_typed_literal_expr(
             value: query_ir::ValueExpr::Literal(query_ir::Literal::Int64(*value)),
             source: ValueSource::Literal(schema_model::ScalarType::Int64),
         }),
+        query_ast::Literal::Float64(value) => Ok(TypedValueExpr {
+            value: query_ir::ValueExpr::Literal(query_ir::Literal::Float64(*value)),
+            source: ValueSource::Literal(schema_model::ScalarType::Float64),
+        }),
         query_ast::Literal::Bool(value) => Ok(TypedValueExpr {
             value: query_ir::ValueExpr::Literal(query_ir::Literal::Bool(*value)),
             source: ValueSource::Literal(schema_model::ScalarType::Bool),
@@ -475,9 +476,6 @@ fn resolve_typed_literal_expr(
         query_ast::Literal::Null => Ok(TypedValueExpr {
             value: query_ir::ValueExpr::Literal(query_ir::Literal::Null),
             source: ValueSource::Literal(schema_model::ScalarType::Str),
-        }),
-        _ => Err(ResolveError::UnsupportedLiteral {
-            literal: format!("{literal:?}"),
         }),
     }
 }
@@ -491,16 +489,25 @@ fn resolve_membership_literals(
         });
     }
 
-    exprs.iter().map(resolve_membership_literal).collect()
+    exprs.iter().map(resolve_membership_item).collect()
 }
 
-fn resolve_membership_literal(expr: &query_ast::Expr) -> Result<TypedLiteral, ResolveError> {
-    let query_ast::Expr::Literal(literal) = expr else {
-        return Err(ResolveError::UnsupportedExpr {
+fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedLiteral, ResolveError> {
+    match expr {
+        query_ast::Expr::Literal(literal) => resolve_membership_literal(literal),
+        query_ast::Expr::Arithmetic(arithmetic) => resolve_membership_arithmetic(arithmetic),
+        query_ast::Expr::Path(_)
+        | query_ast::Expr::Compare(_)
+        | query_ast::Expr::And(_, _)
+        | query_ast::Expr::Or(_, _)
+        | query_ast::Expr::Not(_)
+        | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "membership list item".to_string(),
-        });
-    };
+        }),
+    }
+}
 
+fn resolve_membership_literal(literal: &query_ast::Literal) -> Result<TypedLiteral, ResolveError> {
     match literal {
         query_ast::Literal::String(value) => Ok(TypedLiteral {
             value: query_ir::Literal::String(value.clone()),
@@ -510,6 +517,10 @@ fn resolve_membership_literal(expr: &query_ast::Expr) -> Result<TypedLiteral, Re
             value: query_ir::Literal::Int64(*value),
             scalar_type: schema_model::ScalarType::Int64,
         }),
+        query_ast::Literal::Float64(value) => Ok(TypedLiteral {
+            value: query_ir::Literal::Float64(*value),
+            scalar_type: schema_model::ScalarType::Float64,
+        }),
         query_ast::Literal::Bool(value) => Ok(TypedLiteral {
             value: query_ir::Literal::Bool(*value),
             scalar_type: schema_model::ScalarType::Bool,
@@ -517,9 +528,70 @@ fn resolve_membership_literal(expr: &query_ast::Expr) -> Result<TypedLiteral, Re
         query_ast::Literal::Null => Err(ResolveError::UnsupportedExpr {
             expr_type: "null membership item".to_string(),
         }),
-        _ => Err(ResolveError::UnsupportedLiteral {
-            literal: format!("{literal:?}"),
+    }
+}
+
+fn resolve_membership_arithmetic(
+    arithmetic: &query_ast::ArithmeticExpr,
+) -> Result<TypedLiteral, ResolveError> {
+    let left = resolve_membership_item(arithmetic.left())?;
+    let right = resolve_membership_item(arithmetic.right())?;
+
+    let scalar_type = ensure_compatible_arithmetic_operand_types(
+        arithmetic.op(),
+        left.scalar_type,
+        right.scalar_type,
+    )?;
+
+    let value = match (left.value, right.value) {
+        (query_ir::Literal::Int64(left), query_ir::Literal::Int64(right)) => {
+            query_ir::Literal::Int64(evaluate_int64_arithmetic(left, arithmetic.op(), right)?)
+        }
+        (query_ir::Literal::Float64(left), query_ir::Literal::Float64(right)) => {
+            query_ir::Literal::Float64(evaluate_float64_arithmetic(left, arithmetic.op(), right)?)
+        }
+        _ => {
+            return Err(type_mismatch_error(left.scalar_type, right.scalar_type));
+        }
+    };
+
+    Ok(TypedLiteral { value, scalar_type })
+}
+
+fn evaluate_int64_arithmetic(
+    left: i64,
+    op: query_ast::ArithmeticOp,
+    right: i64,
+) -> Result<i64, ResolveError> {
+    match op {
+        query_ast::ArithmeticOp::Add => Ok(left + right),
+        query_ast::ArithmeticOp::Sub => Ok(left - right),
+        query_ast::ArithmeticOp::Mul => Ok(left * right),
+        query_ast::ArithmeticOp::Div if right == 0 => Err(ResolveError::UnsupportedExpr {
+            expr_type: "division by zero membership item".to_string(),
         }),
+        query_ast::ArithmeticOp::Div => Ok(left / right),
+        query_ast::ArithmeticOp::Mod if right == 0 => Err(ResolveError::UnsupportedExpr {
+            expr_type: "division by zero membership item".to_string(),
+        }),
+        query_ast::ArithmeticOp::Mod => Ok(left % right),
+    }
+}
+
+fn evaluate_float64_arithmetic(
+    left: f64,
+    op: query_ast::ArithmeticOp,
+    right: f64,
+) -> Result<f64, ResolveError> {
+    match op {
+        query_ast::ArithmeticOp::Add => Ok(left + right),
+        query_ast::ArithmeticOp::Sub => Ok(left - right),
+        query_ast::ArithmeticOp::Mul => Ok(left * right),
+        query_ast::ArithmeticOp::Div => Ok(left / right),
+        query_ast::ArithmeticOp::Mod => Err(type_mismatch_error(
+            schema_model::ScalarType::Int64,
+            schema_model::ScalarType::Float64,
+        )),
     }
 }
 
@@ -550,9 +622,39 @@ fn ensure_compatible_membership_item(
     Err(type_mismatch_error(source_scalar_type(*left), item_type))
 }
 
-fn ensure_numeric_arithmetic_operand(source: &ValueSource) -> Result<(), ResolveError> {
-    let scalar_type = source_scalar_type(*source);
+fn ensure_compatible_arithmetic_operands(
+    op: query_ast::ArithmeticOp,
+    left: &ValueSource,
+    right: &ValueSource,
+) -> Result<schema_model::ScalarType, ResolveError> {
+    let left = source_scalar_type(*left);
+    let right = source_scalar_type(*right);
 
+    ensure_compatible_arithmetic_operand_types(op, left, right)
+}
+
+fn ensure_compatible_arithmetic_operand_types(
+    op: query_ast::ArithmeticOp,
+    left: schema_model::ScalarType,
+    right: schema_model::ScalarType,
+) -> Result<schema_model::ScalarType, ResolveError> {
+    ensure_numeric_arithmetic_operand(left)?;
+    ensure_numeric_arithmetic_operand(right)?;
+
+    if left != right {
+        return Err(type_mismatch_error(left, right));
+    }
+
+    if matches!(op, query_ast::ArithmeticOp::Mod) && left != schema_model::ScalarType::Int64 {
+        return Err(type_mismatch_error(schema_model::ScalarType::Int64, left));
+    }
+
+    Ok(left)
+}
+
+fn ensure_numeric_arithmetic_operand(
+    scalar_type: schema_model::ScalarType,
+) -> Result<(), ResolveError> {
     if scalar_type_is_numeric(scalar_type) {
         return Ok(());
     }
@@ -560,20 +662,6 @@ fn ensure_numeric_arithmetic_operand(source: &ValueSource) -> Result<(), Resolve
     Err(ResolveError::NonNumericArithmeticOperand {
         actual: scalar_type_name(scalar_type).to_string(),
     })
-}
-
-fn arithmetic_result_scalar_type(
-    left: &ValueSource,
-    right: &ValueSource,
-) -> schema_model::ScalarType {
-    let left = source_scalar_type(*left);
-    let right = source_scalar_type(*right);
-
-    if left == schema_model::ScalarType::Float64 || right == schema_model::ScalarType::Float64 {
-        schema_model::ScalarType::Float64
-    } else {
-        schema_model::ScalarType::Int64
-    }
 }
 
 fn value_sources_are_compatible(left: ValueSource, right: ValueSource) -> bool {

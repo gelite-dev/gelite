@@ -219,6 +219,39 @@ fn sqlite_sqlgen_can_render_arithmetic_filter_compared_to_int_literal() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_arithmetic_filter_compared_to_float_literal() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Div,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(2.5)),
+        schema_model::ScalarType::Float64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        arithmetic,
+        query_ir::CompareOp::Ge,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(10.5)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"view_count\" / ?) >= ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::Float64(2.5),
+            SQLiteBindValue::Float64(10.5)
+        ]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_arithmetic_filter_with_joined_operand() {
     let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
         post_author_score_path_value(),

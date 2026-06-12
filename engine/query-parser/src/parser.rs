@@ -55,6 +55,7 @@ pub enum ParseErrorKind {
     UnexpectedToken { expected: &'static str },
     UnexpectedValue { expected: &'static str },
     InvalidIntegerLiteral,
+    InvalidFloatLiteral,
     Unsupported,
 }
 
@@ -360,6 +361,7 @@ impl<'a> Parser<'a> {
             Some(token) => match token.kind() {
                 TokenKind::Ident(_) => Ok(Expr::Path(self.parse_path(false)?)),
                 TokenKind::Int(_)
+                | TokenKind::Float(_)
                 | TokenKind::String(_)
                 | TokenKind::Keyword(Keyword::True)
                 | TokenKind::Keyword(Keyword::False)
@@ -695,6 +697,13 @@ impl<'a> Parser<'a> {
                     })?;
                     self.advance();
                     Ok(query_ast::Literal::Int64(parsed))
+                }
+                TokenKind::Float(value) => {
+                    let parsed = value.parse::<f64>().map_err(|_| {
+                        ParseError::new(ParseErrorKind::InvalidFloatLiteral, Some(token.span()))
+                    })?;
+                    self.advance();
+                    Ok(query_ast::Literal::Float64(parsed))
                 }
                 TokenKind::String(value) => {
                     let value = value.clone();

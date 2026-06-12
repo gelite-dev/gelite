@@ -210,6 +210,9 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
         SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => {
             render_literal(&SQLiteLiteral::Int64(*value), bind_values)
         }
+        SQLiteValueExpr::Literal(SQLiteLiteral::Float64(value)) => {
+            render_literal(&SQLiteLiteral::Float64(*value), bind_values)
+        }
         SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value)) => {
             render_literal(&SQLiteLiteral::Bool(*value), bind_values)
         }
@@ -230,6 +233,7 @@ fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue
     match literal {
         SQLiteLiteral::String(value) => bind_values.push(SQLiteBindValue::String(value.clone())),
         SQLiteLiteral::Int64(value) => bind_values.push(SQLiteBindValue::Int64(*value)),
+        SQLiteLiteral::Float64(value) => bind_values.push(SQLiteBindValue::Float64(*value)),
         SQLiteLiteral::Bool(value) => bind_values.push(SQLiteBindValue::Bool(*value)),
         SQLiteLiteral::Null => bind_values.push(SQLiteBindValue::Null),
     }
@@ -307,10 +311,11 @@ impl SQLiteSelectStatement {
 }
 
 /// Bind value produced while rendering SQL placeholders.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SQLiteBindValue {
     String(String),
     Int64(i64),
+    Float64(f64),
     Bool(bool),
     Null,
 }

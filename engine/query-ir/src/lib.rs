@@ -25,7 +25,7 @@ use schema_model::{Cardinality, FieldRef, ObjectTypeRef, ScalarType};
 ///
 /// The root object type, output shape, filter, and order expressions have all
 /// been checked against the schema catalog before this value is constructed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
     root_object_type: ObjectTypeRef,
     shape: ResolvedShape,
@@ -267,7 +267,7 @@ pub enum ResolvedPathStepKind {
 /// `null`. Keeping them as separate nodes lets SQL generation render
 /// `IS NULL` and `IS NOT NULL` instead of binding `null` with a comparison
 /// operator.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
@@ -279,7 +279,7 @@ pub enum Expr {
 }
 
 /// Resolved comparison expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompareExpr {
     left: ValueExpr,
     op: CompareOp,
@@ -316,7 +316,7 @@ pub enum CompareOp {
 }
 
 /// Resolved membership expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InExpr {
     left: ValueExpr,
     op: InOp,
@@ -349,7 +349,7 @@ pub enum InOp {
 }
 
 /// Resolved ordering expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderExpr {
     value: ValueExpr,
     direction: OrderDirection,
@@ -377,7 +377,7 @@ pub enum OrderDirection {
 }
 
 /// Scalar value expression used in filters and ordering.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValueExpr {
     Path(ResolvedPath),
     Literal(Literal),
@@ -389,7 +389,7 @@ pub enum ValueExpr {
 /// Arithmetic expressions are scalar value expressions, not boolean filter
 /// expressions. The resolver stores the result scalar type after checking both
 /// operands so later planning stages do not need to repeat type inference.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ArithmeticExpr {
     left: Box<ValueExpr>,
     op: ArithmeticOp,
@@ -441,11 +441,11 @@ pub enum ArithmeticOp {
 
 /// Literal values represented by the current IR.
 ///
-/// The query AST accepts floats, but the resolver does not lower them yet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
     Int64(i64),
+    Float64(f64),
     Bool(bool),
     Null,
 }

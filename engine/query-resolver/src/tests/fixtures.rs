@@ -57,6 +57,11 @@ pub fn post_with_scalar_fields_catalog() -> SchemaCatalog {
                 schema_model::SingleCardinality::Required,
             )),
             Field::Scalar(ScalarField::new(
+                "rating",
+                ScalarType::Float64,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
                 "published",
                 ScalarType::Bool,
                 schema_model::SingleCardinality::Required,
@@ -105,6 +110,10 @@ pub fn literal_string_expr(value: &str) -> Expr {
 
 pub fn literal_int_expr(value: i64) -> Expr {
     Expr::Literal(Literal::Int64(value))
+}
+
+pub fn literal_float_expr(value: f64) -> Expr {
+    Expr::Literal(Literal::Float64(value))
 }
 
 pub fn literal_bool_expr(value: bool) -> Expr {
@@ -204,6 +213,14 @@ pub fn filter_in_ints(path: &[&str], values: &[i64]) -> Expr {
         path_expr(path),
         InOp::In,
         values.iter().copied().map(literal_int_expr).collect(),
+    ))
+}
+
+pub fn filter_in_floats(path: &[&str], values: &[f64]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        values.iter().copied().map(literal_float_expr).collect(),
     ))
 }
 

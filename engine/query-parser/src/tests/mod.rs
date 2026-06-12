@@ -545,6 +545,31 @@ fn parser_can_parse_filter_arithmetic_addition() {
 }
 
 #[test]
+fn parser_can_parse_float_arithmetic_literals() {
+    let query = parse_select("select Post { title } filter .score / 2.5 >= 10.5")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["score"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Div);
+                    assert_literal_expr(arithmetic.right(), &Literal::Float64(2.5));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Float64(10.5));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_preserves_multiplicative_precedence() {
     let query = parse_select("select Post { title } filter .likes + .view_count * 10 >= 100")
         .expect("query should parse");
