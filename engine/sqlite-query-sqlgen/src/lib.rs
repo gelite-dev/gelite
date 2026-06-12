@@ -17,8 +17,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection,
-    SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral,
+    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -189,6 +189,16 @@ fn render_in_op(op: SQLiteInOp) -> &'static str {
     }
 }
 
+fn render_arithmetic_op(op: SQLiteArithmeticOp) -> &'static str {
+    match op {
+        SQLiteArithmeticOp::Add => "+",
+        SQLiteArithmeticOp::Sub => "-",
+        SQLiteArithmeticOp::Mul => "*",
+        SQLiteArithmeticOp::Div => "/",
+        SQLiteArithmeticOp::Mod => "%",
+    }
+}
+
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
@@ -205,6 +215,13 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::Null) => {
             render_literal(&SQLiteLiteral::Null, bind_values)
+        }
+        SQLiteValueExpr::Arithmetic(arithmetic) => {
+            let left = render_value_expr(arithmetic.left(), bind_values);
+            let right = render_value_expr(arithmetic.right(), bind_values);
+            let op = render_arithmetic_op(arithmetic.op());
+
+            format!("({left} {op} {right})")
         }
     }
 }
