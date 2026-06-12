@@ -28,6 +28,7 @@ struct TypedValueExpr {
 enum ValueSource {
     Path(schema_model::ScalarType),
     Literal(schema_model::ScalarType),
+    Computed(schema_model::ScalarType),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +258,9 @@ fn resolve_expr(
         query_ast::Expr::Path(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "path".to_string(),
         }),
+        query_ast::Expr::Arithmetic(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "arithmetic value".to_string(),
+        }),
     }
 }
 
@@ -284,6 +288,9 @@ fn resolve_path_value_expr(
         query_ir::ValueExpr::Path(path) => Ok(query_ir::ValueExpr::Path(path)),
         query_ir::ValueExpr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "null comparison literal".to_string(),
+        }),
+        query_ir::ValueExpr::Arithmetic(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison value".to_string(),
         }),
     }
 }
@@ -322,6 +329,9 @@ fn resolve_typed_value_expr(
     match expr {
         query_ast::Expr::Path(path) => resolve_typed_path_expr(catalog, source_object_type, path),
         query_ast::Expr::Literal(literal) => resolve_typed_literal_expr(literal),
+        query_ast::Expr::Arithmetic(arithmetic) => {
+            resolve_typed_arithmetic_expr(catalog, source_object_type, arithmetic)
+        }
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
         }),
@@ -331,6 +341,40 @@ fn resolve_typed_value_expr(
         | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "boolean value".to_string(),
         }),
+    }
+}
+
+fn resolve_typed_arithmetic_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    arithmetic: &query_ast::ArithmeticExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    let left = resolve_typed_value_expr(catalog, source_object_type, arithmetic.left())?;
+    let right = resolve_typed_value_expr(catalog, source_object_type, arithmetic.right())?;
+
+    ensure_numeric_arithmetic_operand(&left.source)?;
+    ensure_numeric_arithmetic_operand(&right.source)?;
+
+    let scalar_type = arithmetic_result_scalar_type(&left.source, &right.source);
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            left.value,
+            resolve_arithmetic_op(arithmetic.op()),
+            right.value,
+            scalar_type,
+        )),
+        source: ValueSource::Computed(scalar_type),
+    })
+}
+
+fn resolve_arithmetic_op(op: query_ast::ArithmeticOp) -> query_ir::ArithmeticOp {
+    match op {
+        query_ast::ArithmeticOp::Add => query_ir::ArithmeticOp::Add,
+        query_ast::ArithmeticOp::Sub => query_ir::ArithmeticOp::Sub,
+        query_ast::ArithmeticOp::Mul => query_ir::ArithmeticOp::Mul,
+        query_ast::ArithmeticOp::Div => query_ir::ArithmeticOp::Div,
+        query_ast::ArithmeticOp::Mod => query_ir::ArithmeticOp::Mod,
     }
 }
 
@@ -506,15 +550,53 @@ fn ensure_compatible_membership_item(
     Err(type_mismatch_error(source_scalar_type(*left), item_type))
 }
 
+fn ensure_numeric_arithmetic_operand(source: &ValueSource) -> Result<(), ResolveError> {
+    let scalar_type = source_scalar_type(*source);
+
+    if scalar_type_is_numeric(scalar_type) {
+        return Ok(());
+    }
+
+    Err(ResolveError::NonNumericArithmeticOperand {
+        actual: scalar_type_name(scalar_type).to_string(),
+    })
+}
+
+fn arithmetic_result_scalar_type(
+    left: &ValueSource,
+    right: &ValueSource,
+) -> schema_model::ScalarType {
+    let left = source_scalar_type(*left);
+    let right = source_scalar_type(*right);
+
+    if left == schema_model::ScalarType::Float64 || right == schema_model::ScalarType::Float64 {
+        schema_model::ScalarType::Float64
+    } else {
+        schema_model::ScalarType::Int64
+    }
+}
+
 fn value_sources_are_compatible(left: ValueSource, right: ValueSource) -> bool {
     match (left, right) {
         (ValueSource::Path(left), ValueSource::Path(right))
+        | (ValueSource::Path(left), ValueSource::Computed(right))
+        | (ValueSource::Computed(left), ValueSource::Path(right))
+        | (ValueSource::Computed(left), ValueSource::Computed(right))
         | (ValueSource::Literal(left), ValueSource::Literal(right)) => left == right,
         (ValueSource::Path(expected), ValueSource::Literal(actual))
-        | (ValueSource::Literal(actual), ValueSource::Path(expected)) => {
+        | (ValueSource::Computed(expected), ValueSource::Literal(actual))
+        | (ValueSource::Literal(actual), ValueSource::Path(expected))
+        | (ValueSource::Literal(actual), ValueSource::Computed(expected)) => {
             literal_type_matches_scalar(expected, actual)
         }
     }
+}
+
+fn scalar_type_is_numeric(scalar_type: schema_model::ScalarType) -> bool {
+    matches!(
+        scalar_type,
+        schema_model::ScalarType::Int64 | schema_model::ScalarType::Float64
+    )
 }
 
 fn literal_type_matches_scalar(
@@ -536,7 +618,9 @@ fn literal_type_matches_scalar(
 
 fn source_scalar_type(source: ValueSource) -> schema_model::ScalarType {
     match source {
-        ValueSource::Path(scalar_type) | ValueSource::Literal(scalar_type) => scalar_type,
+        ValueSource::Path(scalar_type)
+        | ValueSource::Literal(scalar_type)
+        | ValueSource::Computed(scalar_type) => scalar_type,
     }
 }
 

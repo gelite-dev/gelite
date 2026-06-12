@@ -308,6 +308,7 @@ fn resolves_filter_compare_path_to_field_and_literal() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         query_ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::Arithmetic(_) => panic!("filter left side should resolve to a path"),
     }
 
     assert_eq!(compare.op(), query_ir::CompareOp::Eq);
@@ -680,6 +681,9 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+        query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is null expression should reference a path")
+        }
     }
 }
 
@@ -713,6 +717,9 @@ fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
+        query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is null expression should reference a path")
+        }
     }
 }
 
@@ -745,6 +752,9 @@ fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+        query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is not null expression should reference a path")
+        }
     }
 }
 
@@ -777,6 +787,9 @@ fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
+        query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is not null expression should reference a path")
+        }
     }
 }
 
@@ -950,6 +963,7 @@ fn resolves_filter_in_literal_list_to_in_expr() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         query_ir::ValueExpr::Literal(_) => panic!("in expression left side should be a path"),
+        query_ir::ValueExpr::Arithmetic(_) => panic!("in expression left side should be a path"),
     }
 
     assert_eq!(in_expr.op(), query_ir::InOp::In);
@@ -1406,6 +1420,7 @@ fn resolves_order_path_to_resolved_path() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         query_ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
     }
 }
 
@@ -1521,6 +1536,7 @@ fn resolves_filter_path_through_single_link_to_scalar_field() {
             }
         }
         query_ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::Arithmetic(_) => panic!("filter left side should resolve to a path"),
     }
 
     match compare.right() {
@@ -1599,5 +1615,6 @@ fn resolves_order_path_through_single_link_to_scalar_field() {
             }
         }
         query_ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
     }
 }
