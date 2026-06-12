@@ -19,7 +19,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
+use schema_model::{Cardinality, FieldRef, ObjectTypeRef, ScalarType};
 
 /// Resolved select query.
 ///
@@ -381,6 +381,62 @@ pub enum OrderDirection {
 pub enum ValueExpr {
     Path(ResolvedPath),
     Literal(Literal),
+    Arithmetic(ArithmeticExpr),
+}
+
+/// Resolved arithmetic value expression.
+///
+/// Arithmetic expressions are scalar value expressions, not boolean filter
+/// expressions. The resolver stores the result scalar type after checking both
+/// operands so later planning stages do not need to repeat type inference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArithmeticExpr {
+    left: Box<ValueExpr>,
+    op: ArithmeticOp,
+    right: Box<ValueExpr>,
+    scalar_type: ScalarType,
+}
+
+impl ArithmeticExpr {
+    pub fn new(
+        left: ValueExpr,
+        op: ArithmeticOp,
+        right: ValueExpr,
+        scalar_type: ScalarType,
+    ) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+            scalar_type,
+        }
+    }
+
+    pub fn left(&self) -> &ValueExpr {
+        &self.left
+    }
+
+    pub fn op(&self) -> ArithmeticOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &ValueExpr {
+        &self.right
+    }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
+}
+
+/// Arithmetic operators implemented by the current IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
 }
 
 /// Literal values represented by the current IR.

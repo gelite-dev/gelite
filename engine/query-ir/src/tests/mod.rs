@@ -1,19 +1,19 @@
 mod fixtures;
 
 use crate::{
-    CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderDirection, OrderExpr, ResolvedPath,
-    ResolvedPathError, ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField,
-    SelectQuery, ValueExpr,
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
+    OrderDirection, OrderExpr, ResolvedPath, ResolvedPathError, ResolvedPathStep,
+    ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, SelectQuery, ValueExpr,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
     empty_post_shape, post_author_field, post_subtitle_field, post_subtitle_path_value,
-    post_title_field, post_title_path_value, post_type, user_name_field, user_name_shape,
-    user_type,
+    post_title_field, post_title_path_value, post_type, post_view_count_path_value,
+    user_name_field, user_name_shape, user_type,
 };
-use schema_model::{Cardinality, ObjectTypeId};
+use schema_model::{Cardinality, ObjectTypeId, ScalarType};
 
 #[test]
 fn resolved_select_query_can_store_root_object_type() {
@@ -263,6 +263,7 @@ fn resolved_select_query_can_store_order_by_path() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         ValueExpr::Literal(_) => panic!("order by should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("order by should reference a resolved path"),
     }
 }
 
@@ -295,6 +296,7 @@ fn resolved_select_query_can_store_filter_compare_expr() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
     }
 
     match compare.right() {
@@ -303,6 +305,7 @@ fn resolved_select_query_can_store_filter_compare_expr() {
             panic!("filter right side should store a string literal, got {other:?}")
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -334,6 +337,7 @@ fn resolved_select_query_can_store_filter_compare_int_literal() {
             panic!("filter right side should store an int literal, got {other:?}")
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -365,6 +369,7 @@ fn resolved_select_query_can_store_filter_compare_bool_literal() {
             panic!("filter right side should store a bool literal, got {other:?}")
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
+        ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -418,6 +423,7 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
     }
 }
 
@@ -447,6 +453,7 @@ fn resolved_select_query_can_store_filter_is_not_null_expr() {
             assert_eq!(path.steps()[0].field().name(), "subtitle");
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
     }
 }
 
@@ -481,6 +488,7 @@ fn resolved_select_query_can_store_filter_in_expr() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
     }
 
     assert_eq!(in_expr.op(), InOp::In);
@@ -533,6 +541,7 @@ fn value_expr_can_reference_resolved_path() {
             assert_eq!(path.steps()[0].field().name(), "title");
         }
         ValueExpr::Literal(_) => panic!("value expression should reference a resolved path"),
+        ValueExpr::Arithmetic(_) => panic!("value expression should reference a resolved path"),
     }
 }
 
@@ -546,7 +555,36 @@ fn value_expr_can_store_literal() {
             panic!("value expression should store string literal, got {other:?}")
         }
         ValueExpr::Path(_) => panic!("value expression should store a literal"),
+        ValueExpr::Arithmetic(_) => panic!("value expression should store a literal"),
     }
+}
+
+#[test]
+fn value_expr_can_store_arithmetic_expr() {
+    let value = ValueExpr::Arithmetic(ArithmeticExpr::new(
+        post_view_count_path_value(),
+        ArithmeticOp::Add,
+        ValueExpr::Literal(Literal::Int64(1)),
+        ScalarType::Int64,
+    ));
+
+    let ValueExpr::Arithmetic(arithmetic) = value else {
+        panic!("value expression should store arithmetic expression");
+    };
+
+    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+    assert_eq!(arithmetic.scalar_type(), ScalarType::Int64);
+
+    match arithmetic.left() {
+        ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "view_count");
+        }
+        _ => panic!("arithmetic left side should store a resolved path"),
+    }
+
+    assert_eq!(arithmetic.right(), &ValueExpr::Literal(Literal::Int64(1)));
 }
 
 #[test]

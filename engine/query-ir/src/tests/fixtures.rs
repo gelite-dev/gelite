@@ -22,6 +22,10 @@ pub fn post_subtitle_field() -> FieldRef {
     FieldRef::new(FieldId::new(3), post_type(), "subtitle")
 }
 
+pub fn post_view_count_field() -> FieldRef {
+    FieldRef::new(FieldId::new(5), post_type(), "view_count")
+}
+
 pub fn user_name_field() -> FieldRef {
     FieldRef::new(FieldId::new(4), user_type(), "name")
 }
@@ -52,12 +56,27 @@ pub fn post_subtitle_path() -> ResolvedPath {
     .expect("post subtitle path should be valid")
 }
 
+pub fn post_view_count_path() -> ResolvedPath {
+    ResolvedPath::try_new(
+        post_type(),
+        vec![ResolvedPathStep::scalar(
+            post_view_count_field(),
+            Cardinality::Required,
+        )],
+    )
+    .expect("post view_count path should be valid")
+}
+
 pub fn post_title_path_value() -> ValueExpr {
     ValueExpr::Path(post_title_path())
 }
 
 pub fn post_subtitle_path_value() -> ValueExpr {
     ValueExpr::Path(post_subtitle_path())
+}
+
+pub fn post_view_count_path_value() -> ValueExpr {
+    ValueExpr::Path(post_view_count_path())
 }
 
 pub fn user_name_shape() -> ResolvedShape {
