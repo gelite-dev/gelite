@@ -14,6 +14,10 @@ pub fn post_author_field() -> FieldRef {
     FieldRef::new(FieldId::new(3), post_type(), "author")
 }
 
+pub fn post_view_count_field() -> FieldRef {
+    FieldRef::new(FieldId::new(4), post_type(), "view_count")
+}
+
 pub fn post_id_field() -> FieldRef {
     FieldRef::new(FieldId::new(1), post_type(), "id")
 }
@@ -44,6 +48,19 @@ pub fn post_id_path_value() -> query_ir::ValueExpr {
     )
 }
 
+pub fn post_view_count_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![query_ir::ResolvedPathStep::scalar(
+                post_view_count_field(),
+                schema_model::Cardinality::Required,
+            )],
+        )
+        .expect("post view_count path should be valid"),
+    )
+}
+
 pub fn post_author_name_path_value() -> query_ir::ValueExpr {
     query_ir::ValueExpr::Path(
         query_ir::ResolvedPath::try_new(
@@ -64,12 +81,36 @@ pub fn post_author_name_path_value() -> query_ir::ValueExpr {
     )
 }
 
+pub fn post_author_score_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![
+                query_ir::ResolvedPathStep::link(
+                    post_author_field(),
+                    user_type(),
+                    schema_model::Cardinality::Required,
+                ),
+                query_ir::ResolvedPathStep::scalar(
+                    user_score_field(),
+                    schema_model::Cardinality::Required,
+                ),
+            ],
+        )
+        .expect("post author score path should be valid"),
+    )
+}
+
 pub fn user_type() -> ObjectTypeRef {
     ObjectTypeRef::new(ObjectTypeId::new(2), "User")
 }
 
 pub fn user_name_field() -> FieldRef {
     FieldRef::new(FieldId::new(2), user_type(), "name")
+}
+
+pub fn user_score_field() -> FieldRef {
+    FieldRef::new(FieldId::new(3), user_type(), "score")
 }
 
 pub fn empty_post_query() -> query_ir::SelectQuery {
