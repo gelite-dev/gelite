@@ -597,6 +597,7 @@ pub enum ResolveError {
     UnsupportedExpr { expr_type: String },
     UnsupportedLiteral { literal: String },
     IncompatibleOperandTypes { expected: String, actual: String },
+    NonNumericArithmeticOperand { actual: String },
     NullComparisonOnNonOptionalPath { cardinality: String },
 }
 

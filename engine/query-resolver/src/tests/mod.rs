@@ -464,26 +464,24 @@ fn rejects_arithmetic_expr_with_string_left_operand() {
 
     assert_eq!(
         resolved,
-        Err(ResolveError::IncompatibleOperandTypes {
-            expected: "numeric".to_string(),
+        Err(ResolveError::NonNumericArithmeticOperand {
             actual: "str".to_string()
         })
     );
 }
 
 #[test]
-fn rejects_arithmetic_comparison_with_string_literal() {
+fn rejects_numeric_arithmetic_result_compared_to_string_literal() {
     let catalog = post_with_scalar_fields_catalog();
 
-    let filter = Expr::Compare(CompareExpr::new(
-        arithmetic_expr(
-            path_expr(&["view_count"]),
-            query_ast::ArithmeticOp::Add,
-            literal_int_expr(1),
-        ),
-        query_ast::CompareOp::Eq,
-        literal_string_expr("10"),
-    ));
+    let left = arithmetic_expr(
+        path_expr(&["view_count"]),
+        query_ast::ArithmeticOp::Add,
+        literal_int_expr(1),
+    );
+    let right = literal_string_expr("10");
+
+    let filter = Expr::Compare(CompareExpr::new(left, query_ast::CompareOp::Eq, right));
 
     let query = SelectQuery::new(
         "Post",
