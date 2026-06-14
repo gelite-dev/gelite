@@ -411,7 +411,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_order_item(&mut self) -> Result<OrderExpr, ParseError> {
-        let path = self.parse_path(true)?;
+        let expr = self.parse_expr()?;
         let direction = match self.peek() {
             Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Desc) => {
                 self.advance();
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
             _ => query_ast::OrderDirection::Asc,
         };
 
-        Ok(OrderExpr::new(path, direction))
+        Ok(OrderExpr::new(expr, direction))
     }
     fn parse_path(&mut self, allow_leading_dot: bool) -> Result<Path, ParseError> {
         if self

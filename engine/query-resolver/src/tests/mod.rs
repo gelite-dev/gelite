@@ -1642,7 +1642,7 @@ fn resolves_order_path_to_resolved_path() {
     let catalog = post_with_title_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("title")]),
+        Expr::Path(Path::new(vec![PathStep::new("title")])),
         query_ast::OrderDirection::Desc,
     );
 
@@ -1682,7 +1682,7 @@ fn rejects_order_path_with_link_field() {
     let catalog = post_with_author_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("author")]),
+        Expr::Path(Path::new(vec![PathStep::new("author")])),
         query_ast::OrderDirection::Asc,
     );
 
@@ -1805,7 +1805,10 @@ fn resolves_order_path_through_single_link_to_scalar_field() {
     let catalog = post_with_author_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("author"), PathStep::new("name")]),
+        Expr::Path(Path::new(vec![
+            PathStep::new("author"),
+            PathStep::new("name"),
+        ])),
         query_ast::OrderDirection::Asc,
     );
 

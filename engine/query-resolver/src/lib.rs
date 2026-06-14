@@ -702,7 +702,14 @@ fn resolve_order_expr(
     source_object_type: &schema_model::ObjectTypeRef,
     order: &query_ast::OrderExpr,
 ) -> Result<query_ir::OrderExpr, ResolveError> {
-    let value = resolve_path_expr(catalog, source_object_type, order.path())?;
+    let value = match order.expr() {
+        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path)?,
+        _ => {
+            return Err(ResolveError::UnsupportedExpr {
+                expr_type: "order value".to_string(),
+            });
+        }
+    };
     let direction = match order.direction() {
         query_ast::OrderDirection::Asc => query_ir::OrderDirection::Asc,
         query_ast::OrderDirection::Desc => query_ir::OrderDirection::Desc,
