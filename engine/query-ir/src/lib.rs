@@ -320,11 +320,11 @@ pub enum CompareOp {
 pub struct InExpr {
     left: ValueExpr,
     op: InOp,
-    right: Vec<Literal>,
+    right: Vec<ValueExpr>,
 }
 
 impl InExpr {
-    pub fn new(left: ValueExpr, op: InOp, right: Vec<Literal>) -> Self {
+    pub fn new(left: ValueExpr, op: InOp, right: Vec<ValueExpr>) -> Self {
         Self { left, op, right }
     }
 
@@ -336,7 +336,7 @@ impl InExpr {
         self.op
     }
 
-    pub fn right(&self) -> &[Literal] {
+    pub fn right(&self) -> &[ValueExpr] {
         &self.right
     }
 }

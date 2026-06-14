@@ -123,7 +123,7 @@ fn render_where_expr(expr: &SQLiteWhereExpr, bind_values: &mut Vec<SQLiteBindVal
             let placeholders = in_expr
                 .right()
                 .iter()
-                .map(|literal| render_literal(literal, bind_values))
+                .map(|value| render_value_expr(value, bind_values))
                 .collect::<Vec<_>>()
                 .join(", ");
 

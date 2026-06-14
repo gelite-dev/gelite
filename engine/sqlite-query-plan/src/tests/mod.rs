@@ -611,8 +611,8 @@ fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
         post_title_path_value(),
         query_ir::InOp::In,
         vec![
-            Literal::String("Draft".to_string()),
-            Literal::String("Published".to_string()),
+            query_ir::ValueExpr::Literal(Literal::String("Draft".to_string())),
+            query_ir::ValueExpr::Literal(Literal::String("Published".to_string())),
         ],
     ));
 
@@ -643,8 +643,8 @@ fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
             assert_eq!(
                 in_expr.right(),
                 &[
-                    SQLiteLiteral::String("Draft".to_string()),
-                    SQLiteLiteral::String("Published".to_string())
+                    SQLiteValueExpr::Literal(SQLiteLiteral::String("Draft".to_string())),
+                    SQLiteValueExpr::Literal(SQLiteLiteral::String("Published".to_string()))
                 ]
             );
         }
@@ -657,7 +657,9 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_not_in_literal_list() {
     let expr = query_ir::Expr::In(query_ir::InExpr::new(
         post_author_name_path_value(),
         query_ir::InOp::NotIn,
-        vec![Literal::String("Sheri".to_string())],
+        vec![query_ir::ValueExpr::Literal(Literal::String(
+            "Sheri".to_string(),
+        ))],
     ));
 
     let ir = SelectQuery::new(
@@ -686,7 +688,9 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_not_in_literal_list() {
             assert_eq!(in_expr.op(), SQLiteInOp::NotIn);
             assert_eq!(
                 in_expr.right(),
-                &[SQLiteLiteral::String("Sheri".to_string())]
+                &[SQLiteValueExpr::Literal(SQLiteLiteral::String(
+                    "Sheri".to_string()
+                ))]
             );
         }
         _ => panic!("expected not in filter"),

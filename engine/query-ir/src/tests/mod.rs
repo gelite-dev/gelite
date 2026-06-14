@@ -463,8 +463,8 @@ fn resolved_select_query_can_store_filter_in_expr() {
         post_title_path_value(),
         InOp::In,
         vec![
-            Literal::String("Draft".to_string()),
-            Literal::String("Published".to_string()),
+            ValueExpr::Literal(Literal::String("Draft".to_string())),
+            ValueExpr::Literal(Literal::String("Published".to_string())),
         ],
     ));
 
@@ -493,8 +493,14 @@ fn resolved_select_query_can_store_filter_in_expr() {
 
     assert_eq!(in_expr.op(), InOp::In);
     assert_eq!(in_expr.right().len(), 2);
-    assert_eq!(in_expr.right()[0], Literal::String("Draft".to_string()));
-    assert_eq!(in_expr.right()[1], Literal::String("Published".to_string()));
+    assert_eq!(
+        in_expr.right()[0],
+        ValueExpr::Literal(Literal::String("Draft".to_string()))
+    );
+    assert_eq!(
+        in_expr.right()[1],
+        ValueExpr::Literal(Literal::String("Published".to_string()))
+    );
 }
 
 #[test]
@@ -502,7 +508,7 @@ fn resolved_select_query_can_store_filter_not_in_expr() {
     let filter = Expr::In(InExpr::new(
         post_title_path_value(),
         InOp::NotIn,
-        vec![Literal::String("Archived".to_string())],
+        vec![ValueExpr::Literal(Literal::String("Archived".to_string()))],
     ));
 
     let query = SelectQuery::new(

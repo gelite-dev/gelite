@@ -419,6 +419,7 @@ impl SQLiteCompareExpr {
 }
 
 /// Backend-specific value expression.
+#[derive(Debug, Clone, PartialEq)]
 pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
@@ -426,6 +427,7 @@ pub enum SQLiteValueExpr {
 }
 
 /// Backend-specific arithmetic value expression.
+#[derive(Debug, Clone, PartialEq)]
 pub struct SQLiteArithmeticExpr {
     left: Box<SQLiteValueExpr>,
     op: SQLiteArithmeticOp,
@@ -472,7 +474,7 @@ impl SQLiteArithmeticOp {
 pub struct SQLiteInExpr {
     left: SQLiteValueExpr,
     op: SQLiteInOp,
-    right: Vec<SQLiteLiteral>,
+    right: Vec<SQLiteValueExpr>,
 }
 
 impl SQLiteInExpr {
@@ -484,7 +486,7 @@ impl SQLiteInExpr {
         self.op
     }
 
-    pub fn right(&self) -> &[SQLiteLiteral] {
+    pub fn right(&self) -> &[SQLiteValueExpr] {
         &self.right
     }
 }
@@ -506,6 +508,7 @@ impl SQLiteInOp {
 }
 
 /// Physical column reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SQLiteColumnRef {
     source_alias: String,
     column_name: String,
@@ -691,7 +694,18 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
         }
         Expr::In(in_expr) => {
             let left = plan_value_expr(in_expr.left());
-            let right = in_expr.right().iter().map(sqlite_literal_from_ir).collect();
+            let planned_right = in_expr
+                .right()
+                .iter()
+                .map(plan_value_expr)
+                .collect::<Vec<_>>();
+            let mut joins = left.joins;
+            let mut right = Vec::new();
+
+            for planned in planned_right {
+                joins.extend(planned.joins);
+                right.push(planned.value);
+            }
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::In(SQLiteInExpr {
@@ -699,7 +713,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
                     op: SQLiteInOp::from_ir(in_expr.op()),
                     right,
                 }),
-                joins: left.joins,
+                joins,
             }
         }
         Expr::And(left, right) => {

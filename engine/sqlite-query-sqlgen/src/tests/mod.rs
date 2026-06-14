@@ -342,8 +342,8 @@ fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
         post_title_path_value(),
         query_ir::InOp::In,
         vec![
-            query_ir::Literal::String("Draft".to_string()),
-            query_ir::Literal::String("Published".to_string()),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Draft".to_string())),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Published".to_string())),
         ],
     ));
 
@@ -367,11 +367,43 @@ fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_root_scalar_in_arithmetic_value_filter() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        query_ir::ArithmeticOp::Div,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(0)),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::Expr::In(query_ir::InExpr::new(
+        post_view_count_path_value(),
+        query_ir::InOp::In,
+        vec![arithmetic],
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"view_count\" IN ((? / ?))"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::Int64(1), SQLiteBindValue::Int64(0)]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_single_link_scalar_not_in_filter() {
     let filter = query_ir::Expr::In(query_ir::InExpr::new(
         post_author_name_path_value(),
         query_ir::InOp::NotIn,
-        vec![query_ir::Literal::String("Sheri".to_string())],
+        vec![query_ir::ValueExpr::Literal(query_ir::Literal::String(
+            "Sheri".to_string(),
+        ))],
     ));
 
     let ir = post_query_with_filter(filter);

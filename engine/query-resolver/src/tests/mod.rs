@@ -1091,8 +1091,8 @@ fn resolves_filter_in_literal_list_to_in_expr() {
     assert_eq!(
         in_expr.right(),
         &[
-            query_ir::Literal::String("Draft".to_string()),
-            query_ir::Literal::String("Published".to_string())
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Draft".to_string())),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Published".to_string()))
         ]
     );
 }
@@ -1122,7 +1122,10 @@ fn resolves_filter_in_int_literal_list_to_in_expr() {
 
     assert_eq!(
         in_expr.right(),
-        &[query_ir::Literal::Int64(1), query_ir::Literal::Int64(2)]
+        &[
+            query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+            query_ir::ValueExpr::Literal(query_ir::Literal::Int64(2))
+        ]
     );
 }
 
@@ -1152,14 +1155,14 @@ fn resolves_filter_in_float_literal_list_to_in_expr() {
     assert_eq!(
         in_expr.right(),
         &[
-            query_ir::Literal::Float64(1.5),
-            query_ir::Literal::Float64(2.5)
+            query_ir::ValueExpr::Literal(query_ir::Literal::Float64(1.5)),
+            query_ir::ValueExpr::Literal(query_ir::Literal::Float64(2.5))
         ]
     );
 }
 
 #[test]
-fn resolves_filter_in_arithmetic_literal_item_to_folded_literal() {
+fn resolves_filter_in_arithmetic_literal_item_to_value_expr() {
     let catalog = post_with_scalar_fields_catalog();
 
     let filter = Expr::In(query_ast::InExpr::new(
@@ -1189,7 +1192,66 @@ fn resolves_filter_in_arithmetic_literal_item_to_folded_literal() {
         panic!("filter should resolve to an in expression");
     };
 
-    assert_eq!(in_expr.right(), &[query_ir::Literal::Int64(2)]);
+    let [query_ir::ValueExpr::Arithmetic(arithmetic)] = in_expr.right() else {
+        panic!("membership item should resolve to an arithmetic value expression");
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+    assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Int64);
+    assert_eq!(
+        arithmetic.left(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+}
+
+#[test]
+fn resolves_filter_in_overflowing_arithmetic_literal_item_without_folding() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::In(query_ast::InExpr::new(
+        path_expr(&["view_count"]),
+        query_ast::InOp::In,
+        vec![arithmetic_expr(
+            literal_int_expr(i64::MAX),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    let [query_ir::ValueExpr::Arithmetic(arithmetic)] = in_expr.right() else {
+        panic!("membership item should resolve to an arithmetic value expression");
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+    assert_eq!(
+        arithmetic.left(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(i64::MAX))
+    );
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
 }
 
 #[test]
@@ -1218,8 +1280,8 @@ fn resolves_filter_in_bool_literal_list_to_in_expr() {
     assert_eq!(
         in_expr.right(),
         &[
-            query_ir::Literal::Bool(true),
-            query_ir::Literal::Bool(false)
+            query_ir::ValueExpr::Literal(query_ir::Literal::Bool(true)),
+            query_ir::ValueExpr::Literal(query_ir::Literal::Bool(false))
         ]
     );
 }
@@ -1314,8 +1376,12 @@ fn resolves_filter_in_uuid_path_with_string_literal_list() {
     assert_eq!(
         in_expr.right(),
         &[
-            query_ir::Literal::String("01987211-d8f1-7b31-8b3e-f5043e6b08f0".to_string()),
-            query_ir::Literal::String("01987211-e162-7a3f-9934-7ab05658ef7f".to_string())
+            query_ir::ValueExpr::Literal(query_ir::Literal::String(
+                "01987211-d8f1-7b31-8b3e-f5043e6b08f0".to_string()
+            )),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String(
+                "01987211-e162-7a3f-9934-7ab05658ef7f".to_string()
+            ))
         ]
     );
 }
