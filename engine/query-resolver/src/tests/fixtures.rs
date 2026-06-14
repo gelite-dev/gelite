@@ -1,6 +1,9 @@
 use alloc::string::String;
 use alloc::vec;
-use query_ast::{CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path, PathStep};
+use query_ast::{
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path,
+    PathStep,
+};
 use schema_model::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
 pub fn post_only_catalog() -> SchemaCatalog {
@@ -54,6 +57,11 @@ pub fn post_with_scalar_fields_catalog() -> SchemaCatalog {
                 schema_model::SingleCardinality::Required,
             )),
             Field::Scalar(ScalarField::new(
+                "rating",
+                ScalarType::Float64,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
                 "published",
                 ScalarType::Bool,
                 schema_model::SingleCardinality::Required,
@@ -104,12 +112,20 @@ pub fn literal_int_expr(value: i64) -> Expr {
     Expr::Literal(Literal::Int64(value))
 }
 
+pub fn literal_float_expr(value: f64) -> Expr {
+    Expr::Literal(Literal::Float64(value))
+}
+
 pub fn literal_bool_expr(value: bool) -> Expr {
     Expr::Literal(Literal::Bool(value))
 }
 
 pub fn literal_null_expr() -> Expr {
     Expr::Literal(Literal::Null)
+}
+
+pub fn arithmetic_expr(left: Expr, op: ArithmeticOp, right: Expr) -> Expr {
+    Expr::Arithmetic(ArithmeticExpr::new(left, op, right))
 }
 
 pub fn filter_eq_string(path: &[&str], value: &str) -> Expr {
@@ -197,6 +213,14 @@ pub fn filter_in_ints(path: &[&str], values: &[i64]) -> Expr {
         path_expr(path),
         InOp::In,
         values.iter().copied().map(literal_int_expr).collect(),
+    ))
+}
+
+pub fn filter_in_floats(path: &[&str], values: &[f64]) -> Expr {
+    Expr::In(InExpr::new(
+        path_expr(path),
+        InOp::In,
+        values.iter().copied().map(literal_float_expr).collect(),
     ))
 }
 

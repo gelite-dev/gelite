@@ -28,7 +28,12 @@ Only one statement is executed per request in the first version.
 
 - Identifiers refer to schema types or fields.
 - String literals use double quotes.
-- Numeric literals support integers and decimal floats.
+- Numeric literals support unsigned integers and decimal floats.
+- Decimal float literals must include digits on both sides of the decimal point,
+  such as `0.5` or `10.5`. Shorthand forms such as `.5` and `5.` are not part
+  of the MVP grammar.
+- A leading `+` or `-` is not part of a numeric literal. Signed values require
+  unary arithmetic operators, which are deferred.
 - Boolean literals are `true` and `false`.
 - `null` is supported only where the schema allows an optional value.
 - Parameters are deferred. The first milestone may inline literals only.
@@ -93,9 +98,10 @@ Supported filter expressions:
 
 - root-relative field paths
 - literal values
+- arithmetic value expressions
 - comparisons
-- literal-list `in`
-- literal-list `not in`
+- bracketed-list `in`
+- bracketed-list `not in`
 - `and`
 - `or`
 - `not`
@@ -134,7 +140,7 @@ select Post {
 filter (.title = "Hello" or .title = "Draft") and not .archived = true
 ```
 
-Literal-list membership checks use bracketed literal values:
+Membership checks use bracketed value expressions:
 
 ```text
 select Post {
@@ -144,10 +150,55 @@ select Post {
 filter .status not in ["archived", "deleted"]
 ```
 
+The right-hand list may contain row-independent scalar value expressions:
+
+```text
+filter .view_count in [1 + 1, 2 * 3]
+```
+
 `null` comparisons are supported only with equality operators. `= null` and
 `null = .field` match absent optional values. `!= null` and `null != .field`
 match present values. Other comparison operators with `null` are rejected by
 the resolver before SQLite planning.
+
+Arithmetic expressions may be used as value operands inside filters:
+
+```text
+select Post {
+  title
+}
+filter .view_count + 10 >= 100
+```
+
+Supported arithmetic operators:
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `%`
+
+These are binary operators. Unary `+` and unary `-` are not part of this
+milestone.
+
+Arithmetic is numeric only. The resolver accepts same-type numeric operands:
+
+- `int64 op int64`
+- `float64 op float64`
+
+`float64` arithmetic may use declared `float64` fields and decimal float
+literals. Integer literals are `int64` literals unless an explicit cast is used
+in a later milestone.
+
+Mixed numeric operands such as `int64 + float64` are rejected until explicit
+cast expressions are supported. String, boolean, uuid, `null`, object, and link
+operands are rejected before SQLite planning. `%` is accepted only for
+`int64 % int64`.
+
+`int64 / int64` follows SQLite integer division semantics. If fractional
+division is required, the query must use explicit casts once `f64(expr)` is
+supported. Division by zero is not normalized by Gelite in this milestone; if a
+runtime operand is zero, SQLite's result is used.
 
 ### Expression Grammar
 
@@ -161,12 +212,15 @@ and_expr          := not_expr ("and" not_expr)*
 not_expr          := "not" not_expr
                   | compare_expr
 compare_expr      := in_expr
-                  | primary_expr compare_op primary_expr
-                  | primary_expr
+                  | additive_expr compare_op additive_expr
+                  | additive_expr
 compare_op        := "=" | "!=" | "<" | "<=" | ">" | ">="
-in_expr           := primary_expr in_op in_rhs
+in_expr           := additive_expr in_op in_rhs
 in_op             := "in"
                   | "not" "in"
+additive_expr     := multiplicative_expr (("+" | "-") multiplicative_expr)*
+multiplicative_expr
+                  := primary_expr (("*" | "/" | "%") primary_expr)*
 primary_expr      := literal
                   | path
                   | "(" expr ")"
@@ -181,17 +235,20 @@ expr_list         := expr ("," expr)*
 subquery_expr     := "(" select_stmt ")"
 ```
 
-Only path, literal, comparison, literal-list `in`, literal-list `not in`,
-boolean, and parenthesized expressions are accepted by the resolver in the
-literal-list `in` milestone. `function_call` and `subquery_expr` are reserved
-syntax positions. The parser may produce AST nodes for them before the resolver
-accepts specific forms.
+Only path, literal, arithmetic, comparison, bracketed-list `in`,
+bracketed-list `not in`, boolean, and parenthesized expressions are accepted by
+the resolver in the arithmetic filter milestone. `function_call` and
+`subquery_expr` are reserved syntax positions. The parser may produce AST nodes
+for them before the resolver accepts specific forms.
 
 The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
 accept `null` as a list item because it is a literal expression, but the
 resolver must reject `in []`, `not in []`, `null` list items, and list items
-that are not literals. Use an explicit null comparison when a filter should
-match null and non-null values together:
+that are not scalar value expressions. List items must be row-independent in
+this milestone: literals and arithmetic expressions over literals are accepted,
+but paths, link traversals, subqueries, and boolean predicates inside the list
+are rejected before SQLite planning. Use an explicit null comparison when a
+filter should match null and non-null values together:
 
 ```text
 filter .deleted_at = null or .deleted_at in ["2323"]
@@ -203,10 +260,12 @@ the grammar but rejected until subquery expression scope is defined.
 Precedence from strongest to weakest:
 
 1. primary expressions
-2. membership and comparisons
-3. `not`
-4. `and`
-5. `or`
+2. `*`, `/`, `%`
+3. `+`, `-`
+4. membership and comparisons
+5. `not`
+6. `and`
+7. `or`
 
 ### Filter Expression Scope
 
@@ -215,7 +274,9 @@ The MVP supports:
 - field paths from the root object
 - traversal through declared single relation fields
 - scalar comparisons against literals
-- scalar membership checks against non-empty lists of non-null literals
+- numeric arithmetic expressions used as comparison or membership operands
+- scalar membership checks against non-empty lists of non-null scalar value
+  expressions
 - boolean composition
 - parenthesized grouping
 
@@ -227,6 +288,8 @@ The MVP does not support:
 - `exists`
 - subquery `in`
 - function calls
+- implicit numeric casts
+- unary arithmetic operators
 - path scoping with aliases
 
 ## Insert
@@ -424,6 +487,8 @@ These are intentionally out of scope until the end-to-end path is stable:
 - grouping
 - pagination cursors
 - function calls
+- explicit numeric casts
+- unary arithmetic operators
 - subqueries
 - query parameters
 - upsert

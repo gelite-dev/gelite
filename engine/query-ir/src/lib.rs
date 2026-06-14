@@ -19,13 +19,13 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
+use schema_model::{Cardinality, FieldRef, ObjectTypeRef, ScalarType};
 
 /// Resolved select query.
 ///
 /// The root object type, output shape, filter, and order expressions have all
 /// been checked against the schema catalog before this value is constructed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SelectQuery {
     root_object_type: ObjectTypeRef,
     shape: ResolvedShape,
@@ -267,7 +267,7 @@ pub enum ResolvedPathStepKind {
 /// `null`. Keeping them as separate nodes lets SQL generation render
 /// `IS NULL` and `IS NOT NULL` instead of binding `null` with a comparison
 /// operator.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Compare(CompareExpr),
     IsNull(ValueExpr),
@@ -279,7 +279,7 @@ pub enum Expr {
 }
 
 /// Resolved comparison expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompareExpr {
     left: ValueExpr,
     op: CompareOp,
@@ -316,15 +316,15 @@ pub enum CompareOp {
 }
 
 /// Resolved membership expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InExpr {
     left: ValueExpr,
     op: InOp,
-    right: Vec<Literal>,
+    right: Vec<ValueExpr>,
 }
 
 impl InExpr {
-    pub fn new(left: ValueExpr, op: InOp, right: Vec<Literal>) -> Self {
+    pub fn new(left: ValueExpr, op: InOp, right: Vec<ValueExpr>) -> Self {
         Self { left, op, right }
     }
 
@@ -336,7 +336,7 @@ impl InExpr {
         self.op
     }
 
-    pub fn right(&self) -> &[Literal] {
+    pub fn right(&self) -> &[ValueExpr] {
         &self.right
     }
 }
@@ -349,7 +349,7 @@ pub enum InOp {
 }
 
 /// Resolved ordering expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderExpr {
     value: ValueExpr,
     direction: OrderDirection,
@@ -377,19 +377,75 @@ pub enum OrderDirection {
 }
 
 /// Scalar value expression used in filters and ordering.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValueExpr {
     Path(ResolvedPath),
     Literal(Literal),
+    Arithmetic(ArithmeticExpr),
+}
+
+/// Resolved arithmetic value expression.
+///
+/// Arithmetic expressions are scalar value expressions, not boolean filter
+/// expressions. The resolver stores the result scalar type after checking both
+/// operands so later planning stages do not need to repeat type inference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArithmeticExpr {
+    left: Box<ValueExpr>,
+    op: ArithmeticOp,
+    right: Box<ValueExpr>,
+    scalar_type: ScalarType,
+}
+
+impl ArithmeticExpr {
+    pub fn new(
+        left: ValueExpr,
+        op: ArithmeticOp,
+        right: ValueExpr,
+        scalar_type: ScalarType,
+    ) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+            scalar_type,
+        }
+    }
+
+    pub fn left(&self) -> &ValueExpr {
+        &self.left
+    }
+
+    pub fn op(&self) -> ArithmeticOp {
+        self.op
+    }
+
+    pub fn right(&self) -> &ValueExpr {
+        &self.right
+    }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
+}
+
+/// Arithmetic operators implemented by the current IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
 }
 
 /// Literal values represented by the current IR.
 ///
-/// The query AST accepts floats, but the resolver does not lower them yet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
     Int64(i64),
+    Float64(f64),
     Bool(bool),
     Null,
 }

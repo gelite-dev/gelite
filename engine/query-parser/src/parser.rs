@@ -3,8 +3,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 use query_ast::{
-    CompareExpr, Expr, InExpr, InOp, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape,
-    ShapeItem,
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderExpr,
+    Path, PathStep, SelectQuery, Shape, ShapeItem,
 };
 
 /// Parses one MVP `select` statement from source text.
@@ -55,12 +55,58 @@ pub enum ParseErrorKind {
     UnexpectedToken { expected: &'static str },
     UnexpectedValue { expected: &'static str },
     InvalidIntegerLiteral,
+    InvalidFloatLiteral,
     Unsupported,
 }
 
 struct Parser<'a> {
     tokens: &'a [Token],
     cursor: usize,
+}
+
+const OR_BP: (u8, u8) = (1, 2);
+const AND_BP: (u8, u8) = (3, 4);
+const COMPARISON_BP: (u8, u8) = (5, 6);
+const ADDITIVE_BP: (u8, u8) = (7, 8);
+const MULTIPLICATIVE_BP: (u8, u8) = (9, 10);
+const NOT_RIGHT_BP: u8 = COMPARISON_BP.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InfixOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    In,
+    NotIn,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+impl InfixOp {
+    fn binding_power(self) -> (u8, u8) {
+        match self {
+            Self::Or => OR_BP,
+            Self::And => AND_BP,
+            Self::Eq
+            | Self::Ne
+            | Self::Lt
+            | Self::Le
+            | Self::Gt
+            | Self::Ge
+            | Self::In
+            | Self::NotIn => COMPARISON_BP,
+            Self::Add | Self::Sub => ADDITIVE_BP,
+            Self::Mul | Self::Div | Self::Mod => MULTIPLICATIVE_BP,
+        }
+    }
 }
 
 impl<'a> Parser<'a> {
@@ -158,53 +204,49 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_or_expr()
-    }
-
-    fn parse_or_expr(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_and_expr()?;
-
-        while self.consume_contextual_keyword_if_present("or") {
-            let right = self.parse_and_expr()?;
-            expr = Expr::Or(Box::new(expr), Box::new(right));
-        }
+        let expr = self.parse_expr_bp(0)?;
+        self.reject_adjacent_primary_expr()?;
 
         Ok(expr)
     }
 
-    fn parse_and_expr(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_not_expr()?;
+    fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
+        let mut left = self.parse_prefix_or_primary()?;
 
-        while self.consume_contextual_keyword_if_present("and") {
-            let right = self.parse_not_expr()?;
-            expr = Expr::And(Box::new(expr), Box::new(right));
+        loop {
+            let Some(op) = self.peek_infix_op()? else {
+                break;
+            };
+
+            let (left_bp, right_bp) = op.binding_power();
+
+            if left_bp < min_bp {
+                break;
+            }
+
+            self.consume_op(op)?;
+            left = match op {
+                InfixOp::In | InfixOp::NotIn => {
+                    let right = self.parse_in_rhs()?;
+                    let in_op = match op {
+                        InfixOp::In => InOp::In,
+                        InfixOp::NotIn => InOp::NotIn,
+                        _ => unreachable!("in operator checked"),
+                    };
+
+                    Expr::In(InExpr::new(left, in_op, right))
+                }
+                _ => {
+                    let right = self.parse_expr_bp(right_bp)?;
+                    make_binary_expr(left, op, right)
+                }
+            };
         }
 
-        Ok(expr)
+        Ok(left)
     }
 
-    fn parse_not_expr(&mut self) -> Result<Expr, ParseError> {
-        if self.consume_contextual_keyword_if_present("not") {
-            return Ok(Expr::Not(Box::new(self.parse_not_expr()?)));
-        }
-
-        self.parse_compare_expr()
-    }
-
-    fn parse_compare_expr(&mut self) -> Result<Expr, ParseError> {
-        let left = self.parse_primary_expr()?;
-
-        if let Some(op) = self.consume_in_op_if_present()? {
-            let right = self.parse_in_rhs()?;
-            return Ok(Expr::In(InExpr::new(left, op, right)));
-        }
-
-        if self.is_compare_op() {
-            let op = self.expect_compare_op()?;
-            let right = self.parse_primary_expr()?;
-            return Ok(Expr::Compare(CompareExpr::new(left, op, right)));
-        }
-
+    fn reject_adjacent_primary_expr(&self) -> Result<(), ParseError> {
         if self.peek().is_some_and(is_primary_expr_start) {
             let token = self.peek().expect("peek checked token exists");
             return Err(ParseError::new(
@@ -215,35 +257,80 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        Ok(left)
+        Ok(())
     }
 
-    fn consume_in_op_if_present(&mut self) -> Result<Option<InOp>, ParseError> {
-        match self.peek() {
-            Some(token) if token_is_ident(token, "in") => {
-                self.advance();
-                Ok(Some(InOp::In))
-            }
-            Some(token) if token_is_ident(token, "not") => {
-                let not_span = token.span();
-                self.advance();
-                match self.peek() {
-                    Some(token) if token_is_ident(token, "in") => {
-                        self.advance();
-                        Ok(Some(InOp::NotIn))
-                    }
-                    Some(_) => {
-                        self.cursor -= 1;
-                        Ok(None)
-                    }
-                    None => Err(ParseError::new(
-                        ParseErrorKind::UnexpectedEof { expected: "in" },
-                        Some(not_span),
-                    )),
-                }
-            }
-            _ => Ok(None),
+    fn parse_prefix_or_primary(&mut self) -> Result<Expr, ParseError> {
+        if self.consume_contextual_keyword_if_present("not") {
+            return Ok(Expr::Not(Box::new(self.parse_expr_bp(NOT_RIGHT_BP)?)));
         }
+
+        self.parse_primary_expr()
+    }
+
+    fn peek_infix_op(&self) -> Result<Option<InfixOp>, ParseError> {
+        let Some(token) = self.peek() else {
+            return Ok(None);
+        };
+
+        let op = match token.kind() {
+            TokenKind::Plus => Some(InfixOp::Add),
+            TokenKind::Minus => Some(InfixOp::Sub),
+            TokenKind::Star => Some(InfixOp::Mul),
+            TokenKind::Slash => Some(InfixOp::Div),
+            TokenKind::Percent => Some(InfixOp::Mod),
+
+            TokenKind::Eq => Some(InfixOp::Eq),
+            TokenKind::Ne => Some(InfixOp::Ne),
+            TokenKind::Lt => Some(InfixOp::Lt),
+            TokenKind::Le => Some(InfixOp::Le),
+            TokenKind::Gt => Some(InfixOp::Gt),
+            TokenKind::Ge => Some(InfixOp::Ge),
+
+            TokenKind::Ident(value) if value == "or" => Some(InfixOp::Or),
+            TokenKind::Ident(value) if value == "and" => Some(InfixOp::And),
+            TokenKind::Ident(value) if value == "in" => Some(InfixOp::In),
+
+            TokenKind::Ident(value) if value == "not" => match self.tokens.get(self.cursor + 1) {
+                Some(next) if token_is_ident(next, "in") => Some(InfixOp::NotIn),
+                _ => None,
+            },
+
+            _ => None,
+        };
+
+        Ok(op)
+    }
+
+    fn consume_op(&mut self, op: InfixOp) -> Result<(), ParseError> {
+        match op {
+            InfixOp::NotIn => {
+                self.expect_contextual_keyword("not")?;
+                self.expect_contextual_keyword("in")?;
+            }
+            InfixOp::In => {
+                self.expect_contextual_keyword("in")?;
+            }
+            InfixOp::And => {
+                self.expect_contextual_keyword("and")?;
+            }
+            InfixOp::Or => {
+                self.expect_contextual_keyword("or")?;
+            }
+            InfixOp::Add => self.expect_token(TokenKind::Plus)?,
+            InfixOp::Sub => self.expect_token(TokenKind::Minus)?,
+            InfixOp::Mul => self.expect_token(TokenKind::Star)?,
+            InfixOp::Div => self.expect_token(TokenKind::Slash)?,
+            InfixOp::Mod => self.expect_token(TokenKind::Percent)?,
+            InfixOp::Eq => self.expect_token(TokenKind::Eq)?,
+            InfixOp::Ne => self.expect_token(TokenKind::Ne)?,
+            InfixOp::Lt => self.expect_token(TokenKind::Lt)?,
+            InfixOp::Le => self.expect_token(TokenKind::Le)?,
+            InfixOp::Gt => self.expect_token(TokenKind::Gt)?,
+            InfixOp::Ge => self.expect_token(TokenKind::Ge)?,
+        }
+
+        Ok(())
     }
 
     fn parse_in_rhs(&mut self) -> Result<Vec<Expr>, ParseError> {
@@ -281,6 +368,7 @@ impl<'a> Parser<'a> {
             Some(token) => match token.kind() {
                 TokenKind::Ident(_) => Ok(Expr::Path(self.parse_path(false)?)),
                 TokenKind::Int(_)
+                | TokenKind::Float(_)
                 | TokenKind::String(_)
                 | TokenKind::Keyword(Keyword::True)
                 | TokenKind::Keyword(Keyword::False)
@@ -378,6 +466,18 @@ impl<'a> Parser<'a> {
 
         self.expect_keyword(Keyword::Limit)?;
 
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Minus)
+        {
+            return Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            ));
+        }
+
         match self.expect_literal()? {
             Literal::Int64(value) if value >= 0 => Ok(Some(value)),
             _ => Err(ParseError::new(
@@ -398,6 +498,18 @@ impl<'a> Parser<'a> {
         }
 
         self.expect_keyword(Keyword::Offset)?;
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::Minus)
+        {
+            return Err(ParseError::new(
+                ParseErrorKind::UnexpectedValue {
+                    expected: "non-negative integer",
+                },
+                None,
+            ));
+        }
+
         match self.expect_literal()? {
             Literal::Int64(value) if value >= 0 => Ok(Some(value)),
             _ => Err(ParseError::new(
@@ -434,6 +546,44 @@ impl<'a> Parser<'a> {
             None => Err(ParseError::new(
                 ParseErrorKind::UnexpectedEof {
                     expected: expected.as_str(),
+                },
+                None,
+            )),
+        }
+    }
+
+    fn expect_contextual_keyword(&mut self, expected: &'static str) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token_is_ident(token, expected) => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken { expected },
+                Some(token.span()),
+            )),
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof { expected },
+                None,
+            )),
+        }
+    }
+
+    fn expect_token(&mut self, expected: TokenKind) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == &expected => {
+                self.advance();
+                Ok(())
+            }
+            Some(token) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken {
+                    expected: token_kind_description(&expected),
+                },
+                Some(token.span()),
+            )),
+            None => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof {
+                    expected: token_kind_description(&expected),
                 },
                 None,
             )),
@@ -545,61 +695,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn is_compare_op(&self) -> bool {
-        self.peek().is_some_and(|token| {
-            matches!(
-                token.kind(),
-                TokenKind::Eq
-                    | TokenKind::Ne
-                    | TokenKind::Lt
-                    | TokenKind::Le
-                    | TokenKind::Gt
-                    | TokenKind::Ge
-            )
-        })
-    }
-
-    fn expect_compare_op(&mut self) -> Result<query_ast::CompareOp, ParseError> {
-        match self.peek() {
-            Some(token) if token.kind() == &TokenKind::Eq => {
-                self.advance();
-                Ok(query_ast::CompareOp::Eq)
-            }
-            Some(token) if token.kind() == &TokenKind::Ne => {
-                self.advance();
-                Ok(query_ast::CompareOp::Ne)
-            }
-            Some(token) if token.kind() == &TokenKind::Lt => {
-                self.advance();
-                Ok(query_ast::CompareOp::Lt)
-            }
-            Some(token) if token.kind() == &TokenKind::Le => {
-                self.advance();
-                Ok(query_ast::CompareOp::Le)
-            }
-            Some(token) if token.kind() == &TokenKind::Gt => {
-                self.advance();
-                Ok(query_ast::CompareOp::Gt)
-            }
-            Some(token) if token.kind() == &TokenKind::Ge => {
-                self.advance();
-                Ok(query_ast::CompareOp::Ge)
-            }
-            Some(token) => Err(ParseError::new(
-                ParseErrorKind::UnexpectedToken {
-                    expected: "comparison operator",
-                },
-                Some(token.span()),
-            )),
-            None => Err(ParseError::new(
-                ParseErrorKind::UnexpectedEof {
-                    expected: "comparison operator",
-                },
-                None,
-            )),
-        }
-    }
-
     fn expect_literal(&mut self) -> Result<query_ast::Literal, ParseError> {
         match self.peek() {
             Some(token) => match token.kind() {
@@ -609,6 +704,13 @@ impl<'a> Parser<'a> {
                     })?;
                     self.advance();
                     Ok(query_ast::Literal::Int64(parsed))
+                }
+                TokenKind::Float(value) => {
+                    let parsed = value.parse::<f64>().map_err(|_| {
+                        ParseError::new(ParseErrorKind::InvalidFloatLiteral, Some(token.span()))
+                    })?;
+                    self.advance();
+                    Ok(query_ast::Literal::Float64(parsed))
                 }
                 TokenKind::String(value) => {
                     let value = value.clone();
@@ -690,6 +792,55 @@ fn is_primary_expr_start(token: &Token) -> bool {
             | TokenKind::Keyword(Keyword::False)
             | TokenKind::Keyword(Keyword::Null)
     )
+}
+
+fn make_binary_expr(left: Expr, op: InfixOp, right: Expr) -> Expr {
+    match op {
+        InfixOp::Or => Expr::Or(Box::new(left), Box::new(right)),
+        InfixOp::And => Expr::And(Box::new(left), Box::new(right)),
+        InfixOp::Eq => Expr::Compare(CompareExpr::new(left, CompareOp::Eq, right)),
+        InfixOp::Ne => Expr::Compare(CompareExpr::new(left, CompareOp::Ne, right)),
+        InfixOp::Lt => Expr::Compare(CompareExpr::new(left, CompareOp::Lt, right)),
+        InfixOp::Le => Expr::Compare(CompareExpr::new(left, CompareOp::Le, right)),
+        InfixOp::Gt => Expr::Compare(CompareExpr::new(left, CompareOp::Gt, right)),
+        InfixOp::Ge => Expr::Compare(CompareExpr::new(left, CompareOp::Ge, right)),
+        InfixOp::Add => Expr::Arithmetic(ArithmeticExpr::new(left, ArithmeticOp::Add, right)),
+        InfixOp::Sub => Expr::Arithmetic(ArithmeticExpr::new(left, ArithmeticOp::Sub, right)),
+        InfixOp::Mul => Expr::Arithmetic(ArithmeticExpr::new(left, ArithmeticOp::Mul, right)),
+        InfixOp::Div => Expr::Arithmetic(ArithmeticExpr::new(left, ArithmeticOp::Div, right)),
+        InfixOp::Mod => Expr::Arithmetic(ArithmeticExpr::new(left, ArithmeticOp::Mod, right)),
+        InfixOp::In | InfixOp::NotIn => unreachable!("membership expressions need a list RHS"),
+    }
+}
+
+fn token_kind_description(token_kind: &TokenKind) -> &'static str {
+    match token_kind {
+        TokenKind::Keyword(keyword) => keyword.as_str(),
+        TokenKind::Ident(_) => "IDENT",
+        TokenKind::String(_) => "string",
+        TokenKind::Float(_) => "float",
+        TokenKind::Int(_) => "integer",
+        TokenKind::LBrace => "{",
+        TokenKind::RBrace => "}",
+        TokenKind::LBracket => "[",
+        TokenKind::RBracket => "]",
+        TokenKind::LParen => "(",
+        TokenKind::RParen => ")",
+        TokenKind::Comma => ",",
+        TokenKind::Colon => ":",
+        TokenKind::Dot => ".",
+        TokenKind::Eq => "=",
+        TokenKind::Ne => "!=",
+        TokenKind::Lt => "<",
+        TokenKind::Le => "<=",
+        TokenKind::Gt => ">",
+        TokenKind::Ge => ">=",
+        TokenKind::Plus => "+",
+        TokenKind::Minus => "-",
+        TokenKind::Star => "*",
+        TokenKind::Slash => "/",
+        TokenKind::Percent => "%",
+    }
 }
 
 fn token_is_ident(token: &Token, expected: &str) -> bool {

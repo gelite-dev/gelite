@@ -194,7 +194,10 @@ The SQLite planner needs a backend-specific predicate tree.
 
 Minimum supported forms:
 
-- column compared to literal
+- value expression compared to value expression
+- value expression `in` or `not in` a value expression list
+- `is null`
+- `is not null`
 - boolean `and`
 - boolean `or`
 - boolean `not`
@@ -204,6 +207,51 @@ The planner may simplify some Semantic IR paths:
 - `.author.id = <uuid>` may lower directly to `post.author_id = ?`
 
 This optimization belongs in SQLite planning, not Semantic IR.
+
+### `SQLiteValueExpr`
+
+Predicates and later order/projection planning use structured SQLite value
+expressions. The plan should keep these expressions as data until
+`sqlite-query-sqlgen` serializes them.
+
+Minimum supported forms for the arithmetic filter milestone:
+
+- column reference
+- literal
+- arithmetic expression
+
+Membership list items use the same value expression structure. The SQLite
+planner receives only resolver-accepted list items, so list items are non-null
+scalar expressions that do not depend on the current row in this milestone.
+The planner should preserve their tree shape and bind order for SQL generation.
+
+### `SQLiteArithmeticExpr`
+
+Minimum fields:
+
+- left SQLite value expression
+- arithmetic operator
+- right SQLite value expression
+
+Supported operators:
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `%`
+
+The SQLite planner receives only resolver-accepted arithmetic expressions.
+It should not perform Gelite type checking again. Its responsibility is to:
+
+- lower resolved paths to column references and joins
+- preserve arithmetic expression tree shape
+- preserve literal bind order from left to right
+- expose enough structure for SQL generation to render parentheses where needed
+
+SQL generation should render arithmetic operands with parentheses whenever
+omitting them could change meaning. The generated SQL may be more parenthesized
+than a handwritten query.
 
 ## Ordering Model
 

@@ -74,6 +74,7 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
     In(InExpr),
+    Arithmetic(ArithmeticExpr),
 }
 
 /// Membership expression parsed from an `in` or `not in` filter clause.
@@ -154,6 +155,22 @@ pub struct OrderExpr {
 pub enum OrderDirection {
     Asc,
     Desc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArithmeticExpr {
+    left: Box<Expr>,
+    op: ArithmeticOp,
+    right: Box<Expr>,
 }
 
 impl SelectQuery {
@@ -274,6 +291,28 @@ impl CompareExpr {
     pub fn op(&self) -> CompareOp {
         self.op
     }
+    pub fn right(&self) -> &Expr {
+        &self.right
+    }
+}
+
+impl ArithmeticExpr {
+    pub fn new(left: Expr, op: ArithmeticOp, right: Expr) -> Self {
+        Self {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        }
+    }
+
+    pub fn left(&self) -> &Expr {
+        &self.left
+    }
+
+    pub fn op(&self) -> ArithmeticOp {
+        self.op
+    }
+
     pub fn right(&self) -> &Expr {
         &self.right
     }

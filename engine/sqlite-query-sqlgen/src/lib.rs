@@ -17,8 +17,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection,
-    SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral,
+    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -123,7 +123,7 @@ fn render_where_expr(expr: &SQLiteWhereExpr, bind_values: &mut Vec<SQLiteBindVal
             let placeholders = in_expr
                 .right()
                 .iter()
-                .map(|literal| render_literal(literal, bind_values))
+                .map(|value| render_value_expr(value, bind_values))
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -189,6 +189,16 @@ fn render_in_op(op: SQLiteInOp) -> &'static str {
     }
 }
 
+fn render_arithmetic_op(op: SQLiteArithmeticOp) -> &'static str {
+    match op {
+        SQLiteArithmeticOp::Add => "+",
+        SQLiteArithmeticOp::Sub => "-",
+        SQLiteArithmeticOp::Mul => "*",
+        SQLiteArithmeticOp::Div => "/",
+        SQLiteArithmeticOp::Mod => "%",
+    }
+}
+
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
@@ -200,11 +210,21 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
         SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => {
             render_literal(&SQLiteLiteral::Int64(*value), bind_values)
         }
+        SQLiteValueExpr::Literal(SQLiteLiteral::Float64(value)) => {
+            render_literal(&SQLiteLiteral::Float64(*value), bind_values)
+        }
         SQLiteValueExpr::Literal(SQLiteLiteral::Bool(value)) => {
             render_literal(&SQLiteLiteral::Bool(*value), bind_values)
         }
         SQLiteValueExpr::Literal(SQLiteLiteral::Null) => {
             render_literal(&SQLiteLiteral::Null, bind_values)
+        }
+        SQLiteValueExpr::Arithmetic(arithmetic) => {
+            let left = render_value_expr(arithmetic.left(), bind_values);
+            let right = render_value_expr(arithmetic.right(), bind_values);
+            let op = render_arithmetic_op(arithmetic.op());
+
+            format!("({left} {op} {right})")
         }
     }
 }
@@ -213,6 +233,7 @@ fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue
     match literal {
         SQLiteLiteral::String(value) => bind_values.push(SQLiteBindValue::String(value.clone())),
         SQLiteLiteral::Int64(value) => bind_values.push(SQLiteBindValue::Int64(*value)),
+        SQLiteLiteral::Float64(value) => bind_values.push(SQLiteBindValue::Float64(*value)),
         SQLiteLiteral::Bool(value) => bind_values.push(SQLiteBindValue::Bool(*value)),
         SQLiteLiteral::Null => bind_values.push(SQLiteBindValue::Null),
     }
@@ -290,10 +311,11 @@ impl SQLiteSelectStatement {
 }
 
 /// Bind value produced while rendering SQL placeholders.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SQLiteBindValue {
     String(String),
     Int64(i64),
+    Float64(f64),
     Bool(bool),
     Null,
 }

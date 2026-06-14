@@ -5,10 +5,11 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    post_author_name_path_value, post_author_shape_field, post_id_shape_field, post_or_path_value,
-    post_or_shape_field, post_query_with_filter, post_query_with_limit_and_offset,
-    post_query_with_order_by, post_query_with_shape, post_quote_path_value, post_title_path_value,
-    post_title_shape_field,
+    post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
+    post_id_shape_field, post_or_path_value, post_or_shape_field, post_query_with_filter,
+    post_query_with_limit_and_offset, post_query_with_order_by, post_query_with_shape,
+    post_quote_path_value, post_title_path_value, post_title_shape_field,
+    post_view_count_path_value,
 };
 
 #[test]
@@ -188,6 +189,99 @@ fn sqlite_sqlgen_can_render_root_scalar_equals_int_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_arithmetic_filter_compared_to_int_literal() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        arithmetic,
+        query_ir::CompareOp::Gt,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(10)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"view_count\" + ?) > ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::Int64(1), SQLiteBindValue::Int64(10)]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_arithmetic_filter_compared_to_float_literal() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Div,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(2.5)),
+        schema_model::ScalarType::Float64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        arithmetic,
+        query_ir::CompareOp::Ge,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(10.5)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"view_count\" / ?) >= ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::Float64(2.5),
+            SQLiteBindValue::Float64(10.5)
+        ]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_arithmetic_filter_with_joined_operand() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_author_score_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        arithmetic,
+        query_ir::CompareOp::Gt,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(10)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" WHERE (\"author\".\"score\" + ?) > ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::Int64(1), SQLiteBindValue::Int64(10)]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_root_scalar_equals_bool_filter() {
     let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
         post_title_path_value(),
@@ -248,8 +342,8 @@ fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
         post_title_path_value(),
         query_ir::InOp::In,
         vec![
-            query_ir::Literal::String("Draft".to_string()),
-            query_ir::Literal::String("Published".to_string()),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Draft".to_string())),
+            query_ir::ValueExpr::Literal(query_ir::Literal::String("Published".to_string())),
         ],
     ));
 
@@ -273,11 +367,43 @@ fn sqlite_sqlgen_can_render_root_scalar_in_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_root_scalar_in_arithmetic_value_filter() {
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        query_ir::ArithmeticOp::Div,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(0)),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::Expr::In(query_ir::InExpr::new(
+        post_view_count_path_value(),
+        query_ir::InOp::In,
+        vec![arithmetic],
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"view_count\" IN ((? / ?))"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::Int64(1), SQLiteBindValue::Int64(0)]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_single_link_scalar_not_in_filter() {
     let filter = query_ir::Expr::In(query_ir::InExpr::new(
         post_author_name_path_value(),
         query_ir::InOp::NotIn,
-        vec![query_ir::Literal::String("Sheri".to_string())],
+        vec![query_ir::ValueExpr::Literal(query_ir::Literal::String(
+            "Sheri".to_string(),
+        ))],
     ));
 
     let ir = post_query_with_filter(filter);

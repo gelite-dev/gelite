@@ -53,8 +53,14 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             RawTokenKind::Lt => TokenKind::Lt,
             RawTokenKind::Ge => TokenKind::Ge,
             RawTokenKind::Gt => TokenKind::Gt,
+            RawTokenKind::Plus => TokenKind::Plus,
+            RawTokenKind::Minus => TokenKind::Minus,
+            RawTokenKind::Star => TokenKind::Star,
+            RawTokenKind::Slash => TokenKind::Slash,
+            RawTokenKind::Percent => TokenKind::Percent,
 
             RawTokenKind::Ident => TokenKind::Ident(lexer.slice().to_string()),
+            RawTokenKind::Float => TokenKind::Float(lexer.slice().to_string()),
             RawTokenKind::Int => TokenKind::Int(lexer.slice().to_string()),
             RawTokenKind::String => {
                 let raw = lexer.slice();
@@ -65,6 +71,20 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
                 return Err(LexError::new(
                     LexErrorKind::UnterminatedString,
                     span.start(),
+                ));
+            }
+            RawTokenKind::InvalidFloatWithoutFractionalPart => {
+                let invalid_byte = range.end - 1;
+                return Err(LexError::new(
+                    LexErrorKind::UnexpectedChar('.'),
+                    line_map.position(input, invalid_byte),
+                ));
+            }
+            RawTokenKind::InvalidFloatWithoutIntegerPart => {
+                let invalid_byte = range.start + 1;
+                return Err(LexError::new(
+                    LexErrorKind::UnexpectedChar(input[invalid_byte..].chars().next().unwrap()),
+                    line_map.position(input, invalid_byte),
                 ));
             }
         };
@@ -78,6 +98,12 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\r\n\f]+")]
 enum RawTokenKind {
+    #[regex(r"\.[0-9]+")]
+    InvalidFloatWithoutIntegerPart,
+
+    #[regex(r"[0-9]+\.")]
+    InvalidFloatWithoutFractionalPart,
+
     #[token("select")]
     Select,
 
@@ -162,8 +188,26 @@ enum RawTokenKind {
     #[regex(r#""[^"]*"#)]
     UnterminatedString,
 
-    #[regex(r"[-+]?[0-9]+")]
+    #[regex(r"[0-9]+\.[0-9]+")]
+    Float,
+
+    #[regex(r"[0-9]+")]
     Int,
+
+    #[token("+")]
+    Plus,
+
+    #[token("-")]
+    Minus,
+
+    #[token("*")]
+    Star,
+
+    #[token("/")]
+    Slash,
+
+    #[token("%")]
+    Percent,
 
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Ident,
@@ -196,6 +240,7 @@ pub enum TokenKind {
     Keyword(Keyword),
     Ident(String),
     String(String),
+    Float(String),
     Int(String),
     LBrace,
     RBrace,
@@ -212,6 +257,11 @@ pub enum TokenKind {
     Le,
     Gt,
     Ge,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
 }
 
 /// Reserved keywords recognized by the parser.
