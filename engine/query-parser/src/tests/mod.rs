@@ -1153,6 +1153,75 @@ fn parser_can_parse_multiple_order_by_items() {
 }
 
 #[test]
+fn parser_can_parse_order_by_arithmetic_expr_desc() {
+    let query = parse_select("select Post {title} order by .likes + .view_count desc")
+        .expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    match order.expr() {
+        Expr::Arithmetic(arithmetic) => {
+            assert_path_expr(arithmetic.left(), &["likes"]);
+            assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+            assert_path_expr(arithmetic.right(), &["view_count"]);
+        }
+        other => panic!("order by should parse arithmetic expression, got {other:?}"),
+    }
+    assert_eq!(order.direction(), OrderDirection::Desc);
+}
+
+#[test]
+fn parser_preserves_parenthesized_order_by_arithmetic_grouping() {
+    let query = parse_select("select Post {title} order by (.likes + .view_count) * 10 desc")
+        .expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    match order.expr() {
+        Expr::Arithmetic(arithmetic) => {
+            match arithmetic.left() {
+                Expr::Arithmetic(inner) => {
+                    assert_path_expr(inner.left(), &["likes"]);
+                    assert_eq!(inner.op(), ArithmeticOp::Add);
+                    assert_path_expr(inner.right(), &["view_count"]);
+                }
+                other => panic!("left side should preserve parenthesized addition, got {other:?}"),
+            }
+
+            assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
+            assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+        }
+        other => panic!("order by should parse arithmetic expression, got {other:?}"),
+    }
+    assert_eq!(order.direction(), OrderDirection::Desc);
+}
+
+#[test]
+fn parser_can_parse_multiple_order_by_value_expr_items() {
+    let query = parse_select("select Post {title} order by .likes + 1 desc, .created_at asc")
+        .expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 2);
+
+    let order = &query.order_by()[0];
+    match order.expr() {
+        Expr::Arithmetic(arithmetic) => {
+            assert_path_expr(arithmetic.left(), &["likes"]);
+            assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+            assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
+        }
+        other => panic!("first order item should parse arithmetic expression, got {other:?}"),
+    }
+    assert_eq!(order.direction(), OrderDirection::Desc);
+
+    let order = &query.order_by()[1];
+    assert_path_expr(order.expr(), &["created_at"]);
+    assert_eq!(order.direction(), OrderDirection::Asc);
+}
+
+#[test]
 fn parser_rejects_order_by_without_path() {
     let error = parse_select("select Post { title } order by desc").expect_err("query should fail");
 
