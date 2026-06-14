@@ -204,7 +204,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_expr_bp(0)
+        let expr = self.parse_expr_bp(0)?;
+        self.reject_adjacent_primary_expr()?;
+
+        Ok(expr)
     }
 
     fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
@@ -240,6 +243,10 @@ impl<'a> Parser<'a> {
             };
         }
 
+        Ok(left)
+    }
+
+    fn reject_adjacent_primary_expr(&self) -> Result<(), ParseError> {
         if self.peek().is_some_and(is_primary_expr_start) {
             let token = self.peek().expect("peek checked token exists");
             return Err(ParseError::new(
@@ -250,7 +257,7 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        Ok(left)
+        Ok(())
     }
 
     fn parse_prefix_or_primary(&mut self) -> Result<Expr, ParseError> {

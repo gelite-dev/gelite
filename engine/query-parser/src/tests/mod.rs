@@ -754,6 +754,31 @@ fn parser_can_parse_arithmetic_in_membership_left_side() {
 }
 
 #[test]
+fn parser_can_parse_arithmetic_in_not_in_membership_left_side() {
+    let query = parse_select("select Post { title } filter .view_count % 10 not in [0, 5]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            match in_expr.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["view_count"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Mod);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(10));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+            assert_eq!(in_expr.op(), InOp::NotIn);
+            assert_literal_expr(&in_expr.right()[0], &Literal::Int64(0));
+            assert_literal_expr(&in_expr.right()[1], &Literal::Int64(5));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_preserves_arithmetic_in_membership_rhs_for_resolver() {
     let query = parse_select("select Post { title } filter .view_count in [1 + 1]")
         .expect("query should parse");
