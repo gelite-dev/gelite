@@ -144,9 +144,9 @@ pub enum Literal {
 }
 
 /// Parsed ordering item.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderExpr {
-    path: Path,
+    expr: Expr,
     direction: OrderDirection,
 }
 
@@ -264,12 +264,12 @@ impl PathStep {
 }
 
 impl OrderExpr {
-    pub fn new(path: Path, direction: OrderDirection) -> Self {
-        Self { path, direction }
+    pub fn new(expr: Expr, direction: OrderDirection) -> Self {
+        Self { expr, direction }
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn expr(&self) -> &Expr {
+        &self.expr
     }
 
     pub fn direction(&self) -> OrderDirection {
