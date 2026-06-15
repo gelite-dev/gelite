@@ -196,8 +196,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 
@@ -219,8 +218,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Desc);
 }
 
@@ -242,8 +240,7 @@ fn sqlite_select_plan_can_order_by_single_link_scalar_path() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "author");
-    assert_eq!(order_by[0].column_name(), "name");
+    assert_order_column(&order_by[0], "author", "name");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 
@@ -306,9 +303,9 @@ fn sqlite_select_plan_preserves_order_by_order() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 2);
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
-    assert_eq!(order_by[1].column_name(), "id");
+    assert_order_column(&order_by[1], "root", "id");
     assert_eq!(order_by[1].direction(), SQLiteOrderDirection::Desc);
 }
 
@@ -1178,8 +1175,7 @@ fn sqlite_select_plan_can_order_by_implicit_id() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "id");
+    assert_order_column(&order_by[0], "root", "id");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 

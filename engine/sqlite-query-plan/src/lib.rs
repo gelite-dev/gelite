@@ -367,18 +367,13 @@ impl SQLiteOrderDirection {
 
 /// Planned SQLite ordering item.
 pub struct SQLiteOrder {
-    source_alias: String,
-    column_name: String,
+    value: SQLiteValueExpr,
     direction: SQLiteOrderDirection,
 }
 
 impl SQLiteOrder {
-    pub fn source_alias(&self) -> &str {
-        &self.source_alias
-    }
-
-    pub fn column_name(&self) -> &str {
-        &self.column_name
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
     }
 
     pub fn direction(&self) -> SQLiteOrderDirection {
@@ -759,14 +754,9 @@ struct PlannedOrder {
 fn plan_order_expr(order: &query_ir::OrderExpr) -> PlannedOrder {
     let planned_value = plan_value_expr(order.value());
 
-    let SQLiteValueExpr::Column(column) = planned_value.value else {
-        panic!("ORDER BY must resolve to a column")
-    };
-
     PlannedOrder {
         order: SQLiteOrder {
-            source_alias: column.source_alias,
-            column_name: column.column_name,
+            value: planned_value.value,
             direction: SQLiteOrderDirection::from_ir(order.direction()),
         },
         joins: planned_value.joins,

@@ -8,7 +8,7 @@ use fixtures::{
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
     post_id_shape_field, post_or_path_value, post_or_shape_field, post_query_with_filter,
     post_query_with_limit_and_offset, post_query_with_order_by, post_query_with_shape,
-    post_quote_path_value, post_title_path_value, post_title_shape_field,
+    post_quote_path_value, post_title_path_value, post_title_shape_field, post_type,
     post_view_count_path_value,
 };
 
@@ -550,6 +550,93 @@ fn sqlite_sqlgen_can_render_order_by_single_link_scalar_field() {
     assert_eq!(
         statement.sql(),
         "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" ORDER BY \"author\".\"name\" ASC"
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_order_by_arithmetic_expr() {
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Desc);
+
+    let ir = post_query_with_order_by(vec![order_by]);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" ORDER BY (\"root\".\"view_count\" + ?) DESC"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_order_by_arithmetic_expr_with_joined_operand() {
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_author_score_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Asc);
+
+    let ir = post_query_with_order_by(vec![order_by]);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" ORDER BY (\"author\".\"score\" + ?) ASC"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
+}
+
+#[test]
+fn sqlite_sqlgen_preserves_filter_binds_before_order_binds() {
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello".to_string())),
+    ));
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Desc);
+
+    let ir = query_ir::SelectQuery::new(
+        post_type(),
+        query_ir::ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        Some(filter),
+        vec![order_by],
+        None,
+        None,
+    );
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" = ? ORDER BY (\"root\".\"view_count\" + ?) DESC"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("Hello".to_string()),
+            SQLiteBindValue::Int64(1)
+        ]
     );
 }
 
