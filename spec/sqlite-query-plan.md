@@ -259,12 +259,13 @@ than a handwritten query.
 
 Minimum fields:
 
-- source alias
-- column name
+- value expression
 - direction
 
-Ordering expressions should only reference values already reachable through the
-planned join tree.
+The value expression uses the same SQLite value-expression model as predicates.
+Supported order values in the arithmetic order milestone are scalar column
+references and numeric arithmetic expressions. Ordering expressions should only
+reference values already reachable through the planned join tree.
 
 ## Select Value Model
 

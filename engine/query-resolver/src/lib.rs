@@ -697,19 +697,65 @@ fn cardinality_name(cardinality: schema_model::Cardinality) -> &'static str {
     }
 }
 
+fn resolve_order_value_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    expr: &query_ast::Expr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    match expr {
+        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path),
+        query_ast::Expr::Arithmetic(arithmetic) => {
+            resolve_order_arithmetic_expr(catalog, source_object_type, arithmetic)
+        }
+        query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string(),
+        }),
+        query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "comparison value".to_string(),
+        }),
+        query_ast::Expr::And(_, _)
+        | query_ast::Expr::Or(_, _)
+        | query_ast::Expr::Not(_)
+        | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "boolean value".to_string(),
+        }),
+    }
+}
+
+fn resolve_order_arithmetic_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    arithmetic: &query_ast::ArithmeticExpr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    let typed = resolve_typed_arithmetic_expr(catalog, source_object_type, arithmetic)?;
+
+    if !value_expr_contains_path(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string(),
+        });
+    }
+
+    Ok(typed.value)
+}
+
+fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {
+    match value {
+        query_ir::ValueExpr::Path(_) => true,
+        query_ir::ValueExpr::Literal(_) => false,
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            value_expr_contains_path(arithmetic.left())
+                || value_expr_contains_path(arithmetic.right())
+        }
+    }
+}
+
 fn resolve_order_expr(
     catalog: &schema_model::SchemaCatalog,
     source_object_type: &schema_model::ObjectTypeRef,
     order: &query_ast::OrderExpr,
 ) -> Result<query_ir::OrderExpr, ResolveError> {
-    let value = match order.expr() {
-        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path)?,
-        _ => {
-            return Err(ResolveError::UnsupportedExpr {
-                expr_type: "order value".to_string(),
-            });
-        }
-    };
+    let value = resolve_order_value_expr(catalog, source_object_type, order.expr())?;
+
     let direction = match order.direction() {
         query_ast::OrderDirection::Asc => query_ir::OrderDirection::Asc,
         query_ast::OrderDirection::Desc => query_ir::OrderDirection::Desc,
