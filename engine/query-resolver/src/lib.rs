@@ -703,7 +703,12 @@ fn resolve_order_value_expr(
     expr: &query_ast::Expr,
 ) -> Result<query_ir::ValueExpr, ResolveError> {
     match expr {
-        query_ast::Expr::Path(path) => resolve_path_expr(catalog, source_object_type, path),
+        query_ast::Expr::Path(path) => {
+            let value = resolve_path_expr(catalog, source_object_type, path)?;
+            ensure_order_value_is_single_cardinality(&value)?;
+
+            Ok(value)
+        }
         query_ast::Expr::Arithmetic(arithmetic) => {
             resolve_order_arithmetic_expr(catalog, source_object_type, arithmetic)
         }
@@ -734,8 +739,25 @@ fn resolve_order_arithmetic_expr(
             expr_type: "order value".to_string(),
         });
     }
+    ensure_order_value_is_single_cardinality(&typed.value)?;
 
     Ok(typed.value)
+}
+
+fn ensure_order_value_is_single_cardinality(
+    value: &query_ir::ValueExpr,
+) -> Result<(), ResolveError> {
+    match value {
+        query_ir::ValueExpr::Path(path) => match path.result_cardinality() {
+            schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
+            schema_model::Cardinality::Optional | schema_model::Cardinality::Required => Ok(()),
+        },
+        query_ir::ValueExpr::Literal(_) => Ok(()),
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            ensure_order_value_is_single_cardinality(arithmetic.left())?;
+            ensure_order_value_is_single_cardinality(arithmetic.right())
+        }
+    }
 }
 
 fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {

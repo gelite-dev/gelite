@@ -11,6 +11,7 @@ use fixtures::{
     filter_not_in_strings, filter_null_eq, filter_null_ne, literal_float_expr, literal_int_expr,
     literal_string_expr, path_expr, post_only_catalog, post_with_author_catalog,
     post_with_optional_subtitle_catalog, post_with_scalar_fields_catalog, post_with_title_catalog,
+    user_with_posts_catalog,
 };
 use query_ast::{
     ArithmeticExpr, CompareExpr,
@@ -2100,6 +2101,62 @@ fn rejects_order_literal_only_arithmetic_expr() {
             expr_type: "order value".to_string()
         })
     );
+}
+
+#[test]
+fn rejects_order_path_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        path_expr(&["posts", "view_count"]),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "User",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("email")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(resolved, Err(ResolveError::UnsupportedPath));
+}
+
+#[test]
+fn rejects_order_arithmetic_expr_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["posts", "view_count"]),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "User",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("email")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(resolved, Err(ResolveError::UnsupportedPath));
 }
 
 #[test]
