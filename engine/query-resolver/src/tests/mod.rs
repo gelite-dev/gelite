@@ -2040,6 +2040,69 @@ fn rejects_order_membership_expr() {
 }
 
 #[test]
+fn rejects_order_literal_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(literal_int_expr(1), query_ast::OrderDirection::Asc);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_literal_only_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            literal_int_expr(1),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(2),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string()
+        })
+    );
+}
+
+#[test]
 fn rejects_order_path_with_link_field() {
     let catalog = post_with_author_catalog();
 
