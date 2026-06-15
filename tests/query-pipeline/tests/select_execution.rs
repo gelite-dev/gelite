@@ -11,6 +11,7 @@ use sqlite_schema_plan::SQLiteValuePlan;
 const BLOG_SCHEMA_SOURCE: &str = r#"
 type User {
   required email: str
+  required score: int64
   multi link posts: Post
 }
 
@@ -70,19 +71,21 @@ fn insert_blog_fixture_rows(runner: &mut NativeSQLiteRunner) {
     // parsing, resolution, planning, and execution exist.
     runner
         .execute_with_values(
-            "INSERT INTO user (id, email) VALUES (?, ?)",
+            "INSERT INTO user (id, email, score) VALUES (?, ?, ?)",
             &[
                 SQLiteValuePlan::Text("user-1".to_string()),
                 SQLiteValuePlan::Text("alice@example.com".to_string()),
+                SQLiteValuePlan::Integer(100),
             ],
         )
         .expect("first user fixture row should insert");
     runner
         .execute_with_values(
-            "INSERT INTO user (id, email) VALUES (?, ?)",
+            "INSERT INTO user (id, email, score) VALUES (?, ?, ?)",
             &[
                 SQLiteValuePlan::Text("user-2".to_string()),
                 SQLiteValuePlan::Text("blocked@example.com".to_string()),
+                SQLiteValuePlan::Integer(0),
             ],
         )
         .expect("second user fixture row should insert");
@@ -206,6 +209,25 @@ fn select_pipeline_renders_comparison_filter_from_query_text() {
 }
 
 #[test]
+fn select_pipeline_renders_arithmetic_order_from_query_text() {
+    let statement = render_query(
+        r#"select Post { title } filter .title != "Archived" order by .view_count + 1 desc"#,
+    );
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" != ? ORDER BY (\"root\".\"view_count\" + ?) DESC"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("Archived".to_string()),
+            SQLiteBindValue::Int64(1),
+        ]
+    );
+}
+
+#[test]
 fn select_pipeline_executes_root_scalar_comparison_filter() {
     let result =
         execute_query(r#"select Post { title } filter .view_count >= 10 order by .title asc"#);
@@ -230,6 +252,36 @@ fn select_pipeline_executes_root_scalar_arithmetic_filter() {
         result.rows(),
         &[
             vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Published".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_root_scalar_arithmetic_order() {
+    let result = execute_query(r#"select Post { title } order by .view_count + 1 desc"#);
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Published".to_string())],
+            vec![SQLiteCellValue::Text("Draft".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_single_link_arithmetic_order() {
+    let result = execute_query(r#"select Post { title } order by .author.score + .view_count asc"#);
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Draft".to_string())],
             vec![SQLiteCellValue::Text("Published".to_string())],
         ]
     );

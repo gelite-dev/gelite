@@ -37,8 +37,8 @@ fn render_qualified_identifier(source_alias: &str, column_name: &str) -> String 
 pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
     let select_clause = render_select_clause(plan);
     let from_clause = render_from_clause(plan);
-    let (where_clause, bind_values) = render_where_clause(plan);
-    let order_clause = render_order_clause(plan);
+    let (where_clause, mut bind_values) = render_where_clause(plan);
+    let order_clause = render_order_clause(plan, &mut bind_values);
     let limit_clause = render_limit_clause(plan);
     let offset_clause = render_offset_clause(plan);
     let join_clauses = render_join_clauses(plan);
@@ -241,7 +241,10 @@ fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue
     "?".to_string()
 }
 
-fn render_order_clause(plan: &SQLiteSelectPlan) -> Option<String> {
+fn render_order_clause(
+    plan: &SQLiteSelectPlan,
+    bind_values: &mut Vec<SQLiteBindValue>,
+) -> Option<String> {
     let orders = plan.order_by();
 
     if orders.is_empty() {
@@ -251,17 +254,13 @@ fn render_order_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     let order_items = orders
         .iter()
         .map(|order| {
-            let source_alias = order.source_alias();
-            let column_name = order.column_name();
+            let value = render_value_expr(order.value(), bind_values);
             let dir = match order.direction() {
                 SQLiteOrderDirection::Asc => "ASC",
                 SQLiteOrderDirection::Desc => "DESC",
             };
 
-            format!(
-                "{} {dir}",
-                render_qualified_identifier(source_alias, column_name)
-            )
+            format!("{value} {dir}")
         })
         .collect::<Vec<String>>()
         .join(", ");

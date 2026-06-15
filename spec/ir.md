@@ -337,11 +337,10 @@ cast expressions exist. `%` is not defined for `float64`.
 is not rewritten by Semantic IR. If the divisor can only be known at runtime,
 SQLite determines the result.
 
-Arithmetic expressions may appear as value operands inside filter comparisons
-and membership expressions in the arithmetic filter milestone. Arithmetic
-expressions are not accepted as `order by` expressions or computed select
-projections until those later milestones define their own shape and result
-metadata rules.
+Arithmetic expressions may appear as value operands inside filter comparisons,
+membership expressions, and order expressions. Arithmetic expressions are not
+accepted as computed select projections until that later milestone defines the
+shape and result metadata rules.
 
 ### `CompareExpr`
 
@@ -426,8 +425,14 @@ unsupported expression through IR as an opaque node.
 
 Minimum fields:
 
-- resolved path
+- value expression
 - direction: `asc` or `desc`
+
+The order value must resolve to a scalar `ValueExpr`. Supported order values in
+the arithmetic order milestone are resolved scalar paths and numeric arithmetic
+expressions over scalar paths and numeric literals. Boolean expressions,
+membership expressions, and literal-only order values are rejected by the
+resolver before SQLite planning.
 
 ## Mutation Model
 

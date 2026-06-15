@@ -149,11 +149,16 @@ fn compare_expr_can_store_non_equality_operator() {
 
 #[test]
 fn order_expr_can_reference_a_path() {
-    let path = Path::new(vec![PathStep::new("title")]);
+    let path = Expr::Path(Path::new(vec![PathStep::new("title")]));
     let order = OrderExpr::new(path, crate::OrderDirection::Asc);
 
-    assert_eq!(order.path().steps().len(), 1);
-    assert_eq!(order.path().steps()[0].field_name(), "title");
+    match order.expr() {
+        Expr::Path(path) => {
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field_name(), "title");
+        }
+        other => panic!("order expression should reference a path, got {other:?}"),
+    }
     assert_eq!(order.direction(), OrderDirection::Asc);
 }
 
@@ -175,7 +180,10 @@ fn select_query_can_store_filter_order_and_limit() {
         )),
     ));
 
-    let order = OrderExpr::new(Path::new(vec![PathStep::new("title")]), OrderDirection::Asc);
+    let order = OrderExpr::new(
+        Expr::Path(Path::new(vec![PathStep::new("title")])),
+        OrderDirection::Asc,
+    );
 
     let query = SelectQuery::new("Post", shape, Some(filter), vec![order], Some(10), Some(0));
 
@@ -207,7 +215,10 @@ fn select_query_can_store_filter_order_and_limit() {
     }
 
     assert_eq!(query.order_by().len(), 1);
-    assert_eq!(query.order_by()[0].path().steps()[0].field_name(), "title");
+    match query.order_by()[0].expr() {
+        Expr::Path(path) => assert_eq!(path.steps()[0].field_name(), "title"),
+        other => panic!("order expression should reference a path, got {other:?}"),
+    }
     assert_eq!(query.order_by()[0].direction(), OrderDirection::Asc);
     assert_eq!(query.limit(), Some(10));
     assert_eq!(query.offset(), Some(0));

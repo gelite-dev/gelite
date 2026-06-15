@@ -2,8 +2,8 @@ mod fixtures;
 
 use crate::{
     SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteJoinReason,
-    SQLiteLiteral, SQLiteOrderDirection, SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr,
-    plan_select,
+    SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteValueExpr, SQLiteValueRole,
+    SQLiteWhereExpr, plan_select,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -16,6 +16,37 @@ use fixtures::{
     post_type, post_view_count_path_value,
 };
 use query_ir::{Literal, ResolvedShape, ResolvedShapeField, SelectQuery};
+
+fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &str) {
+    match order.value() {
+        SQLiteValueExpr::Column(column) => {
+            assert_eq!(column.source_alias(), source_alias);
+            assert_eq!(column.column_name(), column_name);
+        }
+        SQLiteValueExpr::Literal(_) => panic!("order value should be a column"),
+        SQLiteValueExpr::Arithmetic(_) => panic!("order value should be a column"),
+    }
+}
+
+fn assert_column_value(value: &SQLiteValueExpr, source_alias: &str, column_name: &str) {
+    match value {
+        SQLiteValueExpr::Column(column) => {
+            assert_eq!(column.source_alias(), source_alias);
+            assert_eq!(column.column_name(), column_name);
+        }
+        SQLiteValueExpr::Literal(_) => panic!("value should be a column"),
+        SQLiteValueExpr::Arithmetic(_) => panic!("value should be a column"),
+    }
+}
+
+fn assert_int_literal_value(value: &SQLiteValueExpr, expected: i64) {
+    match value {
+        SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => assert_eq!(*value, expected),
+        SQLiteValueExpr::Literal(_) => panic!("value should be an int literal"),
+        SQLiteValueExpr::Column(_) => panic!("value should be a literal"),
+        SQLiteValueExpr::Arithmetic(_) => panic!("value should be a literal"),
+    }
+}
 
 #[test]
 fn sqlite_select_plan_can_store_root_source() {
@@ -165,8 +196,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 
@@ -188,8 +218,7 @@ fn sqlite_select_plan_can_order_by_root_scalar_field_desc() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Desc);
 }
 
@@ -211,8 +240,7 @@ fn sqlite_select_plan_can_order_by_single_link_scalar_path() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "author");
-    assert_eq!(order_by[0].column_name(), "name");
+    assert_order_column(&order_by[0], "author", "name");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 
@@ -275,10 +303,220 @@ fn sqlite_select_plan_preserves_order_by_order() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 2);
-    assert_eq!(order_by[0].column_name(), "title");
+    assert_order_column(&order_by[0], "root", "title");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
-    assert_eq!(order_by[1].column_name(), "id");
+    assert_order_column(&order_by[1], "root", "id");
     assert_eq!(order_by[1].direction(), SQLiteOrderDirection::Desc);
+}
+
+#[test]
+fn sqlite_select_plan_can_order_by_numeric_arithmetic_expr() {
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Desc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Desc);
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = order_by[0].value() else {
+        panic!("order value should be an arithmetic expression");
+    };
+
+    assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
+    assert_column_value(arithmetic.left(), "root", "view_count");
+    assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_preserves_parenthesized_order_arithmetic_shape() {
+    let inner = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        inner,
+        query_ir::ArithmeticOp::Mul,
+        query_ir::ValueExpr::Literal(Literal::Int64(10)),
+        schema_model::ScalarType::Int64,
+    ));
+
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = order_by[0].value() else {
+        panic!("order value should be an arithmetic expression");
+    };
+
+    assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Mul);
+    assert_int_literal_value(arithmetic.right(), 10);
+
+    let SQLiteValueExpr::Arithmetic(inner) = arithmetic.left() else {
+        panic!("left side should preserve the nested arithmetic expression");
+    };
+
+    assert_eq!(inner.op(), SQLiteArithmeticOp::Add);
+    assert_column_value(inner.left(), "root", "view_count");
+    assert_int_literal_value(inner.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_can_order_by_arithmetic_expr_through_single_link_path() {
+    let order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_author_score_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = order_by[0].value() else {
+        panic!("order value should be an arithmetic expression");
+    };
+
+    assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
+    assert_column_value(arithmetic.left(), "author", "score");
+    assert_int_literal_value(arithmetic.right(), 1);
+
+    let joins = plan.joins();
+    assert_eq!(joins.len(), 1);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_table(), "user");
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[0].on().left_column(), "author_id");
+    assert_eq!(joins[0].on().right_column(), "id");
+
+    match joins[0].reason() {
+        SQLiteJoinReason::PathTraversal { path } => {
+            assert_eq!(path, &vec!["author".to_string()]);
+        }
+        SQLiteJoinReason::SelectedSingleLink { .. } => {
+            panic!("order arithmetic join should be marked as path traversal")
+        }
+    }
+}
+
+#[test]
+fn sqlite_select_plan_preserves_order_value_order_after_filter() {
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_title_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("hello".to_string())),
+    ));
+
+    let first_order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Add,
+        query_ir::ValueExpr::Literal(Literal::Int64(1)),
+        schema_model::ScalarType::Int64,
+    ));
+    let second_order_value = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        post_view_count_path_value(),
+        query_ir::ArithmeticOp::Sub,
+        query_ir::ValueExpr::Literal(Literal::Int64(2)),
+        schema_model::ScalarType::Int64,
+    ));
+
+    let first_order = query_ir::OrderExpr::new(first_order_value, query_ir::OrderDirection::Desc);
+    let second_order = query_ir::OrderExpr::new(second_order_value, query_ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        Some(filter),
+        vec![first_order, second_order],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 2);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Desc);
+    assert_eq!(order_by[1].direction(), SQLiteOrderDirection::Asc);
+
+    let SQLiteValueExpr::Arithmetic(first) = order_by[0].value() else {
+        panic!("first order value should be an arithmetic expression");
+    };
+    let SQLiteValueExpr::Arithmetic(second) = order_by[1].value() else {
+        panic!("second order value should be an arithmetic expression");
+    };
+
+    assert_eq!(first.op(), SQLiteArithmeticOp::Add);
+    assert_int_literal_value(first.right(), 1);
+    assert_eq!(second.op(), SQLiteArithmeticOp::Sub);
+    assert_int_literal_value(second.right(), 2);
+}
+
+#[test]
+fn sqlite_select_plan_stores_path_order_as_value_expr() {
+    let order_by = query_ir::OrderExpr::new(post_title_path_value(), query_ir::OrderDirection::Asc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
+    assert_order_column(&order_by[0], "root", "title");
 }
 
 #[test]
@@ -937,8 +1175,7 @@ fn sqlite_select_plan_can_order_by_implicit_id() {
     let order_by = plan.order_by();
 
     assert_eq!(order_by.len(), 1);
-    assert_eq!(order_by[0].source_alias(), "root");
-    assert_eq!(order_by[0].column_name(), "id");
+    assert_order_column(&order_by[0], "root", "id");
     assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Asc);
 }
 

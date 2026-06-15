@@ -70,7 +70,7 @@ shape_item       := IDENT ","?
                 | IDENT ":" shape ","?
 filter_clause    := "filter" expr
 order_clause     := "order" "by" order_item ("," order_item)*
-order_item       := path ("asc" | "desc")?
+order_item       := expr ("asc" | "desc")?
 limit_clause     := "limit" INT
 offset_clause    := "offset" INT
 ```
@@ -199,6 +199,33 @@ operands are rejected before SQLite planning. `%` is accepted only for
 division is required, the query must use explicit casts once `f64(expr)` is
 supported. Division by zero is not normalized by Gelite in this milestone; if a
 runtime operand is zero, SQLite's result is used.
+
+### Ordering
+
+Order clauses use the value-expression subset of the shared expression grammar.
+
+Supported order values:
+
+- scalar paths
+- numeric arithmetic expressions over scalar paths and numeric literals
+
+Examples:
+
+```text
+order by .title asc
+order by .view_count + 1 desc
+order by (.view_count + 1) * 10 asc
+```
+
+Order expressions must resolve to scalar values. Boolean expressions such as
+comparisons, `and`, `or`, `not`, and membership expressions are rejected before
+SQLite planning. Literal-only order values such as `order by 1` are also
+rejected in this milestone because they do not refer to data from the current
+row.
+
+Arithmetic in order clauses follows the same numeric rules as arithmetic in
+filters: operands must be same-type numeric values, `%` is accepted only for
+`int64 % int64`, and division semantics are delegated to SQLite.
 
 ### Expression Grammar
 

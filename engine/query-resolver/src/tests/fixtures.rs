@@ -75,11 +75,18 @@ pub fn post_with_author_catalog() -> SchemaCatalog {
     SchemaCatalog::try_new(vec![
         ObjectType::new(
             "User",
-            vec![Field::Scalar(ScalarField::new(
-                "name",
-                ScalarType::Str,
-                schema_model::SingleCardinality::Required,
-            ))],
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "name",
+                    ScalarType::Str,
+                    schema_model::SingleCardinality::Required,
+                )),
+                Field::Scalar(ScalarField::new(
+                    "score",
+                    ScalarType::Int64,
+                    schema_model::SingleCardinality::Required,
+                )),
+            ],
         ),
         ObjectType::new(
             "Post",
@@ -98,6 +105,35 @@ pub fn post_with_author_catalog() -> SchemaCatalog {
         ),
     ])
     .expect("post-with-author schema catalog should be valid")
+}
+
+pub fn user_with_posts_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![
+        ObjectType::new(
+            "User",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "email",
+                    ScalarType::Str,
+                    schema_model::SingleCardinality::Required,
+                )),
+                Field::Link(LinkField::new(
+                    "posts",
+                    "Post",
+                    schema_model::Cardinality::Many,
+                )),
+            ],
+        ),
+        ObjectType::new(
+            "Post",
+            vec![Field::Scalar(ScalarField::new(
+                "view_count",
+                ScalarType::Int64,
+                schema_model::SingleCardinality::Required,
+            ))],
+        ),
+    ])
+    .expect("user-with-posts schema catalog should be valid")
 }
 
 pub fn path_expr(path: &[&str]) -> Expr {

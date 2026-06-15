@@ -1,6 +1,6 @@
 mod fixtures;
 
-use crate::{ResolveError, resolve_select};
+use crate::{ResolveError, resolve_select, tests::fixtures::literal_bool_expr};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
@@ -11,8 +11,13 @@ use fixtures::{
     filter_not_in_strings, filter_null_eq, filter_null_ne, literal_float_expr, literal_int_expr,
     literal_string_expr, path_expr, post_only_catalog, post_with_author_catalog,
     post_with_optional_subtitle_catalog, post_with_scalar_fields_catalog, post_with_title_catalog,
+    user_with_posts_catalog,
 };
-use query_ast::{ArithmeticExpr, CompareExpr, Expr, Path, PathStep, SelectQuery, Shape, ShapeItem};
+use query_ast::{
+    ArithmeticExpr, CompareExpr,
+    Expr::{self, Compare},
+    InExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+};
 
 #[test]
 fn resolves_select_root_object_type() {
@@ -1642,7 +1647,7 @@ fn resolves_order_path_to_resolved_path() {
     let catalog = post_with_title_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("title")]),
+        Expr::Path(Path::new(vec![PathStep::new("title")])),
         query_ast::OrderDirection::Desc,
     );
 
@@ -1678,11 +1683,488 @@ fn resolves_order_path_to_resolved_path() {
 }
 
 #[test]
+fn resolves_order_numeric_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["view_count"]),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        ),
+        query_ast::OrderDirection::Desc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    assert_eq!(resolved.order_by().len(), 1);
+    assert_eq!(
+        resolved.order_by()[0].direction(),
+        query_ir::OrderDirection::Desc
+    );
+
+    let query_ir::ValueExpr::Arithmetic(arithmetic) = resolved.order_by()[0].value() else {
+        panic!("order by should resolve to an arithmetic value expression");
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+    assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Int64);
+
+    match arithmetic.left() {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 1);
+            assert_eq!(path.steps()[0].field().name(), "view_count");
+        }
+        other => panic!("arithmetic left side should resolve to a path, got {other:?}"),
+    }
+
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+}
+
+#[test]
+fn resolves_order_parenthesized_numeric_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Add,
+                literal_int_expr(1),
+            ),
+            query_ast::ArithmeticOp::Mul,
+            literal_int_expr(10),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    assert_eq!(resolved.order_by().len(), 1);
+    assert_eq!(
+        resolved.order_by()[0].direction(),
+        query_ir::OrderDirection::Asc
+    );
+
+    let query_ir::ValueExpr::Arithmetic(arithmetic) = resolved.order_by()[0].value() else {
+        panic!("order by should resolve to an arithmetic value expression")
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Mul);
+    assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Int64);
+
+    match arithmetic.left() {
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            match arithmetic.left() {
+                query_ir::ValueExpr::Path(path) => {
+                    assert_eq!(path.root_object_type().name(), "Post");
+                    assert_eq!(path.steps().len(), 1);
+                    assert_eq!(path.steps()[0].field().name(), "view_count");
+                }
+                other => panic!("arithmetic left side should resolve to a path, got {other:?}"),
+            }
+            assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+            assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Int64);
+            assert_eq!(
+                arithmetic.right(),
+                &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+            );
+        }
+        other => panic!("arithmetic left side should resolve to a arithmetic, got {other:?}"),
+    }
+
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(10))
+    );
+}
+
+#[test]
+fn resolves_order_arithmetic_expr_through_single_link_path() {
+    let catalog = post_with_author_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["author", "score"]),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    assert_eq!(resolved.order_by().len(), 1);
+    assert_eq!(
+        resolved.order_by()[0].direction(),
+        query_ir::OrderDirection::Asc
+    );
+
+    let query_ir::ValueExpr::Arithmetic(arithmetic) = resolved.order_by()[0].value() else {
+        panic!("order by should resolve to an arithmetic value expression");
+    };
+
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+    assert_eq!(arithmetic.scalar_type(), schema_model::ScalarType::Int64);
+
+    match arithmetic.left() {
+        query_ir::ValueExpr::Path(path) => {
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(path.steps().len(), 2);
+            assert_eq!(path.steps()[0].field().name(), "author");
+            assert_eq!(path.steps()[1].field().name(), "score");
+        }
+        other => panic!("arithmetic left side should resolve to a path, got {other:?}"),
+    }
+
+    assert_eq!(
+        arithmetic.right(),
+        &query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+}
+
+#[test]
+fn rejects_order_string_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["title"]),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::NonNumericArithmeticOperand {
+            actual: "str".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_mixed_numeric_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["view_count"]),
+            query_ast::ArithmeticOp::Add,
+            path_expr(&["rating"]),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "int64".to_string(),
+            actual: "float64".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_float_modulo_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["rating"]),
+            query_ast::ArithmeticOp::Mod,
+            literal_float_expr(2.5),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("view_count")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "int64".to_string(),
+            actual: "float64".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_boolean_predicate_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        Compare(CompareExpr::new(
+            path_expr(&["published"]),
+            query_ast::CompareOp::Eq,
+            literal_bool_expr(true),
+        )),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "comparison value".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_membership_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        Expr::In(InExpr::new(
+            path_expr(&["view_count"]),
+            query_ast::InOp::In,
+            vec![literal_int_expr(1), literal_int_expr(2)],
+        )),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "boolean value".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_literal_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(literal_int_expr(1), query_ast::OrderDirection::Asc);
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_literal_only_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            literal_int_expr(1),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(2),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_order_path_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        path_expr(&["posts", "view_count"]),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "User",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("email")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(resolved, Err(ResolveError::UnsupportedPath));
+}
+
+#[test]
+fn rejects_order_arithmetic_expr_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        arithmetic_expr(
+            path_expr(&["posts", "view_count"]),
+            query_ast::ArithmeticOp::Add,
+            literal_int_expr(1),
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "User",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("email")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(resolved, Err(ResolveError::UnsupportedPath));
+}
+
+#[test]
 fn rejects_order_path_with_link_field() {
     let catalog = post_with_author_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("author")]),
+        Expr::Path(Path::new(vec![PathStep::new("author")])),
         query_ast::OrderDirection::Asc,
     );
 
@@ -1805,7 +2287,10 @@ fn resolves_order_path_through_single_link_to_scalar_field() {
     let catalog = post_with_author_catalog();
 
     let order = query_ast::OrderExpr::new(
-        Path::new(vec![PathStep::new("author"), PathStep::new("name")]),
+        Expr::Path(Path::new(vec![
+            PathStep::new("author"),
+            PathStep::new("name"),
+        ])),
         query_ast::OrderDirection::Asc,
     );
 
