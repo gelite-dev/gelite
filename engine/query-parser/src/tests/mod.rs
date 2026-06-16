@@ -423,6 +423,33 @@ fn parser_can_parse_shape_item_named_membership_operator_word() {
 }
 
 #[test]
+fn parser_can_parse_computed_shape_item_arithmetic_expr() {
+    let query = parse_select("select Post { score := .likes * 10 + .view_count }")
+        .expect("query should parse");
+
+    let items = query.shape().items();
+
+    assert_eq!(items.len(), 1);
+    let computed = items[0]
+        .as_computed()
+        .expect("shape item should be a computed projection");
+    assert_eq!(computed.output_name(), "score");
+
+    let Expr::Arithmetic(add) = computed.expr() else {
+        panic!("computed projection should be an arithmetic expression");
+    };
+    assert_eq!(add.op(), ArithmeticOp::Add);
+
+    let Expr::Arithmetic(mul) = add.left() else {
+        panic!("multiplication should bind before addition");
+    };
+    assert_eq!(mul.op(), ArithmeticOp::Mul);
+    assert_path_expr(mul.left(), &["likes"]);
+    assert_literal_expr(mul.right(), &Literal::Int64(10));
+    assert_path_expr(add.right(), &["view_count"]);
+}
+
+#[test]
 fn parser_rejects_adjacent_shape_items_without_comma() {
     let error =
         parse_select("select Post { id title }").expect_err("query should fail without comma");
