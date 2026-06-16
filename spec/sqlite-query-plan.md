@@ -276,9 +276,8 @@ The plan should explicitly list which physical values must be fetched.
 Minimum fields:
 
 - slot id
-- source alias
-- column name
-- logical field reference
+- value expression
+- output SQL alias
 - value role
 
 Suggested roles:
@@ -287,6 +286,13 @@ Suggested roles:
 - `root_scalar`
 - `nested_object_id`
 - `nested_scalar`
+- `computed`
+
+Schema-backed selected values usually lower to column references. Computed
+selected values lower to SQLite value expressions such as arithmetic trees and
+must not require a logical `schema_model::FieldRef`. The planner assigns stable
+SQL aliases for computed values so SQL generation and result decoding can refer
+to the same output column.
 
 This keeps result shaping deterministic.
 
@@ -310,14 +316,16 @@ Minimum fields:
 
 - output name
 - cardinality
-- identity slot
-- field slots
+- optional identity slot
+- field slots or computed value slots
 - optional source for follow-up fetching
 
 Rules:
 
 - single-link nested shapes may be satisfied by the main query
 - multi-link nested shapes may be satisfied by follow-up fetch plans
+- computed fields appear in the ordered output field list but do not have
+  identity slots or schema field references
 
 ## `SQLiteFollowUpFetchPlan`
 
