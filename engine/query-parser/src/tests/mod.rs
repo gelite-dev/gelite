@@ -78,6 +78,30 @@ fn lexer_can_tokenize_arithmetic_operators() {
 }
 
 #[test]
+fn lexer_can_tokenize_computed_shape_assignment() {
+    let tokens = lex("select Post { score := .likes + 1 }").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Select));
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("Post".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::LBrace);
+    assert_eq!(tokens[3].kind(), &TokenKind::Ident("score".to_string()));
+    assert_eq!(tokens[4].kind(), &TokenKind::ColonEq);
+    assert_eq!(tokens[5].kind(), &TokenKind::Dot);
+    assert_eq!(tokens[6].kind(), &TokenKind::Ident("likes".to_string()));
+    assert_eq!(tokens[7].kind(), &TokenKind::Plus);
+    assert_eq!(tokens[8].kind(), &TokenKind::Int("1".to_string()));
+    assert_eq!(tokens[9].kind(), &TokenKind::RBrace);
+
+    let assignment_span = tokens[4].span();
+    assert_eq!(assignment_span.start().byte(), 20);
+    assert_eq!(assignment_span.start().line(), 1);
+    assert_eq!(assignment_span.start().column(), 21);
+    assert_eq!(assignment_span.end().byte(), 22);
+    assert_eq!(assignment_span.end().line(), 1);
+    assert_eq!(assignment_span.end().column(), 23);
+}
+
+#[test]
 fn lexer_tracks_arithmetic_operator_spans() {
     let tokens = lex("filter .x + 10 - 2 * 3 / 4 % 5").expect("query should lex");
 
