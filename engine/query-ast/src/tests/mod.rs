@@ -69,7 +69,7 @@ fn shape_can_contain_computed_projection() {
 
     assert_eq!(items.len(), 1);
     let computed = items[0]
-        .computed()
+        .as_computed()
         .expect("shape item should be a computed projection");
     assert_eq!(computed.output_name(), "score");
 
