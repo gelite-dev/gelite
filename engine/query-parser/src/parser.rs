@@ -827,6 +827,7 @@ fn token_kind_description(token_kind: &TokenKind) -> &'static str {
         TokenKind::LParen => "(",
         TokenKind::RParen => ")",
         TokenKind::Comma => ",",
+        TokenKind::ColonEq => ":=",
         TokenKind::Colon => ":",
         TokenKind::Dot => ".",
         TokenKind::Eq => "=",
