@@ -182,15 +182,24 @@ impl<'a> Parser<'a> {
 
     fn parse_shape_item(&mut self) -> Result<query_ast::ShapeItem, ParseError> {
         let field_name = self.expect_ident()?;
-        let path = Path::new(vec![PathStep::new(field_name)]);
-        let child_shape = match self.peek() {
+
+        match self.peek() {
+            Some(token) if token.kind() == &TokenKind::ColonEq => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                Ok(ShapeItem::computed(field_name, expr))
+            }
             Some(token) if token.kind() == &TokenKind::Colon => {
                 self.advance();
-                Some(self.parse_shape()?)
+                let child_shape = self.parse_shape()?;
+                let path = Path::new(vec![PathStep::new(field_name)]);
+                Ok(ShapeItem::new(path, Some(child_shape)))
             }
-            _ => None,
-        };
-        Ok(ShapeItem::new(path, child_shape))
+            _ => {
+                let path = Path::new(vec![PathStep::new(field_name)]);
+                Ok(ShapeItem::new(path, None))
+            }
+        }
     }
 
     fn parse_filter_clause(&mut self) -> Result<Option<query_ast::Expr>, ParseError> {
