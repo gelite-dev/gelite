@@ -46,13 +46,6 @@ pub fn resolve_select(
             name: query.root_type_name().to_string(),
         })?;
 
-    let fields = query
-        .shape()
-        .items()
-        .iter()
-        .map(|item| resolve_shape_item(catalog, &root_object_type, item))
-        .collect::<Result<Vec<_>, ResolveError>>()?;
-
     let filter = query
         .filter()
         .map(|expr| resolve_expr(catalog, &root_object_type, expr))
@@ -66,12 +59,35 @@ pub fn resolve_select(
 
     Ok(query_ir::SelectQuery::new(
         root_object_type.clone(),
-        query_ir::ResolvedShape::with_items(root_object_type, fields),
+        resolve_shape(catalog, root_object_type, query.shape())?,
         filter,
         order_by,
         query.limit(),
         query.offset(),
     ))
+}
+
+fn resolve_shape(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: schema_model::ObjectTypeRef,
+    shape: &query_ast::Shape,
+) -> Result<query_ir::ResolvedShape, ResolveError> {
+    let mut items = Vec::new();
+    let mut output_names = Vec::<String>::new();
+
+    for item in shape.items() {
+        let resolved_item = resolve_shape_item(catalog, &source_object_type, item)?;
+        let output_name = resolved_item.output_name().to_string();
+
+        if output_names.iter().any(|name| name == &output_name) {
+            return Err(ResolveError::DuplicateOutputName { name: output_name });
+        }
+
+        output_names.push(output_name);
+        items.push(resolved_item);
+    }
+
+    Ok(query_ir::ResolvedShape::with_items(source_object_type, items))
 }
 
 fn resolve_shape_item(
@@ -80,9 +96,8 @@ fn resolve_shape_item(
     item: &query_ast::ShapeItem,
 ) -> Result<query_ir::ResolvedShapeItem, ResolveError> {
     match item.kind() {
-        query_ast::ShapeItemKind::Field(field) => {
-            resolve_shape_field(catalog, source_object_type, field).map(query_ir::ResolvedShapeItem::Field)
-        }
+        query_ast::ShapeItemKind::Field(field) => resolve_shape_field(catalog, source_object_type, field)
+            .map(query_ir::ResolvedShapeItem::Field),
         query_ast::ShapeItemKind::Computed(computed) => {
             resolve_computed_shape_item(catalog, source_object_type, computed)
                 .map(query_ir::ResolvedShapeItem::Computed)
@@ -145,14 +160,7 @@ fn resolve_shape_field(
                         name: link.target_type_name().to_string(),
                     })?;
 
-            let child_fields = child_shape
-                .items()
-                .iter()
-                .map(|child_item| resolve_shape_item(catalog, &target_object_type, child_item))
-                .collect::<Result<Vec<_>, ResolveError>>()?;
-
-            let resolved_child_shape =
-                query_ir::ResolvedShape::with_items(target_object_type, child_fields);
+            let resolved_child_shape = resolve_shape(catalog, target_object_type, child_shape)?;
 
             Ok(query_ir::ResolvedShapeField::new(
                 field_name,
@@ -169,6 +177,12 @@ fn resolve_computed_shape_item(
     source_object_type: &schema_model::ObjectTypeRef,
     item: &query_ast::ComputedShapeItem,
 ) -> Result<query_ir::ResolvedComputedField, ResolveError> {
+    if !matches!(item.expr(), query_ast::Expr::Arithmetic(_)) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "computed projection".to_string(),
+        });
+    }
+
     let typed = resolve_typed_value_expr(catalog, source_object_type, item.expr())?;
 
     if !value_expr_contains_path(&typed.value) {
@@ -880,6 +894,7 @@ pub enum ResolveError {
     IncompatibleOperandTypes { expected: String, actual: String },
     NonNumericArithmeticOperand { actual: String },
     NullComparisonOnNonOptionalPath { cardinality: String },
+    DuplicateOutputName { name: String },
 }
 
 #[cfg(test)]
