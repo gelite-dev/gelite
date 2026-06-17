@@ -15,7 +15,10 @@ use fixtures::{
     post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
     post_type, post_view_count_path_value,
 };
-use query_ir::{Literal, ResolvedShape, ResolvedShapeField, SelectQuery};
+use query_ir::{
+    Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
+    SelectQuery,
+};
 
 fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &str) {
     match order.value() {
@@ -102,6 +105,44 @@ fn sqlite_select_plan_preserves_root_scalar_output_name() {
     assert_eq!(selected_values[0].output_name(), "headline");
     assert_eq!(selected_values[0].field().name(), "title");
     assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
+}
+
+#[test]
+fn sqlite_select_plan_can_project_computed_value() {
+    let computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(post_type(), vec![ResolvedShapeItem::Computed(computed)]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 1);
+    assert_eq!(selected_values[0].output_name(), "score");
+    assert_eq!(selected_values[0].role(), SQLiteValueRole::Computed);
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = selected_values[0].value() else {
+        panic!("computed projection should lower to an arithmetic SQLite value expression");
+    };
+    assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
+    assert_column_value(arithmetic.left(), "root", "view_count");
+    assert_int_literal_value(arithmetic.right(), 1);
 }
 
 #[test]
