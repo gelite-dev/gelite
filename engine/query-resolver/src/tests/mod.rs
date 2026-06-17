@@ -73,6 +73,43 @@ fn resolves_scalar_shape_field() {
 }
 
 #[test]
+fn resolves_computed_projection_shape_item() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Add,
+                literal_int_expr(1),
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let items = resolved.shape().items();
+
+    assert_eq!(items.len(), 1);
+    let query_ir::ResolvedShapeItem::Computed(computed) = &items[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+    assert_eq!(computed.output_name(), "score");
+    assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
+    assert_eq!(computed.cardinality(), schema_model::Cardinality::Required);
+
+    let query_ir::ValueExpr::Arithmetic(arithmetic) = computed.value() else {
+        panic!("computed projection should store an arithmetic value expression");
+    };
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+}
+
+#[test]
 fn rejects_unknown_shape_field() {
     let catalog = post_with_title_catalog();
 
