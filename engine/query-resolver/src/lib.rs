@@ -66,7 +66,7 @@ pub fn resolve_select(
 
     Ok(query_ir::SelectQuery::new(
         root_object_type.clone(),
-        query_ir::ResolvedShape::new(root_object_type, fields),
+        query_ir::ResolvedShape::with_items(root_object_type, fields),
         filter,
         order_by,
         query.limit(),
@@ -78,6 +78,22 @@ fn resolve_shape_item(
     catalog: &schema_model::SchemaCatalog,
     source_object_type: &schema_model::ObjectTypeRef,
     item: &query_ast::ShapeItem,
+) -> Result<query_ir::ResolvedShapeItem, ResolveError> {
+    match item.kind() {
+        query_ast::ShapeItemKind::Field(field) => {
+            resolve_shape_field(catalog, source_object_type, field).map(query_ir::ResolvedShapeItem::Field)
+        }
+        query_ast::ShapeItemKind::Computed(computed) => {
+            resolve_computed_shape_item(catalog, source_object_type, computed)
+                .map(query_ir::ResolvedShapeItem::Computed)
+        }
+    }
+}
+
+fn resolve_shape_field(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    item: &query_ast::ShapeField,
 ) -> Result<query_ir::ResolvedShapeField, ResolveError> {
     let steps = item.path().steps();
 
@@ -136,7 +152,7 @@ fn resolve_shape_item(
                 .collect::<Result<Vec<_>, ResolveError>>()?;
 
             let resolved_child_shape =
-                query_ir::ResolvedShape::new(target_object_type, child_fields);
+                query_ir::ResolvedShape::with_items(target_object_type, child_fields);
 
             Ok(query_ir::ResolvedShapeField::new(
                 field_name,
@@ -146,6 +162,30 @@ fn resolve_shape_item(
             ))
         }
     }
+}
+
+fn resolve_computed_shape_item(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    item: &query_ast::ComputedShapeItem,
+) -> Result<query_ir::ResolvedComputedField, ResolveError> {
+    let typed = resolve_typed_value_expr(catalog, source_object_type, item.expr())?;
+
+    if !value_expr_contains_path(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "computed projection".to_string(),
+        });
+    }
+
+    let cardinality = value_expr_cardinality(&typed.value)?;
+    let scalar_type = source_scalar_type(typed.source);
+
+    Ok(query_ir::ResolvedComputedField::new(
+        item.output_name(),
+        typed.value,
+        scalar_type,
+        cardinality,
+    ))
 }
 
 fn resolve_expr(
@@ -756,6 +796,44 @@ fn ensure_order_value_is_single_cardinality(
         query_ir::ValueExpr::Arithmetic(arithmetic) => {
             ensure_order_value_is_single_cardinality(arithmetic.left())?;
             ensure_order_value_is_single_cardinality(arithmetic.right())
+        }
+    }
+}
+
+fn value_expr_cardinality(
+    value: &query_ir::ValueExpr,
+) -> Result<schema_model::Cardinality, ResolveError> {
+    fn combine(
+        left: schema_model::Cardinality,
+        right: schema_model::Cardinality,
+    ) -> schema_model::Cardinality {
+        match (left, right) {
+            (schema_model::Cardinality::Many, _) | (_, schema_model::Cardinality::Many) => {
+                schema_model::Cardinality::Many
+            }
+            (schema_model::Cardinality::Optional, _) | (_, schema_model::Cardinality::Optional) => {
+                schema_model::Cardinality::Optional
+            }
+            (schema_model::Cardinality::Required, schema_model::Cardinality::Required) => {
+                schema_model::Cardinality::Required
+            }
+        }
+    }
+
+    match value {
+        query_ir::ValueExpr::Path(path) => Ok(path.result_cardinality()),
+        query_ir::ValueExpr::Literal(_) => Ok(schema_model::Cardinality::Required),
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            let left = value_expr_cardinality(arithmetic.left())?;
+            let right = value_expr_cardinality(arithmetic.right())?;
+            let cardinality = combine(left, right);
+
+            match cardinality {
+                schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
+                schema_model::Cardinality::Optional | schema_model::Cardinality::Required => {
+                    Ok(cardinality)
+                }
+            }
         }
     }
 }
