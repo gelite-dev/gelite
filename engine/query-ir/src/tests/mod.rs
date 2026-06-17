@@ -3,7 +3,8 @@ mod fixtures;
 use crate::{
     ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
     OrderDirection, OrderExpr, ResolvedPath, ResolvedPathError, ResolvedPathStep,
-    ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, SelectQuery, ValueExpr,
+    ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
+    ResolvedComputedField, SelectQuery, ValueExpr,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -47,6 +48,40 @@ fn resolved_shape_can_contain_scalar_field() {
     assert_eq!(fields[0].field().name(), "title");
     assert_eq!(fields[0].cardinality(), Cardinality::Required);
     assert!(fields[0].child_shape().is_none());
+}
+
+#[test]
+fn resolved_shape_can_contain_computed_projection() {
+    let computed = ResolvedComputedField::new(
+        "score",
+        ValueExpr::Arithmetic(ArithmeticExpr::new(
+            post_view_count_path_value(),
+            ArithmeticOp::Add,
+            ValueExpr::Literal(Literal::Int64(1)),
+            ScalarType::Int64,
+        )),
+        ScalarType::Int64,
+        Cardinality::Required,
+    );
+
+    let shape = ResolvedShape::with_items(
+        post_type(),
+        vec![ResolvedShapeItem::Computed(computed)],
+    );
+    let items = shape.items();
+
+    assert_eq!(items.len(), 1);
+    let ResolvedShapeItem::Computed(computed) = &items[0] else {
+        panic!("shape item should be a computed projection");
+    };
+    assert_eq!(computed.output_name(), "score");
+    assert_eq!(computed.scalar_type(), ScalarType::Int64);
+    assert_eq!(computed.cardinality(), Cardinality::Required);
+
+    let ValueExpr::Arithmetic(arithmetic) = computed.value() else {
+        panic!("computed projection should store an arithmetic value expression");
+    };
+    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
 }
 
 #[test]
