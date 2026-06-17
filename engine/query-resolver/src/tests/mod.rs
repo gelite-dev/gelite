@@ -110,6 +110,95 @@ fn resolves_computed_projection_shape_item() {
 }
 
 #[test]
+fn rejects_computed_projection_plain_path_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            path_expr(&["view_count"]),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "computed projection".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_computed_projection_literal_only_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            arithmetic_expr(
+                literal_int_expr(1),
+                query_ast::ArithmeticOp::Add,
+                literal_int_expr(2),
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "computed projection".to_string()
+        })
+    );
+}
+
+#[test]
+fn rejects_computed_projection_duplicate_output_name() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![
+            ShapeItem::new(Path::new(vec![PathStep::new("title")]), None),
+            ShapeItem::computed(
+                "title",
+                arithmetic_expr(
+                    path_expr(&["view_count"]),
+                    query_ast::ArithmeticOp::Add,
+                    literal_int_expr(1),
+                ),
+            ),
+        ]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(
+        resolved,
+        Err(ResolveError::DuplicateOutputName {
+            name: "title".to_string()
+        })
+    );
+}
+
+#[test]
 fn rejects_unknown_shape_field() {
     let catalog = post_with_title_catalog();
 
