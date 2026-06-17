@@ -28,7 +28,8 @@ use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
 pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let root_object_type = ir.root_object_type().clone();
 
-    let selected_values = plan_shape_values(ir.shape(), "root");
+    let planned_shape_values = plan_shape_values(ir.shape(), "root");
+    let selected_values = planned_shape_values.values;
     let result_shape = plan_result_shape(ir.shape(), "root", false);
 
     let planned_orders: Vec<PlannedOrder> = ir.order_by().iter().map(plan_order_expr).collect();
@@ -52,11 +53,12 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let mut joins: Vec<SQLiteJoin> = ir
         .shape()
         .fields()
-        .iter()
+        .into_iter()
         .filter(|field| field.child_shape().is_some())
         .map(SQLiteJoin::selected_single_link)
         .collect();
 
+    joins.extend(planned_shape_values.joins);
     joins.extend(filter_joins);
     joins.extend(order_joins);
     joins = dedup_joins(joins);
@@ -83,6 +85,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 pub enum SQLiteValueRole {
     ObjectId,
     Scalar,
+    Computed,
 }
 
 /// Structured SQLite plan for a select query.
@@ -136,10 +139,9 @@ impl SQLiteSelectPlan {
 
 /// One column selected by the generated SQL.
 pub struct SQLiteSelectValue {
-    source_alias: String,
-    column_name: String,
     output_name: String,
-    field: schema_model::FieldRef,
+    value: SQLiteValueExpr,
+    field: Option<schema_model::FieldRef>,
     role: SQLiteValueRole,
 }
 
@@ -149,21 +151,44 @@ impl SQLiteSelectValue {
         field: schema_model::FieldRef,
         output_name: impl Into<String>,
     ) -> Self {
+        let source_alias = source_alias.into();
+        let column_name = field.name().to_string();
         Self {
-            source_alias: source_alias.into(),
-            column_name: field.name().to_string(),
             output_name: output_name.into(),
+            value: SQLiteValueExpr::Column(SQLiteColumnRef {
+                source_alias,
+                column_name,
+            }),
             role: SQLiteValueRole::for_field(&field),
-            field,
+            field: Some(field),
+        }
+    }
+
+    pub fn computed(output_name: impl Into<String>, value: SQLiteValueExpr) -> Self {
+        Self {
+            output_name: output_name.into(),
+            value,
+            field: None,
+            role: SQLiteValueRole::Computed,
         }
     }
 
     pub fn source_alias(&self) -> &str {
-        &self.source_alias
+        match &self.value {
+            SQLiteValueExpr::Column(column) => column.source_alias(),
+            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+                panic!("computed selected value does not have a source alias")
+            }
+        }
     }
 
     pub fn column_name(&self) -> &str {
-        &self.column_name
+        match &self.value {
+            SQLiteValueExpr::Column(column) => column.column_name(),
+            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+                panic!("computed selected value does not have a column name")
+            }
+        }
     }
 
     pub fn output_name(&self) -> &str {
@@ -171,7 +196,13 @@ impl SQLiteSelectValue {
     }
 
     pub fn field(&self) -> &schema_model::FieldRef {
-        &self.field
+        self.field
+            .as_ref()
+            .expect("computed selected value does not have a schema field")
+    }
+
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
     }
 
     pub fn role(&self) -> SQLiteValueRole {
@@ -189,14 +220,18 @@ impl SQLiteValueRole {
     }
 }
 
-fn plan_shape_values(
-    shape: &query_ir::ResolvedShape,
-    source_alias: &str,
-) -> Vec<SQLiteSelectValue> {
-    shape
-        .fields()
-        .iter()
-        .flat_map(|field| match field.child_shape() {
+struct PlannedShapeValues {
+    values: Vec<SQLiteSelectValue>,
+    joins: Vec<SQLiteJoin>,
+}
+
+fn plan_shape_values(shape: &query_ir::ResolvedShape, source_alias: &str) -> PlannedShapeValues {
+    let mut values = Vec::new();
+    let mut joins = Vec::new();
+
+    for item in shape.items() {
+        match item {
+            query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
             Some(child_shape) => {
                 let nested_alias = field.output_name();
                 let child_id_field = FieldRef::new(
@@ -205,22 +240,34 @@ fn plan_shape_values(
                     "id",
                 );
 
-                let mut values = vec![SQLiteSelectValue::from_field(
+                values.push(SQLiteSelectValue::from_field(
                     nested_alias,
                     child_id_field,
                     "id",
-                )];
+                ));
 
-                values.extend(plan_shape_values(child_shape, nested_alias));
-                values
+                let planned_child_values = plan_shape_values(child_shape, nested_alias);
+                values.extend(planned_child_values.values);
+                joins.extend(planned_child_values.joins);
             }
-            None => vec![SQLiteSelectValue::from_field(
+            None => values.push(SQLiteSelectValue::from_field(
                 source_alias,
                 field.field().clone(),
                 field.output_name(),
-            )],
-        })
-        .collect()
+            )),
+        },
+            query_ir::ResolvedShapeItem::Computed(computed) => {
+                let planned = plan_value_expr(computed.value());
+                values.push(SQLiteSelectValue::computed(
+                    computed.output_name(),
+                    planned.value,
+                ));
+                joins.extend(planned.joins);
+            }
+        }
+    }
+
+    PlannedShapeValues { values, joins }
 }
 
 fn plan_result_shape(
@@ -229,22 +276,34 @@ fn plan_result_shape(
     include_identity: bool,
 ) -> SQLiteResultShapePlan {
     let fields = shape
-        .fields()
+        .items()
         .iter()
-        .map(|field| match field.child_shape() {
-            Some(child_shape) => SQLiteResultField {
-                output_name: field.output_name().to_string(),
-                cardinality: field.cardinality(),
-                value: None,
-                nested_shape: Some(plan_result_shape(child_shape, field.output_name(), true)),
+        .map(|item| match item {
+            query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
+                Some(child_shape) => SQLiteResultField {
+                    output_name: field.output_name().to_string(),
+                    cardinality: field.cardinality(),
+                    value: None,
+                    nested_shape: Some(plan_result_shape(child_shape, field.output_name(), true)),
+                },
+                None => SQLiteResultField {
+                    output_name: field.output_name().to_string(),
+                    cardinality: field.cardinality(),
+                    value: Some(SQLiteResultValueRef {
+                        source_alias: source_alias.to_string(),
+                        column_name: field.field().name().to_string(),
+                        role: SQLiteValueRole::for_field(field.field()),
+                    }),
+                    nested_shape: None,
+                },
             },
-            None => SQLiteResultField {
-                output_name: field.output_name().to_string(),
-                cardinality: field.cardinality(),
+            query_ir::ResolvedShapeItem::Computed(computed) => SQLiteResultField {
+                output_name: computed.output_name().to_string(),
+                cardinality: computed.cardinality(),
                 value: Some(SQLiteResultValueRef {
                     source_alias: source_alias.to_string(),
-                    column_name: field.field().name().to_string(),
-                    role: SQLiteValueRole::for_field(field.field()),
+                    column_name: computed.output_name().to_string(),
+                    role: SQLiteValueRole::Computed,
                 }),
                 nested_shape: None,
             },
