@@ -52,6 +52,42 @@ fn sqlite_sqlgen_can_render_multiple_root_selected_values() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_computed_projection() {
+    let computed = query_ir::ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(query_ir::Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+
+    let ir = query_ir::SelectQuery::new(
+        post_type(),
+        query_ir::ResolvedShape::with_items(
+            post_type(),
+            vec![query_ir::ResolvedShapeItem::Computed(computed)],
+        ),
+        None,
+        vec![],
+        None,
+        None,
+    );
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT (\"root\".\"view_count\" + ?) AS \"score\" FROM \"post\" AS \"root\""
+    );
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_selected_single_link_join() {
     let ir = post_query_with_shape(vec![post_title_shape_field(), post_author_shape_field()]);
     let plan = sqlite_query_plan::plan_select(&ir);
