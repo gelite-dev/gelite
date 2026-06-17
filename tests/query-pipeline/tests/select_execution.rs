@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sqlite_query_sqlgen::{SQLiteBindValue, SQLiteSelectStatement, render_select};
 use sqlite_runner::{
@@ -21,6 +22,8 @@ type Post {
   required link author: User
 }
 "#;
+
+static TEMP_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn parse_blog_catalog_from_geli_file() -> schema_model::SchemaCatalog {
     let path = write_temp_geli_schema(BLOG_SCHEMA_SOURCE);
@@ -45,10 +48,13 @@ fn write_temp_geli_schema(source: &str) -> PathBuf {
 }
 
 fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
+    let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be after Unix epoch")
-        .as_nanos()
+        .as_nanos();
+    let counter = TEMP_SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    timestamp ^ u128::from(counter)
 }
 
 fn setup_blog_database() -> NativeSQLiteRunner {
@@ -228,6 +234,17 @@ fn select_pipeline_renders_arithmetic_order_from_query_text() {
 }
 
 #[test]
+fn select_pipeline_renders_computed_projection_from_query_text() {
+    let statement = render_query(r#"select Post { score := .view_count + 1 }"#);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT (\"root\".\"view_count\" + ?) AS \"score\" FROM \"post\" AS \"root\""
+    );
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
+}
+
+#[test]
 fn select_pipeline_executes_root_scalar_comparison_filter() {
     let result =
         execute_query(r#"select Post { title } filter .view_count >= 10 order by .title asc"#);
@@ -238,6 +255,22 @@ fn select_pipeline_executes_root_scalar_comparison_filter() {
         &[
             vec![SQLiteCellValue::Text("Archived".to_string())],
             vec![SQLiteCellValue::Text("Published".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_computed_projection() {
+    let result =
+        execute_query(r#"select Post { score := .view_count + 1 } order by .view_count asc"#);
+
+    assert_eq!(result.columns(), &["score".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Integer(6)],
+            vec![SQLiteCellValue::Integer(21)],
+            vec![SQLiteCellValue::Integer(101)],
         ]
     );
 }
