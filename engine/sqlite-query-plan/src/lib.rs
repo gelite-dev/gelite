@@ -28,10 +28,27 @@ use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
 pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let root_object_type = ir.root_object_type().clone();
 
-    let selected_values = plan_shape_values(ir.shape(), "root");
-    let result_shape = plan_result_shape(ir.shape(), "root", false);
+    // SELECT values and result-shape refs must assign computed aliases in the
+    // same shape traversal order so the shaper reads the rendered SQL columns.
+    let selected_column_names = selected_field_column_names(ir.shape());
+    let mut select_aliases = SQLiteComputedAliasAllocator::new(selected_column_names.clone());
+    let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
+    let planned_shape_values = plan_shape_values(
+        ir.shape(),
+        "root",
+        false,
+        &mut select_aliases,
+        &mut join_aliases,
+    );
+    let selected_values = planned_shape_values.values;
+    let mut result_aliases = SQLiteComputedAliasAllocator::new(selected_column_names);
+    let result_shape = plan_result_shape(ir.shape(), "root", false, &mut result_aliases);
 
-    let planned_orders: Vec<PlannedOrder> = ir.order_by().iter().map(plan_order_expr).collect();
+    let planned_orders: Vec<PlannedOrder> = ir
+        .order_by()
+        .iter()
+        .map(|order| plan_order_expr(order, &mut join_aliases))
+        .collect();
 
     let mut order_by = Vec::new();
     let mut order_joins = Vec::new();
@@ -43,7 +60,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 
     let (filter, filter_joins) = match ir.filter() {
         Some(expr) => {
-            let planned = plan_where_expr(expr);
+            let planned = plan_where_expr(expr, &mut join_aliases);
             (Some(planned.expr), planned.joins)
         }
         None => (None, vec![]),
@@ -52,11 +69,12 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let mut joins: Vec<SQLiteJoin> = ir
         .shape()
         .fields()
-        .iter()
+        .into_iter()
         .filter(|field| field.child_shape().is_some())
         .map(SQLiteJoin::selected_single_link)
         .collect();
 
+    joins.extend(planned_shape_values.joins);
     joins.extend(filter_joins);
     joins.extend(order_joins);
     joins = dedup_joins(joins);
@@ -83,6 +101,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 pub enum SQLiteValueRole {
     ObjectId,
     Scalar,
+    Computed,
 }
 
 /// Structured SQLite plan for a select query.
@@ -134,13 +153,25 @@ impl SQLiteSelectPlan {
     }
 }
 
-/// One column selected by the generated SQL.
-pub struct SQLiteSelectValue {
-    source_alias: String,
-    column_name: String,
+/// One value selected by the generated SQL.
+pub enum SQLiteSelectValue {
+    Field(SQLiteFieldSelectValue),
+    Computed(SQLiteComputedSelectValue),
+}
+
+/// Schema-backed column selected by the generated SQL.
+pub struct SQLiteFieldSelectValue {
     output_name: String,
+    value: SQLiteValueExpr,
     field: schema_model::FieldRef,
     role: SQLiteValueRole,
+}
+
+/// Query-local computed value selected by the generated SQL.
+pub struct SQLiteComputedSelectValue {
+    output_name: String,
+    sql_alias: String,
+    value: SQLiteValueExpr,
 }
 
 impl SQLiteSelectValue {
@@ -149,33 +180,126 @@ impl SQLiteSelectValue {
         field: schema_model::FieldRef,
         output_name: impl Into<String>,
     ) -> Self {
-        Self {
-            source_alias: source_alias.into(),
-            column_name: field.name().to_string(),
+        let source_alias = source_alias.into();
+        let column_name = field.name().to_string();
+        Self::Field(SQLiteFieldSelectValue {
             output_name: output_name.into(),
+            value: SQLiteValueExpr::Column(SQLiteColumnRef {
+                source_alias,
+                column_name,
+            }),
             role: SQLiteValueRole::for_field(&field),
             field,
+        })
+    }
+
+    pub fn computed(
+        output_name: impl Into<String>,
+        sql_alias: impl Into<String>,
+        value: SQLiteValueExpr,
+    ) -> Self {
+        Self::Computed(SQLiteComputedSelectValue {
+            output_name: output_name.into(),
+            sql_alias: sql_alias.into(),
+            value,
+        })
+    }
+
+    pub fn as_field(&self) -> Option<&SQLiteFieldSelectValue> {
+        match self {
+            Self::Field(value) => Some(value),
+            Self::Computed(_) => None,
         }
     }
 
-    pub fn source_alias(&self) -> &str {
-        &self.source_alias
-    }
-
-    pub fn column_name(&self) -> &str {
-        &self.column_name
+    pub fn as_computed(&self) -> Option<&SQLiteComputedSelectValue> {
+        match self {
+            Self::Field(_) => None,
+            Self::Computed(value) => Some(value),
+        }
     }
 
     pub fn output_name(&self) -> &str {
+        match self {
+            Self::Field(value) => value.output_name(),
+            Self::Computed(value) => value.output_name(),
+        }
+    }
+
+    pub fn source_alias(&self) -> Option<&str> {
+        self.as_field().map(SQLiteFieldSelectValue::source_alias)
+    }
+
+    pub fn column_name(&self) -> Option<&str> {
+        self.as_field().map(SQLiteFieldSelectValue::column_name)
+    }
+
+    pub fn field(&self) -> Option<&schema_model::FieldRef> {
+        self.as_field().map(SQLiteFieldSelectValue::field)
+    }
+
+    pub fn value(&self) -> &SQLiteValueExpr {
+        match self {
+            Self::Field(value) => value.value(),
+            Self::Computed(value) => value.value(),
+        }
+    }
+
+    pub fn role(&self) -> SQLiteValueRole {
+        match self {
+            Self::Field(value) => value.role(),
+            Self::Computed(_) => SQLiteValueRole::Computed,
+        }
+    }
+}
+
+impl SQLiteFieldSelectValue {
+    pub fn output_name(&self) -> &str {
         &self.output_name
+    }
+
+    pub fn source_alias(&self) -> &str {
+        match &self.value {
+            SQLiteValueExpr::Column(column) => column.source_alias(),
+            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+                unreachable!("field selected values are always columns")
+            }
+        }
+    }
+
+    pub fn column_name(&self) -> &str {
+        match &self.value {
+            SQLiteValueExpr::Column(column) => column.column_name(),
+            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+                unreachable!("field selected values are always columns")
+            }
+        }
     }
 
     pub fn field(&self) -> &schema_model::FieldRef {
         &self.field
     }
 
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
+    }
+
     pub fn role(&self) -> SQLiteValueRole {
         self.role
+    }
+}
+
+impl SQLiteComputedSelectValue {
+    pub fn output_name(&self) -> &str {
+        &self.output_name
+    }
+
+    pub fn sql_alias(&self) -> &str {
+        &self.sql_alias
+    }
+
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
     }
 }
 
@@ -189,62 +313,227 @@ impl SQLiteValueRole {
     }
 }
 
+struct PlannedShapeValues {
+    values: Vec<SQLiteSelectValue>,
+    joins: Vec<SQLiteJoin>,
+}
+
+struct SQLiteComputedAliasAllocator {
+    next: usize,
+    reserved: Vec<String>,
+}
+
+impl SQLiteComputedAliasAllocator {
+    fn new(reserved: Vec<String>) -> Self {
+        Self { next: 0, reserved }
+    }
+
+    fn next_alias(&mut self) -> String {
+        loop {
+            let alias = format!("__gelite_value_{}", self.next);
+            self.next += 1;
+
+            if !self.reserved.iter().any(|reserved| reserved == &alias) {
+                return alias;
+            }
+        }
+    }
+}
+
+struct SQLiteJoinAliasAllocator {
+    next: usize,
+    reserved: Vec<String>,
+    path_aliases: Vec<SQLiteJoinPathAlias>,
+}
+
+struct SQLiteJoinPathAlias {
+    source_alias: String,
+    path: Vec<String>,
+    target_alias: String,
+}
+
+impl SQLiteJoinAliasAllocator {
+    fn new(reserved: Vec<String>) -> Self {
+        Self {
+            next: 0,
+            reserved,
+            path_aliases: Vec::new(),
+        }
+    }
+
+    fn next_alias(&mut self) -> String {
+        loop {
+            let alias = format!("__gelite_join_{}", self.next);
+            self.next += 1;
+
+            if !self.reserved.iter().any(|reserved| reserved == &alias) {
+                return alias;
+            }
+        }
+    }
+
+    fn alias_for_path(&mut self, source_alias: &str, path: &[String]) -> String {
+        if let Some(cached) = self
+            .path_aliases
+            .iter()
+            .find(|cached| cached.source_alias == source_alias && cached.path == path)
+        {
+            return cached.target_alias.clone();
+        }
+
+        let target_alias = self.next_alias();
+        self.path_aliases.push(SQLiteJoinPathAlias {
+            source_alias: source_alias.to_string(),
+            path: path.to_vec(),
+            target_alias: target_alias.clone(),
+        });
+        target_alias
+    }
+}
+
+fn selected_field_column_names(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    let mut column_names = Vec::new();
+    collect_selected_field_column_names(shape, false, &mut column_names);
+    column_names
+}
+
+fn collect_selected_field_column_names(
+    shape: &query_ir::ResolvedShape,
+    include_identity: bool,
+    column_names: &mut Vec<String>,
+) {
+    if include_identity {
+        column_names.push("id".to_string());
+    }
+
+    for item in shape.items() {
+        if let query_ir::ResolvedShapeItem::Field(field) = item {
+            match field.child_shape() {
+                Some(child_shape) => {
+                    collect_selected_field_column_names(child_shape, true, column_names);
+                }
+                None => column_names.push(field.field().name().to_string()),
+            }
+        }
+    }
+}
+
+fn selected_link_aliases(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    let mut aliases = Vec::new();
+    collect_selected_link_aliases(shape, &mut aliases);
+    aliases
+}
+
+fn collect_selected_link_aliases(shape: &query_ir::ResolvedShape, aliases: &mut Vec<String>) {
+    for item in shape.items() {
+        if let query_ir::ResolvedShapeItem::Field(field) = item {
+            if let Some(child_shape) = field.child_shape() {
+                aliases.push(field.output_name().to_string());
+                collect_selected_link_aliases(child_shape, aliases);
+            }
+        }
+    }
+}
+
 fn plan_shape_values(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
-) -> Vec<SQLiteSelectValue> {
-    shape
-        .fields()
-        .iter()
-        .flat_map(|field| match field.child_shape() {
-            Some(child_shape) => {
-                let nested_alias = field.output_name();
-                let child_id_field = FieldRef::new(
-                    schema_model::FieldId::new(1),
-                    child_shape.source_object_type().clone(),
-                    "id",
-                );
+    source_nullable: bool,
+    computed_aliases: &mut SQLiteComputedAliasAllocator,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedShapeValues {
+    let mut values = Vec::new();
+    let mut joins = Vec::new();
 
-                let mut values = vec![SQLiteSelectValue::from_field(
-                    nested_alias,
-                    child_id_field,
-                    "id",
-                )];
+    for item in shape.items() {
+        match item {
+            query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
+                Some(child_shape) => {
+                    let nested_alias = field.output_name();
+                    let child_id_field = FieldRef::new(
+                        schema_model::FieldId::new(1),
+                        child_shape.source_object_type().clone(),
+                        "id",
+                    );
 
-                values.extend(plan_shape_values(child_shape, nested_alias));
-                values
+                    values.push(SQLiteSelectValue::from_field(
+                        nested_alias,
+                        child_id_field,
+                        "id",
+                    ));
+
+                    let planned_child_values = plan_shape_values(
+                        child_shape,
+                        nested_alias,
+                        source_nullable || field.cardinality() == Cardinality::Optional,
+                        computed_aliases,
+                        join_aliases,
+                    );
+                    values.extend(planned_child_values.values);
+                    joins.extend(planned_child_values.joins);
+                }
+                None => values.push(SQLiteSelectValue::from_field(
+                    source_alias,
+                    field.field().clone(),
+                    field.output_name(),
+                )),
+            },
+            query_ir::ResolvedShapeItem::Computed(computed) => {
+                let planned =
+                    plan_value_expr(computed.value(), source_alias, source_nullable, join_aliases);
+                values.push(SQLiteSelectValue::computed(
+                    computed.output_name(),
+                    computed_aliases.next_alias(),
+                    planned.value,
+                ));
+                joins.extend(planned.joins);
             }
-            None => vec![SQLiteSelectValue::from_field(
-                source_alias,
-                field.field().clone(),
-                field.output_name(),
-            )],
-        })
-        .collect()
+        }
+    }
+
+    PlannedShapeValues { values, joins }
 }
 
 fn plan_result_shape(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
     include_identity: bool,
+    computed_aliases: &mut SQLiteComputedAliasAllocator,
 ) -> SQLiteResultShapePlan {
     let fields = shape
-        .fields()
+        .items()
         .iter()
-        .map(|field| match field.child_shape() {
-            Some(child_shape) => SQLiteResultField {
-                output_name: field.output_name().to_string(),
-                cardinality: field.cardinality(),
-                value: None,
-                nested_shape: Some(plan_result_shape(child_shape, field.output_name(), true)),
+        .map(|item| match item {
+            query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
+                Some(child_shape) => SQLiteResultField {
+                    output_name: field.output_name().to_string(),
+                    cardinality: field.cardinality(),
+                    value: None,
+                    nested_shape: Some(plan_result_shape(
+                        child_shape,
+                        field.output_name(),
+                        true,
+                        computed_aliases,
+                    )),
+                },
+                None => SQLiteResultField {
+                    output_name: field.output_name().to_string(),
+                    cardinality: field.cardinality(),
+                    value: Some(SQLiteResultValueRef {
+                        source_alias: source_alias.to_string(),
+                        column_name: field.field().name().to_string(),
+                        role: SQLiteValueRole::for_field(field.field()),
+                    }),
+                    nested_shape: None,
+                },
             },
-            None => SQLiteResultField {
-                output_name: field.output_name().to_string(),
-                cardinality: field.cardinality(),
+            query_ir::ResolvedShapeItem::Computed(computed) => SQLiteResultField {
+                output_name: computed.output_name().to_string(),
+                cardinality: computed.cardinality(),
                 value: Some(SQLiteResultValueRef {
                     source_alias: source_alias.to_string(),
-                    column_name: field.field().name().to_string(),
-                    role: SQLiteValueRole::for_field(field.field()),
+                    column_name: computed_aliases.next_alias(),
+                    role: SQLiteValueRole::Computed,
                 }),
                 nested_shape: None,
             },
@@ -524,10 +813,33 @@ struct PlannedPath {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_resolved_path(path: &query_ir::ResolvedPath) -> PlannedPath {
-    let mut current_alias = "root".to_string();
-    let mut joins = vec![];
-    let mut alias_parts = Vec::new();
+struct PathPlanningState {
+    current_alias: String,
+    current_nullable: bool,
+    alias_parts: Vec<String>,
+    path_parts: Vec<String>,
+    joins: Vec<SQLiteJoin>,
+}
+
+impl PathPlanningState {
+    fn new(source_alias: &str, source_nullable: bool) -> Self {
+        Self {
+            current_alias: source_alias.to_string(),
+            current_nullable: source_nullable,
+            alias_parts: initial_path_alias_parts(source_alias),
+            path_parts: Vec::new(),
+            joins: Vec::new(),
+        }
+    }
+}
+
+fn plan_resolved_path(
+    path: &query_ir::ResolvedPath,
+    source_alias: &str,
+    source_nullable: bool,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedPath {
+    let mut state = PathPlanningState::new(source_alias, source_nullable);
     let mut column = None;
 
     for (index, step) in path.steps().iter().enumerate() {
@@ -535,44 +847,93 @@ fn plan_resolved_path(path: &query_ir::ResolvedPath) -> PlannedPath {
 
         match step.kind() {
             query_ir::ResolvedPathStepKind::Link { target_object_type } => {
-                if is_last {
-                    todo!("link-only paths cannot be lowered to SQLite columns");
-                }
-
-                let source_alias = current_alias.clone();
-
-                alias_parts.push(step.field().name().to_string());
-                let target_alias = alias_parts.join("_");
-
-                let link_field = step.field();
-
-                joins.push(SQLiteJoin::path_traversal(
-                    source_alias,
-                    link_field,
-                    target_object_type,
-                    target_alias.clone(),
-                    alias_parts.clone(),
-                    step.cardinality(),
-                ));
-
-                current_alias = target_alias;
+                plan_link_path_step(step, target_object_type, is_last, &mut state, join_aliases);
             }
             query_ir::ResolvedPathStepKind::Scalar => {
-                if !is_last {
-                    todo!("scalar path step before terminal position is not supported");
-                }
-
-                column = Some(SQLiteColumnRef {
-                    source_alias: current_alias.clone(),
-                    column_name: step.field().name().to_string(),
-                });
+                column = Some(plan_scalar_path_step(step, is_last, &state));
             }
         }
     }
 
     PlannedPath {
         column: column.expect("resolved path should end in a scalar field"),
-        joins,
+        joins: state.joins,
+    }
+}
+
+fn initial_path_alias_parts(source_alias: &str) -> Vec<String> {
+    if source_alias == "root" {
+        Vec::new()
+    } else {
+        vec![source_alias.to_string()]
+    }
+}
+
+fn plan_link_path_step(
+    step: &query_ir::ResolvedPathStep,
+    target_object_type: &ObjectTypeRef,
+    is_last: bool,
+    state: &mut PathPlanningState,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) {
+    if is_last {
+        todo!("link-only paths cannot be lowered to SQLite columns");
+    }
+
+    let source_alias = state.current_alias.clone();
+    state.alias_parts.push(step.field().name().to_string());
+    state.path_parts.push(step.field().name().to_string());
+    let target_alias = path_step_target_alias(&source_alias, state, join_aliases);
+    let join_cardinality = path_step_join_cardinality(state.current_nullable, step.cardinality());
+
+    state.joins.push(SQLiteJoin::path_traversal(
+        source_alias,
+        step.field(),
+        target_object_type,
+        target_alias.clone(),
+        state.path_parts.clone(),
+        join_cardinality,
+    ));
+
+    state.current_alias = target_alias;
+    state.current_nullable = state.current_nullable || step.cardinality() == Cardinality::Optional;
+}
+
+fn path_step_target_alias(
+    source_alias: &str,
+    state: &PathPlanningState,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> String {
+    if source_alias == "root" {
+        state.alias_parts.join("_")
+    } else {
+        join_aliases.alias_for_path(source_alias, &state.path_parts)
+    }
+}
+
+fn path_step_join_cardinality(
+    current_nullable: bool,
+    step_cardinality: Cardinality,
+) -> Cardinality {
+    if current_nullable {
+        Cardinality::Optional
+    } else {
+        step_cardinality
+    }
+}
+
+fn plan_scalar_path_step(
+    step: &query_ir::ResolvedPathStep,
+    is_last: bool,
+    state: &PathPlanningState,
+) -> SQLiteColumnRef {
+    if !is_last {
+        todo!("scalar path step before terminal position is not supported");
+    }
+
+    SQLiteColumnRef {
+        source_alias: state.current_alias.clone(),
+        column_name: step.field().name().to_string(),
     }
 }
 
@@ -581,10 +942,16 @@ struct PlannedValueExpr {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
+fn plan_value_expr(
+    expr: &query_ir::ValueExpr,
+    source_alias: &str,
+    source_nullable: bool,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedValueExpr {
     match expr {
         query_ir::ValueExpr::Path(path) => {
-            let planned_path = plan_resolved_path(path);
+            let planned_path =
+                plan_resolved_path(path, source_alias, source_nullable, join_aliases);
 
             PlannedValueExpr {
                 value: SQLiteValueExpr::Column(planned_path.column),
@@ -620,8 +987,18 @@ fn plan_value_expr(expr: &query_ir::ValueExpr) -> PlannedValueExpr {
             joins: vec![],
         },
         query_ir::ValueExpr::Arithmetic(arithmetic) => {
-            let left = plan_value_expr(arithmetic.left());
-            let right = plan_value_expr(arithmetic.right());
+            let left = plan_value_expr(
+                arithmetic.left(),
+                source_alias,
+                source_nullable,
+                join_aliases,
+            );
+            let right = plan_value_expr(
+                arithmetic.right(),
+                source_alias,
+                source_nullable,
+                join_aliases,
+            );
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -653,11 +1030,14 @@ struct PlannedWhereExpr {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
+fn plan_where_expr(
+    expr: &Expr,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedWhereExpr {
     match expr {
         Expr::Compare(compare) => {
-            let left = plan_value_expr(compare.left());
-            let right = plan_value_expr(compare.right());
+            let left = plan_value_expr(compare.left(), "root", false, join_aliases);
+            let right = plan_value_expr(compare.right(), "root", false, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -672,7 +1052,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::IsNull(value) => {
-            let value = plan_value_expr(value);
+            let value = plan_value_expr(value, "root", false, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNull(value.value),
@@ -680,7 +1060,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::IsNotNull(value) => {
-            let value = plan_value_expr(value);
+            let value = plan_value_expr(value, "root", false, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNotNull(value.value),
@@ -688,11 +1068,11 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::In(in_expr) => {
-            let left = plan_value_expr(in_expr.left());
+            let left = plan_value_expr(in_expr.left(), "root", false, join_aliases);
             let planned_right = in_expr
                 .right()
                 .iter()
-                .map(plan_value_expr)
+                .map(|value| plan_value_expr(value, "root", false, join_aliases))
                 .collect::<Vec<_>>();
             let mut joins = left.joins;
             let mut right = Vec::new();
@@ -712,8 +1092,8 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::And(left, right) => {
-            let left = plan_where_expr(left);
-            let right = plan_where_expr(right);
+            let left = plan_where_expr(left, join_aliases);
+            let right = plan_where_expr(right, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -724,8 +1104,8 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::Or(left, right) => {
-            let left = plan_where_expr(left);
-            let right = plan_where_expr(right);
+            let left = plan_where_expr(left, join_aliases);
+            let right = plan_where_expr(right, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -736,7 +1116,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::Not(inner) => {
-            let inner = plan_where_expr(inner);
+            let inner = plan_where_expr(inner, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::Not(Box::new(inner.expr)),
@@ -751,8 +1131,11 @@ struct PlannedOrder {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_order_expr(order: &query_ir::OrderExpr) -> PlannedOrder {
-    let planned_value = plan_value_expr(order.value());
+fn plan_order_expr(
+    order: &query_ir::OrderExpr,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedOrder {
+    let planned_value = plan_value_expr(order.value(), "root", false, join_aliases);
 
     PlannedOrder {
         order: SQLiteOrder {

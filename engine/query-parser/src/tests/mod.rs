@@ -78,6 +78,30 @@ fn lexer_can_tokenize_arithmetic_operators() {
 }
 
 #[test]
+fn lexer_can_tokenize_computed_shape_assignment() {
+    let tokens = lex("select Post { score := .likes + 1 }").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Select));
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("Post".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::LBrace);
+    assert_eq!(tokens[3].kind(), &TokenKind::Ident("score".to_string()));
+    assert_eq!(tokens[4].kind(), &TokenKind::ColonEq);
+    assert_eq!(tokens[5].kind(), &TokenKind::Dot);
+    assert_eq!(tokens[6].kind(), &TokenKind::Ident("likes".to_string()));
+    assert_eq!(tokens[7].kind(), &TokenKind::Plus);
+    assert_eq!(tokens[8].kind(), &TokenKind::Int("1".to_string()));
+    assert_eq!(tokens[9].kind(), &TokenKind::RBrace);
+
+    let assignment_span = tokens[4].span();
+    assert_eq!(assignment_span.start().byte(), 20);
+    assert_eq!(assignment_span.start().line(), 1);
+    assert_eq!(assignment_span.start().column(), 21);
+    assert_eq!(assignment_span.end().byte(), 22);
+    assert_eq!(assignment_span.end().line(), 1);
+    assert_eq!(assignment_span.end().column(), 23);
+}
+
+#[test]
 fn lexer_tracks_arithmetic_operator_spans() {
     let tokens = lex("filter .x + 10 - 2 * 3 / 4 % 5").expect("query should lex");
 
@@ -396,6 +420,33 @@ fn parser_can_parse_shape_item_named_membership_operator_word() {
     let item = &query.shape().items()[0];
     assert_eq!(item.path().steps()[0].field_name(), "in");
     assert!(item.child_shape().is_none());
+}
+
+#[test]
+fn parser_can_parse_computed_shape_item_arithmetic_expr() {
+    let query = parse_select("select Post { score := .likes * 10 + .view_count }")
+        .expect("query should parse");
+
+    let items = query.shape().items();
+
+    assert_eq!(items.len(), 1);
+    let computed = items[0]
+        .as_computed()
+        .expect("shape item should be a computed projection");
+    assert_eq!(computed.output_name(), "score");
+
+    let Expr::Arithmetic(add) = computed.expr() else {
+        panic!("computed projection should be an arithmetic expression");
+    };
+    assert_eq!(add.op(), ArithmeticOp::Add);
+
+    let Expr::Arithmetic(mul) = add.left() else {
+        panic!("multiplication should bind before addition");
+    };
+    assert_eq!(mul.op(), ArithmeticOp::Mul);
+    assert_path_expr(mul.left(), &["likes"]);
+    assert_literal_expr(mul.right(), &Literal::Int64(10));
+    assert_path_expr(add.right(), &["view_count"]);
 }
 
 #[test]

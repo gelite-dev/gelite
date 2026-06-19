@@ -84,17 +84,25 @@ impl SelectQuery {
 /// Fields are ordered in the same order requested by the query. Nested shapes
 /// preserve link cardinality so runtime shaping can distinguish optional,
 /// required, and multi-valued relations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedShape {
     source_object_type: ObjectTypeRef,
-    fields: Vec<ResolvedShapeField>,
+    items: Vec<ResolvedShapeItem>,
 }
 
 impl ResolvedShape {
     pub fn new(source_object_type: ObjectTypeRef, fields: Vec<ResolvedShapeField>) -> Self {
+        let items = fields.into_iter().map(ResolvedShapeItem::Field).collect();
         Self {
             source_object_type,
-            fields,
+            items,
+        }
+    }
+
+    pub fn with_items(source_object_type: ObjectTypeRef, items: Vec<ResolvedShapeItem>) -> Self {
+        Self {
+            source_object_type,
+            items,
         }
     }
 
@@ -102,8 +110,49 @@ impl ResolvedShape {
         &self.source_object_type
     }
 
-    pub fn fields(&self) -> &[ResolvedShapeField] {
-        &self.fields
+    pub fn items(&self) -> &[ResolvedShapeItem] {
+        &self.items
+    }
+
+    pub fn fields(&self) -> Vec<&ResolvedShapeField> {
+        self.items.iter().filter_map(ResolvedShapeItem::as_field).collect()
+    }
+}
+
+/// One resolved output item in a [`ResolvedShape`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedShapeItem {
+    Field(ResolvedShapeField),
+    Computed(ResolvedComputedField),
+}
+
+impl ResolvedShapeItem {
+    pub fn output_name(&self) -> &str {
+        match self {
+            Self::Field(field) => field.output_name(),
+            Self::Computed(computed) => computed.output_name(),
+        }
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        match self {
+            Self::Field(field) => field.cardinality(),
+            Self::Computed(computed) => computed.cardinality(),
+        }
+    }
+
+    pub fn as_field(&self) -> Option<&ResolvedShapeField> {
+        match self {
+            Self::Field(field) => Some(field),
+            Self::Computed(_) => None,
+        }
+    }
+
+    pub fn as_computed(&self) -> Option<&ResolvedComputedField> {
+        match self {
+            Self::Field(_) => None,
+            Self::Computed(computed) => Some(computed),
+        }
     }
 }
 
@@ -112,12 +161,53 @@ impl ResolvedShape {
 /// Scalar fields have no child shape. Link fields selected in output must have
 /// a child shape, because relations are returned as nested objects rather than
 /// as raw foreign key columns.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedShapeField {
     output_name: String,
     field: FieldRef,
     cardinality: Cardinality,
     child_shape: Option<ResolvedShape>,
+}
+
+/// Query-local computed output item in a [`ResolvedShape`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComputedField {
+    output_name: String,
+    value: ValueExpr,
+    scalar_type: ScalarType,
+    cardinality: Cardinality,
+}
+
+impl ResolvedComputedField {
+    pub fn new(
+        output_name: impl Into<String>,
+        value: ValueExpr,
+        scalar_type: ScalarType,
+        cardinality: Cardinality,
+    ) -> Self {
+        Self {
+            output_name: output_name.into(),
+            value,
+            scalar_type,
+            cardinality,
+        }
+    }
+
+    pub fn output_name(&self) -> &str {
+        &self.output_name
+    }
+
+    pub fn value(&self) -> &ValueExpr {
+        &self.value
+    }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
 }
 
 impl ResolvedShapeField {

@@ -1,6 +1,6 @@
 use crate::{
-    CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderDirection, OrderExpr, Path, PathStep,
-    SelectQuery, Shape, ShapeItem,
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
+    OrderDirection, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -54,6 +54,29 @@ fn shape_can_contain_nested_link_selection() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].path().steps()[0].field_name(), "author");
     assert!(items[0].child_shape().is_some());
+}
+
+#[test]
+fn shape_can_contain_computed_projection() {
+    let expr = Expr::Arithmetic(ArithmeticExpr::new(
+        Expr::Path(Path::new(vec![PathStep::new("likes")])),
+        ArithmeticOp::Add,
+        Expr::Literal(Literal::Int64(1)),
+    ));
+    let shape = Shape::new(vec![ShapeItem::computed("score", expr)]);
+
+    let items = shape.items();
+
+    assert_eq!(items.len(), 1);
+    let computed = items[0]
+        .as_computed()
+        .expect("shape item should be a computed projection");
+    assert_eq!(computed.output_name(), "score");
+
+    let Expr::Arithmetic(arithmetic) = computed.expr() else {
+        panic!("computed projection should store an arithmetic expression");
+    };
+    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
 }
 
 #[test]

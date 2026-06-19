@@ -68,6 +68,8 @@ select_stmt     := "select" type_ref shape filter_clause? order_clause?
 shape           := "{" shape_item* "}"
 shape_item       := IDENT ","?
                 | IDENT ":" shape ","?
+                | IDENT ":=" computed_expr ","?
+computed_expr   := additive_expr
 filter_clause    := "filter" expr
 order_clause     := "order" "by" order_item ("," order_item)*
 order_item       := expr ("asc" | "desc")?
@@ -82,10 +84,49 @@ offset_clause    := "offset" INT
 - Selecting a relation field requires a nested shape.
 - Selecting a scalar field does not allow a nested shape.
 - Multi relation fields may be selected only with a nested shape.
+- Computed shape items use `alias := expr` and produce query-local result
+  fields. They are not schema fields and are not stored.
 - Omitted fields are not returned.
 - `id` may be selected explicitly even though it is implicit in schema source.
 - Backlink traversal and inferred inverse relations are not supported in the
   MVP.
+
+Computed projection expressions are value expressions. The first computed
+projection milestone accepts numeric arithmetic expressions over scalar paths
+and numeric literals:
+
+```text
+select Post {
+  title,
+  score := .likes * 10 + .view_count
+}
+```
+
+Computed projection aliases share the same output namespace as schema-backed
+shape fields in the same shape. The resolver rejects duplicate output names
+inside one shape, including collisions such as `title` and `title := .views`.
+Nested shapes have their own output namespace.
+
+Computed projection paths are resolved relative to the object source of the
+shape that contains the computed item. In a nested shape, `.score` refers to the
+nested object type, not the root object type:
+
+```text
+select Post {
+  author: {
+    boosted_score := .score + 1
+  }
+}
+```
+
+Computed projections do not introduce names that can be referenced by filters,
+other computed projections, order clauses, or nested shape items in this
+milestone. They are output fields only.
+
+The resolver rejects boolean expressions, membership expressions, `null`, link
+values, many-cardinality paths, and literal-only computed projections before
+SQLite planning. Function calls and subqueries remain reserved until their own
+issues define resolver rules.
 
 ### Filters
 
@@ -264,9 +305,12 @@ subquery_expr     := "(" select_stmt ")"
 
 Only path, literal, arithmetic, comparison, bracketed-list `in`,
 bracketed-list `not in`, boolean, and parenthesized expressions are accepted by
-the resolver in the arithmetic filter milestone. `function_call` and
-`subquery_expr` are reserved syntax positions. The parser may produce AST nodes
-for them before the resolver accepts specific forms.
+the resolver in the current expression milestones. Context determines which
+subset is valid: filters accept boolean expressions, ordering accepts scalar
+order values, and the first computed projection milestone accepts numeric
+arithmetic value expressions.
+`function_call` and `subquery_expr` are reserved syntax positions. The parser
+may produce AST nodes for them before the resolver accepts specific forms.
 
 The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
 accept `null` as a list item because it is a literal expression, but the

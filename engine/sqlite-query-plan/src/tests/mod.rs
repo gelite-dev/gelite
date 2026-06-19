@@ -11,11 +11,16 @@ use alloc::vec;
 use fixtures::{
     empty_post_query, optional_post_author_shape_field, post_author_field,
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_id_path_value, post_id_shape_field,
-    post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
-    post_type, post_view_count_path_value,
+    post_author_shape_field_with_id_then_name, post_best_friend_field,
+    post_best_friend_shape_field, post_id_path_value, post_id_shape_field, post_query_with_shape,
+    post_title_field, post_title_path_value, post_title_shape_field, post_type,
+    post_view_count_path_value, user_best_friend_score_path_value, user_name_shape_field,
+    user_score_field, user_type,
 };
-use query_ir::{Literal, ResolvedShape, ResolvedShapeField, SelectQuery};
+use query_ir::{
+    Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
+    SelectQuery,
+};
 
 fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &str) {
     match order.value() {
@@ -48,6 +53,24 @@ fn assert_int_literal_value(value: &SQLiteValueExpr, expected: i64) {
     }
 }
 
+fn assert_selected_field(
+    value: &crate::SQLiteSelectValue,
+    source_alias: &str,
+    column_name: &str,
+    output_name: &str,
+    field_name: &str,
+    role: SQLiteValueRole,
+) {
+    let field = value
+        .as_field()
+        .expect("selected value should be field-backed");
+    assert_eq!(field.source_alias(), source_alias);
+    assert_eq!(field.column_name(), column_name);
+    assert_eq!(field.output_name(), output_name);
+    assert_eq!(field.field().name(), field_name);
+    assert_eq!(field.role(), role);
+}
+
 #[test]
 fn sqlite_select_plan_can_store_root_source() {
     let ir = empty_post_query();
@@ -68,11 +91,14 @@ fn sqlite_select_plan_can_project_root_scalar_field() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "title");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -97,11 +123,567 @@ fn sqlite_select_plan_preserves_root_scalar_output_name() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "headline");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "headline",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
+}
+
+#[test]
+fn sqlite_select_plan_can_project_computed_value() {
+    let computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(post_type(), vec![ResolvedShapeItem::Computed(computed)]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 1);
+    assert_eq!(selected_values[0].output_name(), "score");
+    assert_eq!(selected_values[0].role(), SQLiteValueRole::Computed);
+    let computed_value = selected_values[0]
+        .as_computed()
+        .expect("selected value should be computed");
+    assert_eq!(computed_value.sql_alias(), "__gelite_value_0");
+    assert_eq!(selected_values[0].source_alias(), None);
+    assert_eq!(selected_values[0].column_name(), None);
+    assert!(selected_values[0].field().is_none());
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = selected_values[0].value() else {
+        panic!("computed projection should lower to an arithmetic SQLite value expression");
+    };
+    assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
+    assert_column_value(arithmetic.left(), "root", "view_count");
+    assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_uses_nested_source_alias_for_computed_value() {
+    let computed = ResolvedComputedField::new(
+        "boosted_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            query_ir::ValueExpr::Path(
+                query_ir::ResolvedPath::try_new(
+                    user_type(),
+                    vec![query_ir::ResolvedPathStep::scalar(
+                        user_score_field(),
+                        schema_model::Cardinality::Required,
+                    )],
+                )
+                .expect("user score path should be valid"),
+            ),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 2);
+    assert_eq!(selected_values[1].output_name(), "boosted_score");
+    assert_eq!(
+        selected_values[1]
+            .as_computed()
+            .expect("boosted_score should be computed")
+            .sql_alias(),
+        "__gelite_value_0"
+    );
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = selected_values[1].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "author", "score");
+    assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_avoids_alias_collision_for_nested_computed_path_join() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_best_friend_shape_field(), author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_alias(), "best_friend");
+    assert_eq!(joins[1].source_alias(), "root");
+    assert_eq!(joins[1].target_alias(), "author");
+    assert_eq!(joins[2].source_alias(), "author");
+    assert_eq!(joins[2].target_alias(), "__gelite_join_0");
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = plan.selected_values()[3].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
+fn sqlite_select_plan_uses_planner_owned_alias_for_nested_computed_path_join() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let root_best_friend = ResolvedShapeField::new(
+        "author_best_friend",
+        post_best_friend_field(),
+        schema_model::Cardinality::Required,
+        Some(ResolvedShape::new(user_type(), vec![user_name_shape_field()])),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![root_best_friend, author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].target_alias(), "author_best_friend");
+    assert_eq!(joins[1].target_alias(), "author");
+    assert_eq!(joins[2].source_alias(), "author");
+    assert_eq!(joins[2].target_alias(), "__gelite_join_0");
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = plan.selected_values()[3].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
+fn sqlite_select_plan_uses_left_descendant_join_under_optional_nested_source() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Optional,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Optional,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[1].target_alias(), "__gelite_join_0");
+}
+
+#[test]
+fn sqlite_select_plan_assigns_unique_sql_aliases_for_repeated_computed_output_names() {
+    let root_computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let nested_computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            query_ir::ValueExpr::Path(
+                query_ir::ResolvedPath::try_new(
+                    user_type(),
+                    vec![query_ir::ResolvedPathStep::scalar(
+                        user_score_field(),
+                        schema_model::Cardinality::Required,
+                    )],
+                )
+                .expect("user score path should be valid"),
+            ),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(nested_computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(
+            post_type(),
+            vec![
+                ResolvedShapeItem::Computed(root_computed),
+                ResolvedShapeItem::Field(author),
+            ],
+        ),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 3);
+    assert_eq!(selected_values[0].output_name(), "score");
+    assert_eq!(
+        selected_values[0]
+            .as_computed()
+            .expect("root score should be computed")
+            .sql_alias(),
+        "__gelite_value_0"
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_eq!(selected_values[2].output_name(), "score");
+    assert_eq!(
+        selected_values[2]
+            .as_computed()
+            .expect("nested score should be computed")
+            .sql_alias(),
+        "__gelite_value_1"
+    );
+
+    let root_field = &plan.result_shape().fields()[0];
+    assert_eq!(root_field.output_name(), "score");
+    let root_value = root_field
+        .value()
+        .expect("root score should point to a selected value");
+    assert_eq!(root_value.column_name(), "__gelite_value_0");
+
+    let author_field = &plan.result_shape().fields()[1];
+    let nested_shape = author_field
+        .nested_shape()
+        .expect("author should have nested result shape");
+    let nested_field = &nested_shape.fields()[0];
+    assert_eq!(nested_field.output_name(), "score");
+    let nested_value = nested_field
+        .value()
+        .expect("nested score should point to a selected value");
+    assert_eq!(nested_value.column_name(), "__gelite_value_1");
+}
+
+#[test]
+fn sqlite_select_plan_reserves_computed_sql_aliases_against_selected_field_columns() {
+    let reserved_field = ResolvedShapeField::new(
+        "__gelite_value_0",
+        schema_model::FieldRef::new(
+            schema_model::FieldId::new(99),
+            post_type(),
+            "__gelite_value_0",
+        ),
+        schema_model::Cardinality::Required,
+        None,
+    );
+    let computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(
+            post_type(),
+            vec![
+                ResolvedShapeItem::Field(reserved_field),
+                ResolvedShapeItem::Computed(computed),
+            ],
+        ),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 2);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "__gelite_value_0",
+        "__gelite_value_0",
+        "__gelite_value_0",
+        SQLiteValueRole::Scalar,
+    );
+    assert_eq!(
+        selected_values[1]
+            .as_computed()
+            .expect("score should be computed")
+            .sql_alias(),
+        "__gelite_value_1"
+    );
+
+    let computed_field = &plan.result_shape().fields()[1];
+    let computed_value = computed_field
+        .value()
+        .expect("computed field should point to a selected value");
+    assert_eq!(computed_value.column_name(), "__gelite_value_1");
+}
+
+#[test]
+fn sqlite_select_plan_reuses_alias_for_repeated_nested_deep_path_join() {
+    let first_computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let second_computed = ResolvedComputedField::new(
+        "friend_score_plus",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(2)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape = ResolvedShape::with_items(
+        user_type(),
+        vec![
+            ResolvedShapeItem::Computed(first_computed),
+            ResolvedShapeItem::Computed(second_computed),
+        ],
+    );
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].target_alias(), "__gelite_join_0");
+
+    let SQLiteValueExpr::Arithmetic(first_arithmetic) = plan.selected_values()[1].value() else {
+        panic!("first computed projection should lower to arithmetic");
+    };
+    let SQLiteValueExpr::Arithmetic(second_arithmetic) = plan.selected_values()[2].value() else {
+        panic!("second computed projection should lower to arithmetic");
+    };
+    assert_column_value(first_arithmetic.left(), "__gelite_join_0", "score");
+    assert_column_value(second_arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
+fn sqlite_select_plan_keeps_nested_identity_and_computed_id_column_names_distinct() {
+    let computed_id = ResolvedComputedField::new(
+        "id",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            query_ir::ValueExpr::Path(
+                query_ir::ResolvedPath::try_new(
+                    user_type(),
+                    vec![query_ir::ResolvedPathStep::scalar(
+                        user_score_field(),
+                        schema_model::Cardinality::Required,
+                    )],
+                )
+                .expect("user score path should be valid"),
+            ),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed_id)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 2);
+    assert_selected_field(
+        &selected_values[0],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_eq!(selected_values[1].output_name(), "id");
+    assert_eq!(
+        selected_values[1]
+            .as_computed()
+            .expect("nested id should be computed")
+            .sql_alias(),
+        "__gelite_value_0"
+    );
+
+    let author_field = &plan.result_shape().fields()[0];
+    let nested_shape = author_field
+        .nested_shape()
+        .expect("author should have nested result shape");
+    let identity = nested_shape
+        .identity_value()
+        .expect("nested identity should point to selected id");
+    assert_eq!(identity.column_name(), "id");
+
+    let computed_field = &nested_shape.fields()[0];
+    assert_eq!(computed_field.output_name(), "id");
+    let computed_value = computed_field
+        .value()
+        .expect("computed id should point to a selected value");
+    assert_eq!(computed_value.column_name(), "__gelite_value_0");
 }
 
 #[test]
@@ -134,17 +716,22 @@ fn sqlite_select_plan_preserves_root_scalar_projection_order() {
 
     assert_eq!(selected_values.len(), 2);
 
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "title");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
-
-    assert_eq!(selected_values[1].source_alias(), "root");
-    assert_eq!(selected_values[1].column_name(), "author");
-    assert_eq!(selected_values[1].output_name(), "author");
-    assert_eq!(selected_values[1].field().name(), "author");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "root",
+        "author",
+        "author",
+        "author",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1187,11 +1774,14 @@ fn sqlite_select_plan_can_project_implicit_id() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "id");
-    assert_eq!(selected_values[0].output_name(), "id");
-    assert_eq!(selected_values[0].field().name(), "id");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::ObjectId);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
 }
 
 #[test]
@@ -1231,10 +1821,14 @@ fn sqlite_select_plan_can_project_selected_single_link_scalar_field() {
     let plan = plan_select(&ir);
     let selected_values = plan.selected_values();
 
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "name");
-    assert_eq!(selected_values[1].output_name(), "name");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1245,15 +1839,22 @@ fn sqlite_select_plan_projects_selected_single_link_identity() {
 
     assert_eq!(selected_values.len(), 2);
 
-    assert_eq!(selected_values[0].source_alias(), "author");
-    assert_eq!(selected_values[0].column_name(), "id");
-    assert_eq!(selected_values[0].output_name(), "id");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::ObjectId);
-
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "name");
-    assert_eq!(selected_values[1].output_name(), "name");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1265,17 +1866,30 @@ fn sqlite_select_plan_preserves_selected_value_order_with_nested_link() {
 
     assert_eq!(selected_values.len(), 3);
 
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
-
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "id");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::ObjectId);
-
-    assert_eq!(selected_values[2].source_alias(), "author");
-    assert_eq!(selected_values[2].column_name(), "name");
-    assert_eq!(selected_values[2].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &selected_values[2],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]

@@ -14,6 +14,10 @@ pub fn post_author_field() -> FieldRef {
     FieldRef::new(FieldId::new(3), post_type(), "author")
 }
 
+pub fn post_best_friend_field() -> FieldRef {
+    FieldRef::new(FieldId::new(6), post_type(), "best_friend")
+}
+
 pub fn post_view_count_field() -> FieldRef {
     FieldRef::new(FieldId::new(4), post_type(), "view_count")
 }
@@ -113,6 +117,30 @@ pub fn user_score_field() -> FieldRef {
     FieldRef::new(FieldId::new(3), user_type(), "score")
 }
 
+pub fn user_best_friend_field() -> FieldRef {
+    FieldRef::new(FieldId::new(4), user_type(), "best_friend")
+}
+
+pub fn user_best_friend_score_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            user_type(),
+            vec![
+                query_ir::ResolvedPathStep::link(
+                    user_best_friend_field(),
+                    user_type(),
+                    schema_model::Cardinality::Required,
+                ),
+                query_ir::ResolvedPathStep::scalar(
+                    user_score_field(),
+                    schema_model::Cardinality::Required,
+                ),
+            ],
+        )
+        .expect("user best_friend score path should be valid"),
+    )
+}
+
 pub fn empty_post_query() -> query_ir::SelectQuery {
     query_ir::SelectQuery::new(
         post_type(),
@@ -159,6 +187,18 @@ pub fn post_author_shape_field() -> query_ir::ResolvedShapeField {
         post_author_field(),
         schema_model::Cardinality::Required,
         Some(author_shape),
+    )
+}
+
+pub fn post_best_friend_shape_field() -> query_ir::ResolvedShapeField {
+    let best_friend_shape =
+        query_ir::ResolvedShape::new(user_type(), vec![user_name_shape_field()]);
+
+    query_ir::ResolvedShapeField::new(
+        "best_friend",
+        post_best_friend_field(),
+        schema_model::Cardinality::Required,
+        Some(best_friend_shape),
     )
 }
 

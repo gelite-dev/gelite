@@ -39,7 +39,7 @@ The Semantic IR MVP does not attempt to model:
 - polymorphism
 - inheritance-aware type expansion
 - backlinks or inferred inverse traversal
-- computed fields
+- schema-level computed fields
 - access policies or rewrites
 - function overloading machinery beyond what the MVP query language needs
 
@@ -64,7 +64,9 @@ The MVP Semantic IR should define at least these top-level node categories:
 - `UpdateQuery`
 - `DeleteQuery`
 - `ResolvedShape`
-- `ResolvedShapeField`
+- `ResolvedShapeItem`
+- `ResolvedSchemaField`
+- `ResolvedComputedField`
 - `ResolvedPath`
 - `PathStep`
 - `FieldRef`
@@ -174,9 +176,12 @@ Nested result shaping is a primary responsibility of Semantic IR.
 Minimum fields:
 
 - source object type
-- ordered list of shape fields
+- ordered list of shape items
 
-### `ResolvedShapeField`
+Shape items preserve the user-visible output order. A shape item is either a
+schema-backed field selection or a computed result field.
+
+### `ResolvedSchemaField`
 
 Minimum fields:
 
@@ -191,6 +196,36 @@ Rules:
 - link fields selected in result output must have a child shape
 - `multi` links are represented in shape like single links, but retain `multi`
   cardinality metadata for later runtime shaping
+
+### `ResolvedComputedField`
+
+Minimum fields:
+
+- output name
+- value expression
+- result scalar type
+- result cardinality
+
+Computed fields are query-local output fields. They must not carry a
+`schema_model::FieldRef` because no schema field owns the value. The resolver
+is responsible for assigning the output name, validating the expression, and
+storing enough type and cardinality metadata for SQLite planning and result
+decoding.
+
+The value expression is resolved against the `ResolvedShape` source object that
+contains the computed field. A computed field inside a nested link shape uses
+the nested shape source object, not the root select object.
+
+The first computed projection milestone accepts scalar numeric arithmetic
+expressions over scalar paths and numeric literals. Boolean expressions,
+membership expressions, link values, many-cardinality paths, `null`, function
+calls, and subqueries are rejected before SQLite planning. Literal-only
+computed projections are also rejected in this milestone because they do not
+depend on the current row.
+
+Output names must be unique within one `ResolvedShape`. This rule applies
+across schema-backed fields and computed fields. Nested shapes have independent
+output namespaces.
 
 ## Path Model
 
@@ -335,12 +370,12 @@ cast expressions exist. `%` is not defined for `float64`.
 
 `int64 / int64` preserves SQLite integer division semantics. Division by zero
 is not rewritten by Semantic IR. If the divisor can only be known at runtime,
-SQLite determines the result.
+SQLite determines the result. Because SQLite can return `NULL` for division or
+modulo by zero, computed projection metadata treats `/` and `%` as optional
+unless the divisor is a non-zero numeric literal.
 
 Arithmetic expressions may appear as value operands inside filter comparisons,
-membership expressions, and order expressions. Arithmetic expressions are not
-accepted as computed select projections until that later milestone defines the
-shape and result metadata rules.
+membership expressions, order expressions, and computed select projections.
 
 ### `CompareExpr`
 

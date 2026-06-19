@@ -35,9 +35,10 @@ fn render_qualified_identifier(source_alias: &str, column_name: &str) -> String 
 
 /// Renders a structured SQLite select plan into SQL text and bind values.
 pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
-    let select_clause = render_select_clause(plan);
+    let (select_clause, mut bind_values) = render_select_clause(plan);
     let from_clause = render_from_clause(plan);
-    let (where_clause, mut bind_values) = render_where_clause(plan);
+    let (where_clause, where_bind_values) = render_where_clause(plan);
+    bind_values.extend(where_bind_values);
     let order_clause = render_order_clause(plan, &mut bind_values);
     let limit_clause = render_limit_clause(plan);
     let offset_clause = render_offset_clause(plan);
@@ -64,15 +65,24 @@ pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelect
     }
 }
 
-fn render_select_clause(plan: &SQLiteSelectPlan) -> String {
+fn render_select_clause(plan: &SQLiteSelectPlan) -> (String, Vec<SQLiteBindValue>) {
+    let mut bind_values = Vec::new();
     let columns = plan
         .selected_values()
         .iter()
-        .map(|value| render_qualified_identifier(value.source_alias(), value.column_name()))
+        .map(|value| {
+            let value_sql = render_value_expr(value.value(), &mut bind_values);
+
+            if let Some(computed) = value.as_computed() {
+                format!("{value_sql} AS {}", quote_identifier(computed.sql_alias()))
+            } else {
+                value_sql
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
-    format!("SELECT {columns}")
+    (format!("SELECT {columns}"), bind_values)
 }
 
 fn render_from_clause(plan: &SQLiteSelectPlan) -> String {

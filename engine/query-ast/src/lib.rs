@@ -33,7 +33,7 @@ pub struct SelectQuery {
 }
 
 /// Explicit result shape requested by a select query.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Shape {
     items: Vec<ShapeItem>,
 }
@@ -43,10 +43,30 @@ pub struct Shape {
 /// A child shape means the item syntactically selected a nested object, as in
 /// `author: { name }`. The parser does not know whether the path is a link; the
 /// resolver validates that.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShapeItem {
+    kind: ShapeItemKind,
+}
+
+/// Shape item variants before schema resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShapeItemKind {
+    Field(ShapeField),
+    Computed(ComputedShapeItem),
+}
+
+/// Schema-backed field selection in a result shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeField {
     path: Path,
     child_shape: Option<Shape>,
+}
+
+/// Query-local computed projection in a result shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComputedShapeItem {
+    output_name: String,
+    expr: Expr,
 }
 
 /// Unresolved field path.
@@ -229,15 +249,68 @@ impl Shape {
 
 impl ShapeItem {
     pub fn new(path: Path, child_shape: Option<Shape>) -> Self {
-        Self { path, child_shape }
+        Self {
+            kind: ShapeItemKind::Field(ShapeField { path, child_shape }),
+        }
     }
 
+    pub fn computed(output_name: impl Into<String>, expr: Expr) -> Self {
+        Self {
+            kind: ShapeItemKind::Computed(ComputedShapeItem {
+                output_name: output_name.into(),
+                expr,
+            }),
+        }
+    }
+
+    pub fn kind(&self) -> &ShapeItemKind {
+        &self.kind
+    }
+
+    pub fn field(&self) -> Option<&ShapeField> {
+        match &self.kind {
+            ShapeItemKind::Field(field) => Some(field),
+            ShapeItemKind::Computed(_) => None,
+        }
+    }
+
+    pub fn as_computed(&self) -> Option<&ComputedShapeItem> {
+        match &self.kind {
+            ShapeItemKind::Field(_) => None,
+            ShapeItemKind::Computed(computed) => Some(computed),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.field()
+            .expect("shape item should be a schema-backed field")
+            .path()
+    }
+
+    pub fn child_shape(&self) -> Option<&Shape> {
+        self.field()
+            .expect("shape item should be a schema-backed field")
+            .child_shape()
+    }
+}
+
+impl ShapeField {
     pub fn path(&self) -> &Path {
         &self.path
     }
 
     pub fn child_shape(&self) -> Option<&Shape> {
         self.child_shape.as_ref()
+    }
+}
+
+impl ComputedShapeItem {
+    pub fn output_name(&self) -> &str {
+        &self.output_name
+    }
+
+    pub fn expr(&self) -> &Expr {
+        &self.expr
     }
 }
 
