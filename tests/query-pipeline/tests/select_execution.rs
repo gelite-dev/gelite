@@ -47,14 +47,14 @@ fn write_temp_geli_schema(source: &str) -> PathBuf {
     path
 }
 
-fn unique_suffix() -> u128 {
+fn unique_suffix() -> String {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be after Unix epoch")
         .as_nanos();
     let counter = TEMP_SCHEMA_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    timestamp ^ u128::from(counter)
+    format!("{timestamp}-{counter}")
 }
 
 fn setup_blog_database() -> NativeSQLiteRunner {
