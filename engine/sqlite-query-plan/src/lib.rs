@@ -31,12 +31,23 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     // SELECT values and result-shape refs must assign computed aliases in the
     // same shape traversal order so the shaper reads the rendered SQL columns.
     let mut select_aliases = SQLiteComputedAliasAllocator::new();
-    let planned_shape_values = plan_shape_values(ir.shape(), "root", &mut select_aliases);
+    let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
+    let planned_shape_values = plan_shape_values(
+        ir.shape(),
+        "root",
+        false,
+        &mut select_aliases,
+        &mut join_aliases,
+    );
     let selected_values = planned_shape_values.values;
     let mut result_aliases = SQLiteComputedAliasAllocator::new();
     let result_shape = plan_result_shape(ir.shape(), "root", false, &mut result_aliases);
 
-    let planned_orders: Vec<PlannedOrder> = ir.order_by().iter().map(plan_order_expr).collect();
+    let planned_orders: Vec<PlannedOrder> = ir
+        .order_by()
+        .iter()
+        .map(|order| plan_order_expr(order, &mut join_aliases))
+        .collect();
 
     let mut order_by = Vec::new();
     let mut order_joins = Vec::new();
@@ -48,7 +59,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 
     let (filter, filter_joins) = match ir.filter() {
         Some(expr) => {
-            let planned = plan_where_expr(expr);
+            let planned = plan_where_expr(expr, &mut join_aliases);
             (Some(planned.expr), planned.joins)
         }
         None => (None, vec![]),
@@ -322,10 +333,51 @@ impl SQLiteComputedAliasAllocator {
     }
 }
 
+struct SQLiteJoinAliasAllocator {
+    next: usize,
+    reserved: Vec<String>,
+}
+
+impl SQLiteJoinAliasAllocator {
+    fn new(reserved: Vec<String>) -> Self {
+        Self { next: 0, reserved }
+    }
+
+    fn next_alias(&mut self) -> String {
+        loop {
+            let alias = format!("__gelite_join_{}", self.next);
+            self.next += 1;
+
+            if !self.reserved.iter().any(|reserved| reserved == &alias) {
+                return alias;
+            }
+        }
+    }
+}
+
+fn selected_link_aliases(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    let mut aliases = Vec::new();
+    collect_selected_link_aliases(shape, &mut aliases);
+    aliases
+}
+
+fn collect_selected_link_aliases(shape: &query_ir::ResolvedShape, aliases: &mut Vec<String>) {
+    for item in shape.items() {
+        if let query_ir::ResolvedShapeItem::Field(field) = item {
+            if let Some(child_shape) = field.child_shape() {
+                aliases.push(field.output_name().to_string());
+                collect_selected_link_aliases(child_shape, aliases);
+            }
+        }
+    }
+}
+
 fn plan_shape_values(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
+    source_nullable: bool,
     computed_aliases: &mut SQLiteComputedAliasAllocator,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
 ) -> PlannedShapeValues {
     let mut values = Vec::new();
     let mut joins = Vec::new();
@@ -347,8 +399,13 @@ fn plan_shape_values(
                         "id",
                     ));
 
-                    let planned_child_values =
-                        plan_shape_values(child_shape, nested_alias, computed_aliases);
+                    let planned_child_values = plan_shape_values(
+                        child_shape,
+                        nested_alias,
+                        source_nullable || field.cardinality() == Cardinality::Optional,
+                        computed_aliases,
+                        join_aliases,
+                    );
                     values.extend(planned_child_values.values);
                     joins.extend(planned_child_values.joins);
                 }
@@ -359,7 +416,8 @@ fn plan_shape_values(
                 )),
             },
             query_ir::ResolvedShapeItem::Computed(computed) => {
-                let planned = plan_value_expr(computed.value(), source_alias);
+                let planned =
+                    plan_value_expr(computed.value(), source_alias, source_nullable, join_aliases);
                 values.push(SQLiteSelectValue::computed(
                     computed.output_name(),
                     computed_aliases.next_alias(),
@@ -692,8 +750,14 @@ struct PlannedPath {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_resolved_path(path: &query_ir::ResolvedPath, source_alias: &str) -> PlannedPath {
+fn plan_resolved_path(
+    path: &query_ir::ResolvedPath,
+    source_alias: &str,
+    source_nullable: bool,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedPath {
     let mut current_alias = source_alias.to_string();
+    let mut current_nullable = source_nullable;
     let mut joins = vec![];
     let mut alias_parts = if source_alias == "root" {
         Vec::new()
@@ -716,9 +780,18 @@ fn plan_resolved_path(path: &query_ir::ResolvedPath, source_alias: &str) -> Plan
 
                 alias_parts.push(step.field().name().to_string());
                 path_parts.push(step.field().name().to_string());
-                let target_alias = alias_parts.join("_");
+                let target_alias = if source_alias == "root" {
+                    alias_parts.join("_")
+                } else {
+                    join_aliases.next_alias()
+                };
 
                 let link_field = step.field();
+                let join_cardinality = if current_nullable {
+                    Cardinality::Optional
+                } else {
+                    step.cardinality()
+                };
 
                 joins.push(SQLiteJoin::path_traversal(
                     source_alias,
@@ -726,10 +799,12 @@ fn plan_resolved_path(path: &query_ir::ResolvedPath, source_alias: &str) -> Plan
                     target_object_type,
                     target_alias.clone(),
                     path_parts.clone(),
-                    step.cardinality(),
+                    join_cardinality,
                 ));
 
                 current_alias = target_alias;
+                current_nullable =
+                    current_nullable || step.cardinality() == Cardinality::Optional;
             }
             query_ir::ResolvedPathStepKind::Scalar => {
                 if !is_last {
@@ -755,10 +830,16 @@ struct PlannedValueExpr {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_value_expr(expr: &query_ir::ValueExpr, source_alias: &str) -> PlannedValueExpr {
+fn plan_value_expr(
+    expr: &query_ir::ValueExpr,
+    source_alias: &str,
+    source_nullable: bool,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedValueExpr {
     match expr {
         query_ir::ValueExpr::Path(path) => {
-            let planned_path = plan_resolved_path(path, source_alias);
+            let planned_path =
+                plan_resolved_path(path, source_alias, source_nullable, join_aliases);
 
             PlannedValueExpr {
                 value: SQLiteValueExpr::Column(planned_path.column),
@@ -794,8 +875,18 @@ fn plan_value_expr(expr: &query_ir::ValueExpr, source_alias: &str) -> PlannedVal
             joins: vec![],
         },
         query_ir::ValueExpr::Arithmetic(arithmetic) => {
-            let left = plan_value_expr(arithmetic.left(), source_alias);
-            let right = plan_value_expr(arithmetic.right(), source_alias);
+            let left = plan_value_expr(
+                arithmetic.left(),
+                source_alias,
+                source_nullable,
+                join_aliases,
+            );
+            let right = plan_value_expr(
+                arithmetic.right(),
+                source_alias,
+                source_nullable,
+                join_aliases,
+            );
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -827,11 +918,14 @@ struct PlannedWhereExpr {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
+fn plan_where_expr(
+    expr: &Expr,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedWhereExpr {
     match expr {
         Expr::Compare(compare) => {
-            let left = plan_value_expr(compare.left(), "root");
-            let right = plan_value_expr(compare.right(), "root");
+            let left = plan_value_expr(compare.left(), "root", false, join_aliases);
+            let right = plan_value_expr(compare.right(), "root", false, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -846,7 +940,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::IsNull(value) => {
-            let value = plan_value_expr(value, "root");
+            let value = plan_value_expr(value, "root", false, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNull(value.value),
@@ -854,7 +948,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::IsNotNull(value) => {
-            let value = plan_value_expr(value, "root");
+            let value = plan_value_expr(value, "root", false, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::IsNotNull(value.value),
@@ -862,11 +956,11 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::In(in_expr) => {
-            let left = plan_value_expr(in_expr.left(), "root");
+            let left = plan_value_expr(in_expr.left(), "root", false, join_aliases);
             let planned_right = in_expr
                 .right()
                 .iter()
-                .map(|value| plan_value_expr(value, "root"))
+                .map(|value| plan_value_expr(value, "root", false, join_aliases))
                 .collect::<Vec<_>>();
             let mut joins = left.joins;
             let mut right = Vec::new();
@@ -886,8 +980,8 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::And(left, right) => {
-            let left = plan_where_expr(left);
-            let right = plan_where_expr(right);
+            let left = plan_where_expr(left, join_aliases);
+            let right = plan_where_expr(right, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -898,8 +992,8 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::Or(left, right) => {
-            let left = plan_where_expr(left);
-            let right = plan_where_expr(right);
+            let left = plan_where_expr(left, join_aliases);
+            let right = plan_where_expr(right, join_aliases);
 
             let mut joins = left.joins;
             joins.extend(right.joins);
@@ -910,7 +1004,7 @@ fn plan_where_expr(expr: &Expr) -> PlannedWhereExpr {
             }
         }
         Expr::Not(inner) => {
-            let inner = plan_where_expr(inner);
+            let inner = plan_where_expr(inner, join_aliases);
 
             PlannedWhereExpr {
                 expr: SQLiteWhereExpr::Not(Box::new(inner.expr)),
@@ -925,8 +1019,11 @@ struct PlannedOrder {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_order_expr(order: &query_ir::OrderExpr) -> PlannedOrder {
-    let planned_value = plan_value_expr(order.value(), "root");
+fn plan_order_expr(
+    order: &query_ir::OrderExpr,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> PlannedOrder {
+    let planned_value = plan_value_expr(order.value(), "root", false, join_aliases);
 
     PlannedOrder {
         order: SQLiteOrder {

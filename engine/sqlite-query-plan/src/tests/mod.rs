@@ -11,10 +11,11 @@ use alloc::vec;
 use fixtures::{
     empty_post_query, optional_post_author_shape_field, post_author_field,
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_best_friend_shape_field, post_id_path_value,
-    post_id_shape_field, post_query_with_shape, post_title_field, post_title_path_value,
-    post_title_shape_field, post_type, post_view_count_path_value,
-    user_best_friend_score_path_value, user_score_field, user_type,
+    post_author_shape_field_with_id_then_name, post_best_friend_field,
+    post_best_friend_shape_field, post_id_path_value, post_id_shape_field, post_query_with_shape,
+    post_title_field, post_title_path_value, post_title_shape_field, post_type,
+    post_view_count_path_value, user_best_friend_score_path_value, user_name_shape_field,
+    user_score_field, user_type,
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
@@ -275,12 +276,104 @@ fn sqlite_select_plan_avoids_alias_collision_for_nested_computed_path_join() {
     assert_eq!(joins[1].source_alias(), "root");
     assert_eq!(joins[1].target_alias(), "author");
     assert_eq!(joins[2].source_alias(), "author");
-    assert_eq!(joins[2].target_alias(), "author_best_friend");
+    assert_eq!(joins[2].target_alias(), "__gelite_join_0");
 
     let SQLiteValueExpr::Arithmetic(arithmetic) = plan.selected_values()[3].value() else {
         panic!("computed projection should lower to an arithmetic value expression");
     };
-    assert_column_value(arithmetic.left(), "author_best_friend", "score");
+    assert_column_value(arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
+fn sqlite_select_plan_uses_planner_owned_alias_for_nested_computed_path_join() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let root_best_friend = ResolvedShapeField::new(
+        "author_best_friend",
+        post_best_friend_field(),
+        schema_model::Cardinality::Required,
+        Some(ResolvedShape::new(user_type(), vec![user_name_shape_field()])),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![root_best_friend, author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].target_alias(), "author_best_friend");
+    assert_eq!(joins[1].target_alias(), "author");
+    assert_eq!(joins[2].source_alias(), "author");
+    assert_eq!(joins[2].target_alias(), "__gelite_join_0");
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = plan.selected_values()[3].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
+fn sqlite_select_plan_uses_left_descendant_join_under_optional_nested_source() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Optional,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Optional,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[1].target_alias(), "__gelite_join_0");
 }
 
 #[test]
