@@ -107,6 +107,18 @@ shape fields in the same shape. The resolver rejects duplicate output names
 inside one shape, including collisions such as `title` and `title := .views`.
 Nested shapes have their own output namespace.
 
+Computed projection paths are resolved relative to the object source of the
+shape that contains the computed item. In a nested shape, `.score` refers to the
+nested object type, not the root object type:
+
+```text
+select Post {
+  author: {
+    boosted_score := .score + 1
+  }
+}
+```
+
 Computed projections do not introduce names that can be referenced by filters,
 other computed projections, order clauses, or nested shape items in this
 milestone. They are output fields only.

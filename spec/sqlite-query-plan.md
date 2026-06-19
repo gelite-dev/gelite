@@ -294,6 +294,10 @@ must not require a logical `schema_model::FieldRef`. The planner assigns stable
 SQL aliases for computed values so SQL generation and result decoding can refer
 to the same output column.
 
+When a computed value appears inside a nested result shape, its value expression
+is lowered from that nested shape's source alias. It must not implicitly start
+from the root query alias.
+
 This keeps result shaping deterministic.
 
 ## Result Shape Plan

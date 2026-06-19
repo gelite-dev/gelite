@@ -212,6 +212,10 @@ is responsible for assigning the output name, validating the expression, and
 storing enough type and cardinality metadata for SQLite planning and result
 decoding.
 
+The value expression is resolved against the `ResolvedShape` source object that
+contains the computed field. A computed field inside a nested link shape uses
+the nested shape source object, not the root select object.
+
 The first computed projection milestone accepts scalar numeric arithmetic
 expressions over scalar paths and numeric literals. Boolean expressions,
 membership expressions, link values, many-cardinality paths, `null`, function
