@@ -813,21 +813,33 @@ struct PlannedPath {
     joins: Vec<SQLiteJoin>,
 }
 
+struct PathPlanningState {
+    current_alias: String,
+    current_nullable: bool,
+    alias_parts: Vec<String>,
+    path_parts: Vec<String>,
+    joins: Vec<SQLiteJoin>,
+}
+
+impl PathPlanningState {
+    fn new(source_alias: &str, source_nullable: bool) -> Self {
+        Self {
+            current_alias: source_alias.to_string(),
+            current_nullable: source_nullable,
+            alias_parts: initial_path_alias_parts(source_alias),
+            path_parts: Vec::new(),
+            joins: Vec::new(),
+        }
+    }
+}
+
 fn plan_resolved_path(
     path: &query_ir::ResolvedPath,
     source_alias: &str,
     source_nullable: bool,
     join_aliases: &mut SQLiteJoinAliasAllocator,
 ) -> PlannedPath {
-    let mut current_alias = source_alias.to_string();
-    let mut current_nullable = source_nullable;
-    let mut joins = vec![];
-    let mut alias_parts = if source_alias == "root" {
-        Vec::new()
-    } else {
-        vec![source_alias.to_string()]
-    };
-    let mut path_parts = Vec::new();
+    let mut state = PathPlanningState::new(source_alias, source_nullable);
     let mut column = None;
 
     for (index, step) in path.steps().iter().enumerate() {
@@ -835,56 +847,93 @@ fn plan_resolved_path(
 
         match step.kind() {
             query_ir::ResolvedPathStepKind::Link { target_object_type } => {
-                if is_last {
-                    todo!("link-only paths cannot be lowered to SQLite columns");
-                }
-
-                let source_alias = current_alias.clone();
-
-                alias_parts.push(step.field().name().to_string());
-                path_parts.push(step.field().name().to_string());
-                let target_alias = if source_alias == "root" {
-                    alias_parts.join("_")
-                } else {
-                    join_aliases.alias_for_path(&source_alias, &path_parts)
-                };
-
-                let link_field = step.field();
-                let join_cardinality = if current_nullable {
-                    Cardinality::Optional
-                } else {
-                    step.cardinality()
-                };
-
-                joins.push(SQLiteJoin::path_traversal(
-                    source_alias,
-                    link_field,
-                    target_object_type,
-                    target_alias.clone(),
-                    path_parts.clone(),
-                    join_cardinality,
-                ));
-
-                current_alias = target_alias;
-                current_nullable =
-                    current_nullable || step.cardinality() == Cardinality::Optional;
+                plan_link_path_step(step, target_object_type, is_last, &mut state, join_aliases);
             }
             query_ir::ResolvedPathStepKind::Scalar => {
-                if !is_last {
-                    todo!("scalar path step before terminal position is not supported");
-                }
-
-                column = Some(SQLiteColumnRef {
-                    source_alias: current_alias.clone(),
-                    column_name: step.field().name().to_string(),
-                });
+                column = Some(plan_scalar_path_step(step, is_last, &state));
             }
         }
     }
 
     PlannedPath {
         column: column.expect("resolved path should end in a scalar field"),
-        joins,
+        joins: state.joins,
+    }
+}
+
+fn initial_path_alias_parts(source_alias: &str) -> Vec<String> {
+    if source_alias == "root" {
+        Vec::new()
+    } else {
+        vec![source_alias.to_string()]
+    }
+}
+
+fn plan_link_path_step(
+    step: &query_ir::ResolvedPathStep,
+    target_object_type: &ObjectTypeRef,
+    is_last: bool,
+    state: &mut PathPlanningState,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) {
+    if is_last {
+        todo!("link-only paths cannot be lowered to SQLite columns");
+    }
+
+    let source_alias = state.current_alias.clone();
+    state.alias_parts.push(step.field().name().to_string());
+    state.path_parts.push(step.field().name().to_string());
+    let target_alias = path_step_target_alias(&source_alias, state, join_aliases);
+    let join_cardinality = path_step_join_cardinality(state.current_nullable, step.cardinality());
+
+    state.joins.push(SQLiteJoin::path_traversal(
+        source_alias,
+        step.field(),
+        target_object_type,
+        target_alias.clone(),
+        state.path_parts.clone(),
+        join_cardinality,
+    ));
+
+    state.current_alias = target_alias;
+    state.current_nullable = state.current_nullable || step.cardinality() == Cardinality::Optional;
+}
+
+fn path_step_target_alias(
+    source_alias: &str,
+    state: &PathPlanningState,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> String {
+    if source_alias == "root" {
+        state.alias_parts.join("_")
+    } else {
+        join_aliases.alias_for_path(source_alias, &state.path_parts)
+    }
+}
+
+fn path_step_join_cardinality(
+    current_nullable: bool,
+    step_cardinality: Cardinality,
+) -> Cardinality {
+    if current_nullable {
+        Cardinality::Optional
+    } else {
+        step_cardinality
+    }
+}
+
+fn plan_scalar_path_step(
+    step: &query_ir::ResolvedPathStep,
+    is_last: bool,
+    state: &PathPlanningState,
+) -> SQLiteColumnRef {
+    if !is_last {
+        todo!("scalar path step before terminal position is not supported");
+    }
+
+    SQLiteColumnRef {
+        source_alias: state.current_alias.clone(),
+        column_name: step.field().name().to_string(),
     }
 }
 
