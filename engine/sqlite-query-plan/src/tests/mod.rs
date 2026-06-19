@@ -11,9 +11,10 @@ use alloc::vec;
 use fixtures::{
     empty_post_query, optional_post_author_shape_field, post_author_field,
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_id_path_value, post_id_shape_field,
-    post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
-    post_type, post_view_count_path_value,
+    post_author_shape_field_with_id_then_name, post_best_friend_shape_field, post_id_path_value,
+    post_id_shape_field, post_query_with_shape, post_title_field, post_title_path_value,
+    post_title_shape_field, post_type, post_view_count_path_value,
+    user_best_friend_score_path_value, user_score_field, user_type,
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
@@ -143,6 +144,105 @@ fn sqlite_select_plan_can_project_computed_value() {
     assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
     assert_column_value(arithmetic.left(), "root", "view_count");
     assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_uses_nested_source_alias_for_computed_value() {
+    let computed = ResolvedComputedField::new(
+        "boosted_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            query_ir::ValueExpr::Path(
+                query_ir::ResolvedPath::try_new(
+                    user_type(),
+                    vec![query_ir::ResolvedPathStep::scalar(
+                        user_score_field(),
+                        schema_model::Cardinality::Required,
+                    )],
+                )
+                .expect("user score path should be valid"),
+            ),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 2);
+    assert_eq!(selected_values[1].output_name(), "boosted_score");
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = selected_values[1].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "author", "score");
+    assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_avoids_alias_collision_for_nested_computed_path_join() {
+    let computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape =
+        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(computed)]);
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_best_friend_shape_field(), author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_alias(), "best_friend");
+    assert_eq!(joins[1].source_alias(), "root");
+    assert_eq!(joins[1].target_alias(), "author");
+    assert_eq!(joins[2].source_alias(), "author");
+    assert_eq!(joins[2].target_alias(), "author_best_friend");
+
+    let SQLiteValueExpr::Arithmetic(arithmetic) = plan.selected_values()[3].value() else {
+        panic!("computed projection should lower to an arithmetic value expression");
+    };
+    assert_column_value(arithmetic.left(), "author_best_friend", "score");
 }
 
 #[test]
