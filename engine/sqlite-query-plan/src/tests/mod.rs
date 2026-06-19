@@ -481,6 +481,135 @@ fn sqlite_select_plan_assigns_unique_sql_aliases_for_repeated_computed_output_na
 }
 
 #[test]
+fn sqlite_select_plan_reserves_computed_sql_aliases_against_selected_field_columns() {
+    let reserved_field = ResolvedShapeField::new(
+        "__gelite_value_0",
+        schema_model::FieldRef::new(
+            schema_model::FieldId::new(99),
+            post_type(),
+            "__gelite_value_0",
+        ),
+        schema_model::Cardinality::Required,
+        None,
+    );
+    let computed = ResolvedComputedField::new(
+        "score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            post_view_count_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(
+            post_type(),
+            vec![
+                ResolvedShapeItem::Field(reserved_field),
+                ResolvedShapeItem::Computed(computed),
+            ],
+        ),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 2);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "__gelite_value_0",
+        "__gelite_value_0",
+        "__gelite_value_0",
+        SQLiteValueRole::Scalar,
+    );
+    assert_eq!(
+        selected_values[1]
+            .as_computed()
+            .expect("score should be computed")
+            .sql_alias(),
+        "__gelite_value_1"
+    );
+
+    let computed_field = &plan.result_shape().fields()[1];
+    let computed_value = computed_field
+        .value()
+        .expect("computed field should point to a selected value");
+    assert_eq!(computed_value.column_name(), "__gelite_value_1");
+}
+
+#[test]
+fn sqlite_select_plan_reuses_alias_for_repeated_nested_deep_path_join() {
+    let first_computed = ResolvedComputedField::new(
+        "friend_score",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(1)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let second_computed = ResolvedComputedField::new(
+        "friend_score_plus",
+        query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+            user_best_friend_score_path_value(),
+            query_ir::ArithmeticOp::Add,
+            query_ir::ValueExpr::Literal(Literal::Int64(2)),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+    let author_shape = ResolvedShape::with_items(
+        user_type(),
+        vec![
+            ResolvedShapeItem::Computed(first_computed),
+            ResolvedShapeItem::Computed(second_computed),
+        ],
+    );
+    let author = ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Required,
+        Some(author_shape),
+    );
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![author]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].target_alias(), "__gelite_join_0");
+
+    let SQLiteValueExpr::Arithmetic(first_arithmetic) = plan.selected_values()[1].value() else {
+        panic!("first computed projection should lower to arithmetic");
+    };
+    let SQLiteValueExpr::Arithmetic(second_arithmetic) = plan.selected_values()[2].value() else {
+        panic!("second computed projection should lower to arithmetic");
+    };
+    assert_column_value(first_arithmetic.left(), "__gelite_join_0", "score");
+    assert_column_value(second_arithmetic.left(), "__gelite_join_0", "score");
+}
+
+#[test]
 fn sqlite_select_plan_keeps_nested_identity_and_computed_id_column_names_distinct() {
     let computed_id = ResolvedComputedField::new(
         "id",

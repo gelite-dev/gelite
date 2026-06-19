@@ -30,7 +30,8 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 
     // SELECT values and result-shape refs must assign computed aliases in the
     // same shape traversal order so the shaper reads the rendered SQL columns.
-    let mut select_aliases = SQLiteComputedAliasAllocator::new();
+    let selected_column_names = selected_field_column_names(ir.shape());
+    let mut select_aliases = SQLiteComputedAliasAllocator::new(selected_column_names.clone());
     let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
     let planned_shape_values = plan_shape_values(
         ir.shape(),
@@ -40,7 +41,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
         &mut join_aliases,
     );
     let selected_values = planned_shape_values.values;
-    let mut result_aliases = SQLiteComputedAliasAllocator::new();
+    let mut result_aliases = SQLiteComputedAliasAllocator::new(selected_column_names);
     let result_shape = plan_result_shape(ir.shape(), "root", false, &mut result_aliases);
 
     let planned_orders: Vec<PlannedOrder> = ir
@@ -319,28 +320,45 @@ struct PlannedShapeValues {
 
 struct SQLiteComputedAliasAllocator {
     next: usize,
+    reserved: Vec<String>,
 }
 
 impl SQLiteComputedAliasAllocator {
-    fn new() -> Self {
-        Self { next: 0 }
+    fn new(reserved: Vec<String>) -> Self {
+        Self { next: 0, reserved }
     }
 
     fn next_alias(&mut self) -> String {
-        let alias = format!("__gelite_value_{}", self.next);
-        self.next += 1;
-        alias
+        loop {
+            let alias = format!("__gelite_value_{}", self.next);
+            self.next += 1;
+
+            if !self.reserved.iter().any(|reserved| reserved == &alias) {
+                return alias;
+            }
+        }
     }
 }
 
 struct SQLiteJoinAliasAllocator {
     next: usize,
     reserved: Vec<String>,
+    path_aliases: Vec<SQLiteJoinPathAlias>,
+}
+
+struct SQLiteJoinPathAlias {
+    source_alias: String,
+    path: Vec<String>,
+    target_alias: String,
 }
 
 impl SQLiteJoinAliasAllocator {
     fn new(reserved: Vec<String>) -> Self {
-        Self { next: 0, reserved }
+        Self {
+            next: 0,
+            reserved,
+            path_aliases: Vec::new(),
+        }
     }
 
     fn next_alias(&mut self) -> String {
@@ -350,6 +368,51 @@ impl SQLiteJoinAliasAllocator {
 
             if !self.reserved.iter().any(|reserved| reserved == &alias) {
                 return alias;
+            }
+        }
+    }
+
+    fn alias_for_path(&mut self, source_alias: &str, path: &[String]) -> String {
+        if let Some(cached) = self
+            .path_aliases
+            .iter()
+            .find(|cached| cached.source_alias == source_alias && cached.path == path)
+        {
+            return cached.target_alias.clone();
+        }
+
+        let target_alias = self.next_alias();
+        self.path_aliases.push(SQLiteJoinPathAlias {
+            source_alias: source_alias.to_string(),
+            path: path.to_vec(),
+            target_alias: target_alias.clone(),
+        });
+        target_alias
+    }
+}
+
+fn selected_field_column_names(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    let mut column_names = Vec::new();
+    collect_selected_field_column_names(shape, false, &mut column_names);
+    column_names
+}
+
+fn collect_selected_field_column_names(
+    shape: &query_ir::ResolvedShape,
+    include_identity: bool,
+    column_names: &mut Vec<String>,
+) {
+    if include_identity {
+        column_names.push("id".to_string());
+    }
+
+    for item in shape.items() {
+        if let query_ir::ResolvedShapeItem::Field(field) = item {
+            match field.child_shape() {
+                Some(child_shape) => {
+                    collect_selected_field_column_names(child_shape, true, column_names);
+                }
+                None => column_names.push(field.field().name().to_string()),
             }
         }
     }
@@ -783,7 +846,7 @@ fn plan_resolved_path(
                 let target_alias = if source_alias == "root" {
                     alias_parts.join("_")
                 } else {
-                    join_aliases.next_alias()
+                    join_aliases.alias_for_path(&source_alias, &path_parts)
                 };
 
                 let link_field = step.field();
