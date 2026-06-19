@@ -28,9 +28,13 @@ use schema_model::{Cardinality, FieldRef, ObjectTypeRef};
 pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let root_object_type = ir.root_object_type().clone();
 
-    let planned_shape_values = plan_shape_values(ir.shape(), "root");
+    // SELECT values and result-shape refs must assign computed aliases in the
+    // same shape traversal order so the shaper reads the rendered SQL columns.
+    let mut select_aliases = SQLiteComputedAliasAllocator::new();
+    let planned_shape_values = plan_shape_values(ir.shape(), "root", &mut select_aliases);
     let selected_values = planned_shape_values.values;
-    let result_shape = plan_result_shape(ir.shape(), "root", false);
+    let mut result_aliases = SQLiteComputedAliasAllocator::new();
+    let result_shape = plan_result_shape(ir.shape(), "root", false, &mut result_aliases);
 
     let planned_orders: Vec<PlannedOrder> = ir.order_by().iter().map(plan_order_expr).collect();
 
@@ -154,6 +158,7 @@ pub struct SQLiteFieldSelectValue {
 /// Query-local computed value selected by the generated SQL.
 pub struct SQLiteComputedSelectValue {
     output_name: String,
+    sql_alias: String,
     value: SQLiteValueExpr,
 }
 
@@ -176,9 +181,14 @@ impl SQLiteSelectValue {
         })
     }
 
-    pub fn computed(output_name: impl Into<String>, value: SQLiteValueExpr) -> Self {
+    pub fn computed(
+        output_name: impl Into<String>,
+        sql_alias: impl Into<String>,
+        value: SQLiteValueExpr,
+    ) -> Self {
         Self::Computed(SQLiteComputedSelectValue {
             output_name: output_name.into(),
+            sql_alias: sql_alias.into(),
             value,
         })
     }
@@ -272,6 +282,10 @@ impl SQLiteComputedSelectValue {
         &self.output_name
     }
 
+    pub fn sql_alias(&self) -> &str {
+        &self.sql_alias
+    }
+
     pub fn value(&self) -> &SQLiteValueExpr {
         &self.value
     }
@@ -292,7 +306,27 @@ struct PlannedShapeValues {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_shape_values(shape: &query_ir::ResolvedShape, source_alias: &str) -> PlannedShapeValues {
+struct SQLiteComputedAliasAllocator {
+    next: usize,
+}
+
+impl SQLiteComputedAliasAllocator {
+    fn new() -> Self {
+        Self { next: 0 }
+    }
+
+    fn next_alias(&mut self) -> String {
+        let alias = format!("__gelite_value_{}", self.next);
+        self.next += 1;
+        alias
+    }
+}
+
+fn plan_shape_values(
+    shape: &query_ir::ResolvedShape,
+    source_alias: &str,
+    computed_aliases: &mut SQLiteComputedAliasAllocator,
+) -> PlannedShapeValues {
     let mut values = Vec::new();
     let mut joins = Vec::new();
 
@@ -313,7 +347,8 @@ fn plan_shape_values(shape: &query_ir::ResolvedShape, source_alias: &str) -> Pla
                         "id",
                     ));
 
-                    let planned_child_values = plan_shape_values(child_shape, nested_alias);
+                    let planned_child_values =
+                        plan_shape_values(child_shape, nested_alias, computed_aliases);
                     values.extend(planned_child_values.values);
                     joins.extend(planned_child_values.joins);
                 }
@@ -327,6 +362,7 @@ fn plan_shape_values(shape: &query_ir::ResolvedShape, source_alias: &str) -> Pla
                 let planned = plan_value_expr(computed.value(), source_alias);
                 values.push(SQLiteSelectValue::computed(
                     computed.output_name(),
+                    computed_aliases.next_alias(),
                     planned.value,
                 ));
                 joins.extend(planned.joins);
@@ -341,6 +377,7 @@ fn plan_result_shape(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
     include_identity: bool,
+    computed_aliases: &mut SQLiteComputedAliasAllocator,
 ) -> SQLiteResultShapePlan {
     let fields = shape
         .items()
@@ -351,7 +388,12 @@ fn plan_result_shape(
                     output_name: field.output_name().to_string(),
                     cardinality: field.cardinality(),
                     value: None,
-                    nested_shape: Some(plan_result_shape(child_shape, field.output_name(), true)),
+                    nested_shape: Some(plan_result_shape(
+                        child_shape,
+                        field.output_name(),
+                        true,
+                        computed_aliases,
+                    )),
                 },
                 None => SQLiteResultField {
                     output_name: field.output_name().to_string(),
@@ -369,7 +411,7 @@ fn plan_result_shape(
                 cardinality: computed.cardinality(),
                 value: Some(SQLiteResultValueRef {
                     source_alias: source_alias.to_string(),
-                    column_name: computed.output_name().to_string(),
+                    column_name: computed_aliases.next_alias(),
                     role: SQLiteValueRole::Computed,
                 }),
                 nested_shape: None,

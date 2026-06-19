@@ -18,7 +18,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
     SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral,
-    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr,
+    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -73,8 +73,8 @@ fn render_select_clause(plan: &SQLiteSelectPlan) -> (String, Vec<SQLiteBindValue
         .map(|value| {
             let value_sql = render_value_expr(value.value(), &mut bind_values);
 
-            if value.role() == SQLiteValueRole::Computed {
-                format!("{value_sql} AS {}", quote_identifier(value.output_name()))
+            if let Some(computed) = value.as_computed() {
+                format!("{value_sql} AS {}", quote_identifier(computed.sql_alias()))
             } else {
                 value_sql
             }

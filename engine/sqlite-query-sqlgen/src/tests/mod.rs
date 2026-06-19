@@ -82,7 +82,7 @@ fn sqlite_sqlgen_can_render_computed_projection() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT (\"root\".\"view_count\" + ?) AS \"score\" FROM \"post\" AS \"root\""
+        "SELECT (\"root\".\"view_count\" + ?) AS \"__gelite_value_0\" FROM \"post\" AS \"root\""
     );
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
 }

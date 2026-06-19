@@ -239,7 +239,7 @@ fn select_pipeline_renders_computed_projection_from_query_text() {
 
     assert_eq!(
         statement.sql(),
-        "SELECT (\"root\".\"view_count\" + ?) AS \"score\" FROM \"post\" AS \"root\""
+        "SELECT (\"root\".\"view_count\" + ?) AS \"__gelite_value_0\" FROM \"post\" AS \"root\""
     );
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
 }
@@ -264,7 +264,7 @@ fn select_pipeline_executes_computed_projection() {
     let result =
         execute_query(r#"select Post { score := .view_count + 1 } order by .view_count asc"#);
 
-    assert_eq!(result.columns(), &["score".to_string()]);
+    assert_eq!(result.columns(), &["__gelite_value_0".to_string()]);
     assert_eq!(
         result.rows(),
         &[
