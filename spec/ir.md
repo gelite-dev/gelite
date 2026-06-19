@@ -39,7 +39,7 @@ The Semantic IR MVP does not attempt to model:
 - polymorphism
 - inheritance-aware type expansion
 - backlinks or inferred inverse traversal
-- computed fields
+- schema-level computed fields
 - access policies or rewrites
 - function overloading machinery beyond what the MVP query language needs
 
