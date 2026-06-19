@@ -370,7 +370,9 @@ cast expressions exist. `%` is not defined for `float64`.
 
 `int64 / int64` preserves SQLite integer division semantics. Division by zero
 is not rewritten by Semantic IR. If the divisor can only be known at runtime,
-SQLite determines the result.
+SQLite determines the result. Because SQLite can return `NULL` for division or
+modulo by zero, computed projection metadata treats `/` and `%` as optional
+unless the divisor is a non-zero numeric literal.
 
 Arithmetic expressions may appear as value operands inside filter comparisons,
 membership expressions, order expressions, and computed select projections.

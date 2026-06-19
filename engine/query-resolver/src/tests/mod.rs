@@ -110,6 +110,93 @@ fn resolves_computed_projection_shape_item() {
 }
 
 #[test]
+fn resolves_computed_projection_runtime_division_as_optional() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Div,
+                path_expr(&["view_count"]),
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::ResolvedShapeItem::Computed(computed) = &resolved.shape().items()[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+
+    assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
+    assert_eq!(computed.cardinality(), schema_model::Cardinality::Optional);
+}
+
+#[test]
+fn resolves_computed_projection_runtime_modulo_as_optional() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Mod,
+                path_expr(&["view_count"]),
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::ResolvedShapeItem::Computed(computed) = &resolved.shape().items()[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+
+    assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
+    assert_eq!(computed.cardinality(), schema_model::Cardinality::Optional);
+}
+
+#[test]
+fn resolves_computed_projection_nonzero_literal_division_as_required() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "score",
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Div,
+                literal_int_expr(2),
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::ResolvedShapeItem::Computed(computed) = &resolved.shape().items()[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+
+    assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
+    assert_eq!(computed.cardinality(), schema_model::Cardinality::Required);
+}
+
+#[test]
 fn rejects_computed_projection_plain_path_expr() {
     let catalog = post_with_scalar_fields_catalog();
 

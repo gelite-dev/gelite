@@ -840,7 +840,13 @@ fn value_expr_cardinality(
         query_ir::ValueExpr::Arithmetic(arithmetic) => {
             let left = value_expr_cardinality(arithmetic.left())?;
             let right = value_expr_cardinality(arithmetic.right())?;
-            let cardinality = combine(left, right);
+            let mut cardinality = combine(left, right);
+
+            if cardinality == schema_model::Cardinality::Required
+                && arithmetic_can_return_null(arithmetic)
+            {
+                cardinality = schema_model::Cardinality::Optional;
+            }
 
             match cardinality {
                 schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
@@ -860,6 +866,21 @@ fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {
             value_expr_contains_path(arithmetic.left())
                 || value_expr_contains_path(arithmetic.right())
         }
+    }
+}
+
+fn arithmetic_can_return_null(arithmetic: &query_ir::ArithmeticExpr) -> bool {
+    matches!(
+        arithmetic.op(),
+        query_ir::ArithmeticOp::Div | query_ir::ArithmeticOp::Mod
+    ) && !is_nonzero_numeric_literal(arithmetic.right())
+}
+
+fn is_nonzero_numeric_literal(value: &query_ir::ValueExpr) -> bool {
+    match value {
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => *value != 0,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => *value != 0.0,
+        _ => false,
     }
 }
 
