@@ -137,12 +137,24 @@ impl SQLiteSelectPlan {
     }
 }
 
-/// One column selected by the generated SQL.
-pub struct SQLiteSelectValue {
+/// One value selected by the generated SQL.
+pub enum SQLiteSelectValue {
+    Field(SQLiteFieldSelectValue),
+    Computed(SQLiteComputedSelectValue),
+}
+
+/// Schema-backed column selected by the generated SQL.
+pub struct SQLiteFieldSelectValue {
     output_name: String,
     value: SQLiteValueExpr,
-    field: Option<schema_model::FieldRef>,
+    field: schema_model::FieldRef,
     role: SQLiteValueRole,
+}
+
+/// Query-local computed value selected by the generated SQL.
+pub struct SQLiteComputedSelectValue {
+    output_name: String,
+    value: SQLiteValueExpr,
 }
 
 impl SQLiteSelectValue {
@@ -153,31 +165,82 @@ impl SQLiteSelectValue {
     ) -> Self {
         let source_alias = source_alias.into();
         let column_name = field.name().to_string();
-        Self {
+        Self::Field(SQLiteFieldSelectValue {
             output_name: output_name.into(),
             value: SQLiteValueExpr::Column(SQLiteColumnRef {
                 source_alias,
                 column_name,
             }),
             role: SQLiteValueRole::for_field(&field),
-            field: Some(field),
-        }
+            field,
+        })
     }
 
     pub fn computed(output_name: impl Into<String>, value: SQLiteValueExpr) -> Self {
-        Self {
+        Self::Computed(SQLiteComputedSelectValue {
             output_name: output_name.into(),
             value,
-            field: None,
-            role: SQLiteValueRole::Computed,
+        })
+    }
+
+    pub fn as_field(&self) -> Option<&SQLiteFieldSelectValue> {
+        match self {
+            Self::Field(value) => Some(value),
+            Self::Computed(_) => None,
         }
+    }
+
+    pub fn as_computed(&self) -> Option<&SQLiteComputedSelectValue> {
+        match self {
+            Self::Field(_) => None,
+            Self::Computed(value) => Some(value),
+        }
+    }
+
+    pub fn output_name(&self) -> &str {
+        match self {
+            Self::Field(value) => value.output_name(),
+            Self::Computed(value) => value.output_name(),
+        }
+    }
+
+    pub fn source_alias(&self) -> Option<&str> {
+        self.as_field().map(SQLiteFieldSelectValue::source_alias)
+    }
+
+    pub fn column_name(&self) -> Option<&str> {
+        self.as_field().map(SQLiteFieldSelectValue::column_name)
+    }
+
+    pub fn field(&self) -> Option<&schema_model::FieldRef> {
+        self.as_field().map(SQLiteFieldSelectValue::field)
+    }
+
+    pub fn value(&self) -> &SQLiteValueExpr {
+        match self {
+            Self::Field(value) => value.value(),
+            Self::Computed(value) => value.value(),
+        }
+    }
+
+    pub fn role(&self) -> SQLiteValueRole {
+        match self {
+            Self::Field(value) => value.role(),
+            Self::Computed(_) => SQLiteValueRole::Computed,
+        }
+    }
+}
+
+impl SQLiteFieldSelectValue {
+    pub fn output_name(&self) -> &str {
+        &self.output_name
     }
 
     pub fn source_alias(&self) -> &str {
         match &self.value {
             SQLiteValueExpr::Column(column) => column.source_alias(),
             SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
-                panic!("computed selected value does not have a source alias")
+                unreachable!("field selected values are always columns")
             }
         }
     }
@@ -186,19 +249,13 @@ impl SQLiteSelectValue {
         match &self.value {
             SQLiteValueExpr::Column(column) => column.column_name(),
             SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
-                panic!("computed selected value does not have a column name")
+                unreachable!("field selected values are always columns")
             }
         }
     }
 
-    pub fn output_name(&self) -> &str {
-        &self.output_name
-    }
-
     pub fn field(&self) -> &schema_model::FieldRef {
-        self.field
-            .as_ref()
-            .expect("computed selected value does not have a schema field")
+        &self.field
     }
 
     pub fn value(&self) -> &SQLiteValueExpr {
@@ -207,6 +264,16 @@ impl SQLiteSelectValue {
 
     pub fn role(&self) -> SQLiteValueRole {
         self.role
+    }
+}
+
+impl SQLiteComputedSelectValue {
+    pub fn output_name(&self) -> &str {
+        &self.output_name
+    }
+
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
     }
 }
 

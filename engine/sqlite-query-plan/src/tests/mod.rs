@@ -52,6 +52,24 @@ fn assert_int_literal_value(value: &SQLiteValueExpr, expected: i64) {
     }
 }
 
+fn assert_selected_field(
+    value: &crate::SQLiteSelectValue,
+    source_alias: &str,
+    column_name: &str,
+    output_name: &str,
+    field_name: &str,
+    role: SQLiteValueRole,
+) {
+    let field = value
+        .as_field()
+        .expect("selected value should be field-backed");
+    assert_eq!(field.source_alias(), source_alias);
+    assert_eq!(field.column_name(), column_name);
+    assert_eq!(field.output_name(), output_name);
+    assert_eq!(field.field().name(), field_name);
+    assert_eq!(field.role(), role);
+}
+
 #[test]
 fn sqlite_select_plan_can_store_root_source() {
     let ir = empty_post_query();
@@ -72,11 +90,14 @@ fn sqlite_select_plan_can_project_root_scalar_field() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "title");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -101,11 +122,14 @@ fn sqlite_select_plan_preserves_root_scalar_output_name() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "headline");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "headline",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -137,6 +161,10 @@ fn sqlite_select_plan_can_project_computed_value() {
     assert_eq!(selected_values.len(), 1);
     assert_eq!(selected_values[0].output_name(), "score");
     assert_eq!(selected_values[0].role(), SQLiteValueRole::Computed);
+    assert!(selected_values[0].as_computed().is_some());
+    assert_eq!(selected_values[0].source_alias(), None);
+    assert_eq!(selected_values[0].column_name(), None);
+    assert!(selected_values[0].field().is_none());
 
     let SQLiteValueExpr::Arithmetic(arithmetic) = selected_values[0].value() else {
         panic!("computed projection should lower to an arithmetic SQLite value expression");
@@ -275,17 +303,22 @@ fn sqlite_select_plan_preserves_root_scalar_projection_order() {
 
     assert_eq!(selected_values.len(), 2);
 
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].output_name(), "title");
-    assert_eq!(selected_values[0].field().name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
-
-    assert_eq!(selected_values[1].source_alias(), "root");
-    assert_eq!(selected_values[1].column_name(), "author");
-    assert_eq!(selected_values[1].output_name(), "author");
-    assert_eq!(selected_values[1].field().name(), "author");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "root",
+        "author",
+        "author",
+        "author",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1328,11 +1361,14 @@ fn sqlite_select_plan_can_project_implicit_id() {
     let selected_values = plan.selected_values();
 
     assert_eq!(selected_values.len(), 1);
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "id");
-    assert_eq!(selected_values[0].output_name(), "id");
-    assert_eq!(selected_values[0].field().name(), "id");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::ObjectId);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
 }
 
 #[test]
@@ -1372,10 +1408,14 @@ fn sqlite_select_plan_can_project_selected_single_link_scalar_field() {
     let plan = plan_select(&ir);
     let selected_values = plan.selected_values();
 
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "name");
-    assert_eq!(selected_values[1].output_name(), "name");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1386,15 +1426,22 @@ fn sqlite_select_plan_projects_selected_single_link_identity() {
 
     assert_eq!(selected_values.len(), 2);
 
-    assert_eq!(selected_values[0].source_alias(), "author");
-    assert_eq!(selected_values[0].column_name(), "id");
-    assert_eq!(selected_values[0].output_name(), "id");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::ObjectId);
-
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "name");
-    assert_eq!(selected_values[1].output_name(), "name");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
@@ -1406,17 +1453,30 @@ fn sqlite_select_plan_preserves_selected_value_order_with_nested_link() {
 
     assert_eq!(selected_values.len(), 3);
 
-    assert_eq!(selected_values[0].source_alias(), "root");
-    assert_eq!(selected_values[0].column_name(), "title");
-    assert_eq!(selected_values[0].role(), SQLiteValueRole::Scalar);
-
-    assert_eq!(selected_values[1].source_alias(), "author");
-    assert_eq!(selected_values[1].column_name(), "id");
-    assert_eq!(selected_values[1].role(), SQLiteValueRole::ObjectId);
-
-    assert_eq!(selected_values[2].source_alias(), "author");
-    assert_eq!(selected_values[2].column_name(), "name");
-    assert_eq!(selected_values[2].role(), SQLiteValueRole::Scalar);
+    assert_selected_field(
+        &selected_values[0],
+        "root",
+        "title",
+        "title",
+        "title",
+        SQLiteValueRole::Scalar,
+    );
+    assert_selected_field(
+        &selected_values[1],
+        "author",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &selected_values[2],
+        "author",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
 }
 
 #[test]
