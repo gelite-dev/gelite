@@ -279,6 +279,7 @@ Minimum variants:
 - literal
 - path
 - arithmetic
+- unary arithmetic
 - comparison
 - membership
 - boolean `and`
@@ -292,8 +293,8 @@ Minimum metadata:
 
 The result type may be a scalar type, an object type for future subquery work,
 or a dedicated boolean type for predicates. The current implementation needs
-literal scalar values, resolved scalar paths, arithmetic scalar values, and
-boolean predicate results.
+literal scalar values, resolved scalar paths, arithmetic scalar values, unary
+arithmetic scalar values, and boolean predicate results.
 
 The expression tree does not store SQLite SQL fragments. SQLite-specific
 operator spelling, parentheses, bind placeholders, and joins belong to SQLite
@@ -328,7 +329,7 @@ Minimum fields:
 
 ### `ArithmeticExpr`
 
-Represents a resolved numeric value expression.
+Represents a resolved binary numeric value expression.
 
 Minimum fields:
 
@@ -345,9 +346,6 @@ Supported operators:
 - `*`
 - `/`
 - `%`
-
-These are binary operators. Unary arithmetic operators are not part of this
-milestone.
 
 Arithmetic operands must resolve to scalar numeric value expressions. The
 resolver must reject string, boolean, uuid, `null`, object, and link operands
@@ -376,6 +374,30 @@ unless the divisor is a non-zero numeric literal.
 
 Arithmetic expressions may appear as value operands inside filter comparisons,
 membership expressions, order expressions, and computed select projections.
+
+### `UnaryArithmeticExpr`
+
+Represents a resolved unary numeric value expression.
+
+Minimum fields:
+
+- unary arithmetic operator
+- operand expression
+- result type
+- result cardinality
+
+Supported operators:
+
+- unary `+`
+- unary `-`
+
+The operand must resolve to a scalar numeric value expression. Unary arithmetic
+preserves the operand scalar type: `int64` stays `int64`, and `float64` stays
+`float64`. String, boolean, uuid, `null`, object, link, and many-cardinality
+operands are rejected before SQLite planning.
+
+Unary arithmetic has the same cardinality as its operand. It does not introduce
+additional `NULL` results by itself.
 
 ### `CompareExpr`
 
@@ -465,9 +487,9 @@ Minimum fields:
 
 The order value must resolve to a scalar `ValueExpr`. Supported order values in
 the arithmetic order milestone are resolved scalar paths and numeric arithmetic
-expressions over scalar paths and numeric literals. Boolean expressions,
-membership expressions, and literal-only order values are rejected by the
-resolver before SQLite planning.
+expressions over scalar paths and numeric literals, including unary arithmetic.
+Boolean expressions, membership expressions, and literal-only order values are
+rejected by the resolver before SQLite planning.
 
 ## Mutation Model
 
