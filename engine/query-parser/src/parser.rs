@@ -70,6 +70,7 @@ const COMPARISON_BP: (u8, u8) = (5, 6);
 const ADDITIVE_BP: (u8, u8) = (7, 8);
 const MULTIPLICATIVE_BP: (u8, u8) = (9, 10);
 const NOT_RIGHT_BP: u8 = COMPARISON_BP.0;
+const UNARY_RIGHT_BP: u8 = 11;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InfixOp {
@@ -272,6 +273,13 @@ impl<'a> Parser<'a> {
     fn parse_prefix_or_primary(&mut self) -> Result<Expr, ParseError> {
         if self.consume_contextual_keyword_if_present("not") {
             return Ok(Expr::Not(Box::new(self.parse_expr_bp(NOT_RIGHT_BP)?)));
+        }
+
+        if let Some(op) = self.consume_unary_arithmetic_op_if_present() {
+            return Ok(Expr::UnaryArithmetic(query_ast::UnaryArithmeticExpr::new(
+                op,
+                self.parse_expr_bp(UNARY_RIGHT_BP)?,
+            )));
         }
 
         self.parse_primary_expr()
@@ -781,6 +789,20 @@ impl<'a> Parser<'a> {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn consume_unary_arithmetic_op_if_present(&mut self) -> Option<query_ast::UnaryArithmeticOp> {
+        match self.peek().map(Token::kind) {
+            Some(TokenKind::Plus) => {
+                self.advance();
+                Some(query_ast::UnaryArithmeticOp::Plus)
+            }
+            Some(TokenKind::Minus) => {
+                self.advance();
+                Some(query_ast::UnaryArithmeticOp::Minus)
+            }
+            _ => None,
         }
     }
 }

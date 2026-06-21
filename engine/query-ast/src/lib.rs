@@ -95,6 +95,7 @@ pub enum Expr {
     Not(Box<Expr>),
     In(InExpr),
     Arithmetic(ArithmeticExpr),
+    UnaryArithmetic(UnaryArithmeticExpr),
 }
 
 /// Membership expression parsed from an `in` or `not in` filter clause.
@@ -191,6 +192,37 @@ pub struct ArithmeticExpr {
     left: Box<Expr>,
     op: ArithmeticOp,
     right: Box<Expr>,
+}
+
+/// Unary arithmetic expression parsed from a value expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnaryArithmeticExpr {
+    op: UnaryArithmeticOp,
+    operand: Box<Expr>,
+}
+
+impl UnaryArithmeticExpr {
+    pub fn new(op: UnaryArithmeticOp, operand: Expr) -> Self {
+        Self {
+            op,
+            operand: Box::new(operand),
+        }
+    }
+
+    pub fn op(&self) -> UnaryArithmeticOp {
+        self.op
+    }
+
+    pub fn operand(&self) -> &Expr {
+        &self.operand
+    }
+}
+
+/// Unary arithmetic operators implemented by the current parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryArithmeticOp {
+    Plus,
+    Minus,
 }
 
 impl SelectQuery {
