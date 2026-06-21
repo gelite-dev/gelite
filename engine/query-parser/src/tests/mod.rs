@@ -5,8 +5,8 @@ use crate::{
     LexErrorKind, TokenKind, lex, parse_select,
 };
 use alloc::string::ToString;
-use fixtures::{assert_literal_expr, assert_path_expr};
-use query_ast::{ArithmeticOp, CompareOp, Expr, InOp, Literal, OrderDirection};
+use fixtures::{assert_literal_expr, assert_path_expr, assert_unary_arithmetic_expr};
+use query_ast::{ArithmeticOp, CompareOp, Expr, InOp, Literal, OrderDirection, UnaryArithmeticOp};
 
 #[test]
 fn lexer_can_tokenize_select_shape() {
@@ -363,6 +363,34 @@ fn lexer_reports_unexpected_character_byte_offset() {
 }
 
 #[test]
+fn lexer_tokenizes_negative_integer_as_minus_and_integer() {
+    let tokens = lex("- 1").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Minus);
+    assert_eq!(tokens[1].kind(), &TokenKind::Int("1".to_string()));
+}
+
+#[test]
+fn lexer_tokenizes_positive_integer_as_plus_and_integer() {
+    let tokens = lex("+ 1").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Plus);
+    assert_eq!(tokens[1].kind(), &TokenKind::Int("1".to_string()));
+}
+
+#[test]
+fn lexer_tokenizes_unary_path_without_merging_tokens() {
+    let tokens = lex("- .view_count").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Minus);
+    assert_eq!(tokens[1].kind(), &TokenKind::Dot);
+    assert_eq!(
+        tokens[2].kind(),
+        &TokenKind::Ident("view_count".to_string())
+    );
+}
+
+#[test]
 fn parser_can_parse_select_shape() {
     let query = parse_select("select Post { title }").expect("query should parse");
 
@@ -447,6 +475,22 @@ fn parser_can_parse_computed_shape_item_arithmetic_expr() {
     assert_path_expr(mul.left(), &["likes"]);
     assert_literal_expr(mul.right(), &Literal::Int64(10));
     assert_path_expr(add.right(), &["view_count"]);
+}
+
+#[test]
+fn parser_can_parse_computed_shape_item_unary_arithmetic_expr() {
+    let query = parse_select("select Post { score := -.view_count }").expect("query should parse");
+
+    let items = query.shape().items();
+
+    assert_eq!(items.len(), 1);
+    let computed = items[0]
+        .as_computed()
+        .expect("shape item should be a computed projection");
+    assert_eq!(computed.output_name(), "score");
+
+    let operand = assert_unary_arithmetic_expr(computed.expr(), UnaryArithmeticOp::Minus);
+    assert_path_expr(operand, &["view_count"]);
 }
 
 #[test]
@@ -590,6 +634,161 @@ fn parser_can_parse_filter_arithmetic_addition() {
 
             assert_eq!(compare.op(), CompareOp::Ge);
             assert_literal_expr(compare.right(), &Literal::Int64(100));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_unary_minus_integer_literal() {
+    let query =
+        parse_select("select Post { title } filter -1 < .view_count").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let operand = assert_unary_arithmetic_expr(compare.left(), UnaryArithmeticOp::Minus);
+            assert_literal_expr(operand, &Literal::Int64(1));
+
+            assert_eq!(compare.op(), CompareOp::Lt);
+            assert_path_expr(compare.right(), &["view_count"]);
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_unary_plus_integer_literal() {
+    let query =
+        parse_select("select Post { title } filter +1 < .view_count").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let operand = assert_unary_arithmetic_expr(compare.left(), UnaryArithmeticOp::Plus);
+            assert_literal_expr(operand, &Literal::Int64(1));
+
+            assert_eq!(compare.op(), CompareOp::Lt);
+            assert_path_expr(compare.right(), &["view_count"]);
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_unary_minus_path() {
+    let query =
+        parse_select("select Post { title } filter -.view_count < 0").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let operand = assert_unary_arithmetic_expr(compare.left(), UnaryArithmeticOp::Minus);
+            assert_path_expr(operand, &["view_count"]);
+
+            assert_eq!(compare.op(), CompareOp::Lt);
+            assert_literal_expr(compare.right(), &Literal::Int64(0));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_treats_after_left_expr_as_binary_subtraction() {
+    let query = parse_select("select Post { title } filter .view_count -1 >= 0")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["view_count"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Sub);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Int64(0));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_unary_arithmetic_before_multiplication() {
+    let query =
+        parse_select("select Post { title } filter -.score * 2 < 0").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            match compare.left() {
+                Expr::Arithmetic(arithmetic) => {
+                    let operand =
+                        assert_unary_arithmetic_expr(arithmetic.left(), UnaryArithmeticOp::Minus);
+                    assert_path_expr(operand, &["score"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(2));
+                }
+                other => panic!("left side should be arithmetic expression, got {other:?}"),
+            }
+
+            assert_eq!(compare.op(), CompareOp::Lt);
+            assert_literal_expr(compare.right(), &Literal::Int64(0));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_parenthesized_arithmetic_as_unary_operand() {
+    let query =
+        parse_select("select Post { title } filter -(.score + 1) < 0").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let operand = assert_unary_arithmetic_expr(compare.left(), UnaryArithmeticOp::Minus);
+            match operand {
+                Expr::Arithmetic(arithmetic) => {
+                    assert_path_expr(arithmetic.left(), &["score"]);
+                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+                    assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
+                }
+                other => {
+                    panic!("unary operand should preserve parenthesized addition, got {other:?}")
+                }
+            }
+
+            assert_eq!(compare.op(), CompareOp::Lt);
+            assert_literal_expr(compare.right(), &Literal::Int64(0));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_unary_arithmetic_on_comparison_right_side() {
+    let query =
+        parse_select("select Post { title } filter .view_count = -1").expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_path_expr(compare.left(), &["view_count"]);
+            assert_eq!(compare.op(), CompareOp::Eq);
+            let operand = assert_unary_arithmetic_expr(compare.right(), UnaryArithmeticOp::Minus);
+            assert_literal_expr(operand, &Literal::Int64(1));
         }
         _ => panic!("filter should be compare expression"),
     }
@@ -850,6 +1049,30 @@ fn parser_preserves_arithmetic_in_membership_rhs_for_resolver() {
             }
         }
         _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_unary_arithmetic_in_membership_rhs_for_resolver() {
+    let query = parse_select("select Post { title } filter .view_count in [-1, +2]")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["view_count"]);
+            assert_eq!(in_expr.op(), InOp::In);
+
+            let operand =
+                assert_unary_arithmetic_expr(&in_expr.right()[0], UnaryArithmeticOp::Minus);
+            assert_literal_expr(operand, &Literal::Int64(1));
+
+            let operand =
+                assert_unary_arithmetic_expr(&in_expr.right()[1], UnaryArithmeticOp::Plus);
+            assert_literal_expr(operand, &Literal::Int64(2));
+        }
+        _ => panic!("filter should be membership expression"),
     }
 }
 
@@ -1213,6 +1436,19 @@ fn parser_can_parse_order_by_arithmetic_expr_desc() {
         }
         other => panic!("order by should parse arithmetic expression, got {other:?}"),
     }
+    assert_eq!(order.direction(), OrderDirection::Desc);
+}
+
+#[test]
+fn parser_can_parse_order_by_unary_arithmetic_expr_desc() {
+    let query =
+        parse_select("select Post {title} order by -.view_count desc").expect("query should parse");
+
+    assert_eq!(query.order_by().len(), 1);
+
+    let order = &query.order_by()[0];
+    let operand = assert_unary_arithmetic_expr(order.expr(), UnaryArithmeticOp::Minus);
+    assert_path_expr(operand, &["view_count"]);
     assert_eq!(order.direction(), OrderDirection::Desc);
 }
 
