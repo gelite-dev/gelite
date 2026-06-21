@@ -1,236 +1,255 @@
 # AGENTS.md
 
-## 프로젝트 성격
+## Project role
 
-이 저장소는 단순히 기능을 빨리 완성하는 제품 개발 저장소가 아니다.
-이 프로젝트는 작성자가 직접 만들면서 배우기 위한 교육용 프로젝트다.
+Gelite is a learning project that is also expected to grow into usable,
+production-quality software. Do not treat it as a disposable exercise. The code
+may be small, but crate boundaries, type contracts, tests, and documentation
+should be chosen as if later work will depend on them.
 
-하지만 이것은 연습만을 위한 장난감 프로젝트도 아니다.
-최종적으로는 실제로 사용 가능하고, 유지보수 가능하며, 확장 가능한
-프로덕션 레벨의 시스템으로 완성되는 것을 목표로 한다.
+The project explores a Gel-like query language and schema model implemented in
+Rust on top of SQLite. It is not a port of Gel's implementation. Reuse concepts
+from Gel where they help, but do not copy its Postgres-specific or
+Python/Cython-specific structure.
 
-따라서 이 저장소에서 작업하는 에이전트나 협업자는 다음 원칙을 따른다.
+## Current repository state
 
-- 정답만 대신 써주지 말고, 왜 그렇게 하는지 설명한다.
-- 사용자가 작성한 코드나 설계가 어색하면 바로잡는다.
-- "일단 돌아가게만" 만드는 접근보다, 작은 범위라도 이해 가능한 구조를 우선한다.
-- 사용자가 스스로 다음번에는 같은 결정을 할 수 있도록 맥락과 근거를 남긴다.
-- 필요하면 더 단순한 대안, 더 Rust다운 대안, 더 유지보수하기 좋은 대안을 제시한다.
-- 학습용이라는 이유로 임시방편, 취약한 경계, 무책임한 타입 설계, 테스트 부실을 정당화하지 않는다.
-- 현재 단계의 구현은 작아도 괜찮지만, 나중에 실제 제품으로 자랄 수 있는 방향이어야 한다.
+The repository is past the first empty-scaffold phase. It already contains a
+Rust workspace with compiler and tooling crates under `engine/`, `tools/`, and
+`tests/`.
 
-## 작업 방식
+Current implemented areas include:
 
-이 프로젝트에서 에이전트의 기본 역할은 "대리 구현자"가 아니라 "교정해 주는 페어 프로그래머"다.
+- `engine/schema-model`: semantic schema catalog, object types, scalar fields,
+  links, cardinality, deterministic references, and implicit `id` lookup.
+- `engine/schema-parser`: lexer and parser for the current `.geli` schema
+  syntax.
+- `engine/query-ast`: unresolved syntax tree for the supported `select` query
+  subset.
+- `engine/query-parser`: lexer and parser for the current query syntax with
+  source spans.
+- `engine/query-resolver`: AST-to-IR semantic analysis for explicit select
+  shapes, filters, ordering, and link traversal.
+- `engine/query-ir`: backend-independent Semantic IR for select queries.
+- `engine/sqlite-query-plan`: SQLite-specific structured select plan.
+- `engine/sqlite-query-sqlgen`: SQL renderer for select plans.
+- `engine/sqlite-schema-plan`: SQLite-specific initial schema plan.
+- `engine/sqlite-schema-sqlgen`: SQL renderer for initial schema DDL and
+  metadata inserts.
+- `engine/sqlite-runner`: runner-facing SQLite schema execution contract.
+- `tools/gelite-cli`: top-level command-line binary.
+- `tools/gelite-commands`: command orchestration shared by CLI-facing tools.
+- `tools/repl`: query pipeline inspection tool.
+- `tests/query-pipeline`: cross-crate query pipeline tests.
 
-- 사용자의 구현 시도에는 문제점, 놓친 점, 더 나은 구조를 분명히 지적한다.
-- 코드 리뷰 요청이 아니어도, 눈에 띄는 설계 문제나 학습상 중요한 실수는 짚는다.
-- 큰 코드를 한 번에 덮어쓰는 것보다, 작은 단계로 나누고 각 단계의 이유를 설명한다.
-- 변경을 만들 때는 "무엇을 바꿨는지"보다 "왜 이 변경이 필요한지"를 우선 설명한다.
-- 가능하면 구현과 함께 검증 방법, 테스트 관점, 다음 학습 포인트를 짧게 남긴다.
-- 작은 단계로 구현하되, 각 단계의 경계와 API는 프로덕션 코드로 이어질 수 있게 설계한다.
-- 지금 편하다는 이유만으로 장기적으로 치명적인 구조를 도입하지 않는다.
+The project can parse schema and query sources, plan and apply an initial
+SQLite schema, and run the current select subset through CLI/REPL workflows.
+It does not yet provide insert/update/delete, migration diffing and migration
+history, a full query execution runtime with nested result shaping, an HTTP
+server, or a web UI.
 
-## 커밋 작성 규칙
+## How to work in this repository
 
-Codex와 함께 설계, 구현, 리뷰, 문서화한 변경을 커밋할 때는 커밋
-본문에 다음 trailer를 포함한다.
+Act as a corrective pair programmer, not only as an implementation proxy.
+
+- Explain why a change is needed, not only what changed.
+- Point out awkward code, weak abstractions, missing contracts, and spec
+  mismatches directly.
+- Prefer small, reviewable changes over broad rewrites.
+- Keep each crate responsible for its own layer. Do not move backend-specific
+  decisions into syntax or semantic crates.
+- Do not compile directly from source text to SQL when the existing staged
+  pipeline can express the behavior.
+- When introducing a concept, give the user one or two practical sentences
+  about the role it plays in the pipeline.
+- If a shortcut is temporary, state why it is temporary and what should replace
+  it later.
+
+The user is learning from the implementation. Do not hide important design
+decisions behind "it works" changes. At the same time, avoid long theory that
+does not connect to the current code.
+
+## Document priority
+
+The repository has `spec/` and `plan/` documents. They are not interchangeable.
+
+- `spec/` defines behavior, meaning, and layer contracts.
+- `plan/` defines sequencing, scope control, and implementation rationale.
+
+When instructions conflict, use this priority:
+
+1. Current user instruction.
+2. Relevant `spec/` document.
+3. Relevant `plan/` document.
+4. Local implementation convenience.
+
+If implementation must diverge from a spec, report the divergence clearly.
+Prefer updating the spec first when the intended meaning has changed.
+
+## Spec documents
+
+Read the relevant spec before changing behavior in that area.
+
+- `spec/schema.md`: minimum schema language, field kinds, `link`, `required`,
+  `multi`, scalar types, object types, and implicit `id`.
+- `spec/query.md`: MVP query language syntax and supported query surface.
+- `spec/ir.md`: Semantic IR between AST/resolution and backend planning.
+- `spec/storage-sqlite.md`: SQLite physical storage rules, tables, columns,
+  links, and metadata.
+- `spec/sqlite-query-plan.md`: SQLite-specific planning layer between Semantic
+  IR and SQL generation.
+
+Specs define contracts. Tests should usually assert these contracts at the
+lowest layer that owns them.
+
+## Plan documents
+
+Use plan documents to place work in the current build sequence and explain why
+the scope is appropriate.
+
+- `plan/new-db-engine-plan.md`: product scope, MVP boundaries, major
+  components, and broad build sequence.
+- `plan/new-db-engine-design.md`: top-level architecture and component
+  responsibilities.
+- `plan/implementation-start-plan.md`: original first slice for catalog, AST,
+  IR, and resolver. Useful for intent, but the repository has now moved beyond
+  parts of this plan.
+- `plan/schema-parser-implementation-plan.md`: schema parser sequencing and
+  parser contracts.
+- `plan/query-parser-implementation-plan.md`: query parser sequencing and
+  parser contracts.
+- `plan/query-expression-model-plan.md`: query expression model work.
+- `plan/select-path-traversal-plan.md`: select path traversal semantics.
+- `plan/sqlite-schema-plan-implementation-plan.md`: SQLite schema planning
+  implementation sequence.
+- `plan/sqlite-query-plan-implementation-plan.md`: SQLite query planner
+  implementation sequence.
+- `plan/cli-and-tooling-plan.md`: CLI, REPL, and tooling workflows.
+
+Before proposing or implementing a feature, identify which spec defines its
+meaning and which plan, if any, explains the intended sequence.
+
+## Pipeline boundaries
+
+Preserve the staged pipeline unless there is a deliberate spec or plan change:
+
+```text
+schema/query source
+  -> lexer/parser
+  -> AST or schema model
+  -> resolver / semantic validation
+  -> backend-independent IR
+  -> SQLite-specific plan
+  -> SQL text + bind values
+  -> runner/runtime behavior
+```
+
+Keep syntax concerns in parser/AST crates, semantic concerns in model/resolver
+and IR crates, SQLite decisions in SQLite planning/sqlgen/runner crates, and
+CLI orchestration in `tools/`.
+
+Examples of boundary violations to avoid:
+
+- A parser deciding SQLite table or column names.
+- SQL generation re-resolving source-level field names.
+- `query-ir` depending on SQLite aliasing or join strategy.
+- CLI code duplicating parser, planner, or runner logic instead of delegating
+  to shared command or engine crates.
+
+## Code change expectations
+
+Before editing code:
+
+- Check the relevant spec and plan documents.
+- Inspect nearby tests and crate-level APIs.
+- Preserve public invariants unless the task explicitly changes them.
+- Look for existing naming and error-handling patterns before adding new ones.
+
+When editing code:
+
+- Keep changes scoped to the layer that owns the behavior.
+- Add or update focused tests when behavior changes.
+- Prefer typed representations over stringly typed glue.
+- Preserve deterministic ordering where tests or public APIs rely on it.
+- Avoid convenience APIs that make invalid schema, query, or plan states easy
+  to construct.
+
+When explaining the change:
+
+- State the contract being protected.
+- Mention which test covers the behavior, or why a test was not added.
+- Call out remaining unsupported behavior explicitly.
+
+## Review expectations
+
+When asked to review, prioritize defects over compliments. Look first for:
+
+- Spec mismatches.
+- Crate boundary leaks.
+- Incorrect type or cardinality behavior.
+- Resolver and planner behavior that only works for the happy path.
+- Names that sound plausible but hide unclear responsibility.
+- Tests that assert output shape without checking the semantic contract.
+- Over-general abstractions introduced before there are two real users.
+
+If no issue is found, say so and identify any residual test gaps or assumptions.
+
+## Documentation style
+
+Repository documentation should be written in clear, concrete English. It
+should record the actual code and design state, not sell the project.
+
+Prefer:
+
+- Actual crate, type, and function names.
+- Small claims that can be checked against code or tests.
+- Explicit unsupported cases.
+- Short notes about temporary rules and what will replace them.
+- One technical purpose per paragraph.
+
+Avoid:
+
+- Generic claims such as "scalable", "robust", "powerful", or "flexible"
+  unless the mechanism is named.
+- Inflated phrasing such as "plays a crucial role", "marks a significant
+  step", or "underscores the importance".
+- Unsupported generalizations such as "best practices suggest".
+- Template-like summaries at the end of every section.
+- Decorative formatting, unnecessary tables, and forced three-item lists.
+
+Comments in code should explain boundaries, invariants, or non-obvious reasons.
+Do not comment behavior that is already clear from the code.
+
+## AI-assisted work
+
+Follow `AI_POLICY.md`.
+
+Commits that include Codex-assisted design, implementation, review, or
+documentation must include this trailer:
 
 ```text
 Assisted-by: Codex:gpt-5.5
 ```
 
-이 trailer는 해당 커밋에 Codex와 사용 모델이 협업자로 관여했음을
-명시하기 위한 것이다. 커밋 메시지의 제목과 본문은 일반적인 전문
-문체로 작성하며, 캐릭터 말투나 대화체를 사용하지 않는다.
+Use professional commit messages. Do not use conversational or character voice
+in commits, code, comments, docs, JSON, YAML, SQL, or other artifacts.
 
-## 설명 원칙
+## Validation
 
-사용자는 학습 중이므로, 구현만 끝내고 떠나면 안 된다.
+The default full validation command is:
 
-- 새 개념을 도입하면 한두 문장으로 역할을 설명한다.
-- 트레이드오프가 있으면 무엇을 얻고 무엇을 포기하는지 밝힌다.
-- 에러를 고칠 때는 증상만이 아니라 원인과 재발 방지 포인트를 설명한다.
-- 사용자가 쓴 코드가 왜 위험한지 설명할 때는 실행 흐름, 타입, 소유권, 경계 분리 같은 구체적 근거를 든다.
-- 너무 많은 이론으로 흐리지 말고, 현재 작업과 직접 연결되는 설명을 우선한다.
-
-## 문서 우선순위
-
-이 저장소에는 `spec/`와 `plan/` 문서가 있다. 둘은 역할이 다르다.
-
-- `spec/`은 "무엇을 만들 것인가"를 정의하는 문서다.
-- `plan/`은 "어떤 순서로 만들 것인가"와 "왜 그 순서가 좋은가"를 정리한 문서다.
-
-충돌이 생기면 기본 우선순위는 다음과 같다.
-
-1. 현재 사용자 지시
-2. `spec/`에 명시된 동작/의미
-3. `plan/`에 적힌 구현 순서와 범위
-4. 구현 중의 편의적 판단
-
-즉, `plan/`은 방향과 단계의 기준이고, `spec/`은 의미와 계약의 기준이다.
-
-## spec 문서 설명
-
-`spec/` 디렉터리는 MVP 의미론과 계층 경계를 고정하는 문서 모음이다.
-
-- `spec/schema.md`
-  - 최소 스키마 언어를 정의한다.
-  - 타입, 필드, `link`, `required`, `multi`, implicit `id` 같은 규칙의 기준 문서다.
-- `spec/query.md`
-  - MVP 쿼리 언어 표면 문법과 지원 범위를 정의하는 문서다.
-  - 파서나 AST를 만들 때 기준으로 삼는다.
-- `spec/ir.md`
-  - AST 이후, SQLite 이전의 Semantic IR을 정의한다.
-  - resolver와 `ir` 크레이트가 어떤 책임을 져야 하는지 결정한다.
-- `spec/storage-sqlite.md`
-  - SQLite 물리 저장 구조의 기준 문서다.
-  - 테이블/컬럼/조인 테이블 같은 저장 관점의 결정을 여기서 맞춘다.
-- `spec/sqlite-query-plan.md`
-  - Semantic IR과 SQL 생성 사이의 SQLite 전용 planning 계층을 정의한다.
-  - backend-specific 로직을 어디까지 허용할지 정하는 문서다.
-
-에이전트는 구현 전에 관련 spec을 먼저 확인하고, 구현이 spec과 어긋나면 그 차이를 분명히 보고해야 한다.
-
-## plan 문서 설명
-
-`plan/` 디렉터리는 구현 순서, 범위 조절, 설계 배경을 설명하는 문서 모음이다.
-
-- `plan/new-db-engine-plan.md`
-  - 프로젝트 전체 목표, 범위, MVP, 제외 범위, 큰 단계의 순서를 설명한다.
-  - "무엇부터 만들지"를 잡을 때 먼저 보는 문서다.
-- `plan/new-db-engine-design.md`
-  - 상위 수준 아키텍처와 컴포넌트 책임 분리를 설명한다.
-  - 크레이트 경계나 파이프라인 분리를 논의할 때 참고한다.
-- `plan/implementation-start-plan.md`
-  - 현재 시작 단계에서 무엇을 최소 단위로 구현할지 가장 구체적으로 제안한다.
-  - 지금 저장소 상태에서는 이 문서가 가장 실무적인 시작 가이드다.
-
-에이전트는 새로운 기능을 제안하거나 구현 범위를 정할 때, 먼저 현재 작업이 어느 plan 단계에 속하는지 설명해야 한다.
-
-## 문서 작성 지침
-
-이 프로젝트의 설계 문서, 구현 문서, 주석성 문서, 장기 계획 문서는
-기본적으로 명확하고 구체적인 영어로 작성한다.
-
-문서는 단순한 소개나 홍보용 설명이 아니라, 나중에 코드를 읽는 사람이
-현재 구조를 정확히 복원할 수 있도록 돕는 기술 기록이어야 한다.
-
-문서에는 가능한 한 다음 내용을 포함한다.
-
-- 해당 컴포넌트가 맡는 책임
-- 해당 컴포넌트가 맡지 않는 책임
-- public API나 타입이 보장하는 불변식
-- 현재 의도적으로 지원하지 않는 범위
-- 임시 규칙과 나중에 대체해야 할 설계
-- 테스트가 어떤 계약을 검증하는지
-- 주요 설계 선택에서 얻은 것과 포기한 것
-- 실제 코드의 타입, 함수, 크레이트 이름
-
-문서에는 추상적인 품질 표현보다 구체적인 메커니즘을 우선한다.
-
-나쁜 예:
-
-```text
-This component improves scalability and maintainability.
+```sh
+cargo test --workspace
 ```
 
-좋은 예:
+Use narrower tests when they are enough for the change, but run the workspace
+tests for changes that affect shared contracts or cross-crate pipeline behavior.
 
-```text
-The resolver returns `query_ir::ResolvedPath` instead of a terminal `FieldRef` so
-SQLite planning can recover both the final column and the joins required by
-link traversal.
+For CLI behavior, also check the relevant command path, for example:
+
+```sh
+cargo run -p gelite-cli -- --help
+cargo run -p gelite-cli -- schema plan examples/blog.geli
 ```
 
-문서를 작성할 때는 AI가 생성한 문서처럼 보이기 쉬운 신호를 피한다.
-Wikipedia의 "Signs of AI writing" 문서는 이런 신호가 확정적인 판별
-규칙은 아니지만, 과장되고 일반적인 문체, 피상적인 분석, 템플릿 같은
-문장 구조가 AI 생성 텍스트의 흔한 특징이라고 설명한다.
-
-따라서 이 저장소의 문서에서는 다음 방식을 피한다.
-
-- 근거 없이 중요성을 부풀리는 표현
-  - 예: `plays a crucial role`, `marks a significant step`,
-    `serves as a testament`, `underscores the importance`
-- 구체적인 구현 설명 없이 `scalable`, `robust`, `maintainable`,
-  `flexible`, `powerful` 같은 평가어를 사용하는 문장
-- `many developers believe`, `best practices suggest`, `widely recognized`
-  같은 출처 없는 일반화
-- 문단 끝마다 제목을 반복하는 요약 문장
-- `not only X, but also Y` 같은 공식적인 대비 문장 남용
-- 억지로 세 항목 목록을 맞추는 구성
-- 실제 내용보다 그럴듯한 개요를 앞세우는 문장
-  - 예: `This section explores...`, `In conclusion...`,
-    `Overall...`, `This document aims to...`
-- 장식적인 bold, 과도한 Title Case, 불필요한 표, 시각적 구분선
-- 근거 없는 미래 전망이나 "future potential" 단락
-
-대신 다음 방식을 선호한다.
-
-- 추상 명사보다 실제 타입과 함수 이름을 사용한다.
-- 긴 개요보다 작고 검증 가능한 설명을 쓴다.
-- 예시는 현재 코드나 가까운 다음 단계에 연결한다.
-- "현재 안 되는 것"을 숨기지 말고 명시한다.
-- 임시 규칙은 왜 임시인지와 어떤 조건에서 교체할지 적는다.
-- 문서의 각 문단은 하나의 기술적 목적만 가진다.
-- 코드 주석은 코드만 보면 알 수 없는 경계, 불변식, 이유를 설명할 때만 쓴다.
-
-영어 문서는 자연스럽고 평이해야 한다. 독자를 설득하려고 하지 말고,
-코드와 설계의 실제 상태를 정확히 기록한다.
-
-## 현재 저장소에 대한 기본 해석
-
-현재 저장소는 "새 DB 엔진 전체"를 한 번에 만드는 단계가 아니라, 문서 스택이 실제 코드 구조로 이어지는지 검증하는 초기 단계에 가깝다.
-
-그래서 당분간은 다음 기준을 우선한다.
-
-- parser, runtime, server보다 schema/AST/IR/resolver의 경계를 먼저 안정화한다.
-- 추상적인 미래 확장성보다 현재 문서와 맞는 작은 end-to-end 흐름을 먼저 만든다.
-- 한 단계 아래 계층을 구현하기 전에, 상위 spec의 의미가 충분히 고정되었는지 확인한다.
-- "바로 SQL 만들기" 식 지름길은 학습과 구조 검증에 불리하면 피한다.
-
-다만 이는 품질 기준을 낮춘다는 뜻이 아니다.
-
-- 초기 구현도 실제 제품의 기반이 될 수 있는 타입 경계와 책임 분리를 가져야 한다.
-- 임시 구현은 허용되지만, 왜 임시인지와 나중에 어떻게 대체할지를 설명할 수 있어야 한다.
-- 학습과 제품 품질은 서로 반대가 아니라, 좋은 설계를 통해 함께 달성해야 한다.
-
-## 코드 변경 시 기대 행동
-
-- 변경 전에 관련 spec/plan을 확인한다.
-- 사용자의 코드에 문제가 있으면 수정만 하지 말고 왜 문제인지 설명한다.
-- API나 타입을 추가할 때는 책임 경계를 흐리지 않도록 이름과 위치를 신중히 잡는다.
-- 임시 구현이라면 무엇이 임시인지 명시한다.
-- 테스트를 추가할 수 있으면, 구현 설명과 함께 어떤 계약을 검증하는 테스트인지 적는다.
-
-## 리뷰 시 기대 행동
-
-리뷰나 피드백에서는 칭찬보다 교정이 더 중요하다.
-
-- 잘못된 추상화
-- 너무 이른 일반화
-- spec과 어긋난 의미
-- crate 경계 침범
-- 이름은 그럴듯하지만 책임이 불분명한 타입
-- 테스트가 놓치고 있는 계약
-
-이런 항목을 우선적으로 본다.
-
-## 답변 스타일
-
-설명은 친절하되 모호하면 안 된다.
-
-- 틀린 부분은 틀렸다고 분명히 말한다.
-- 가능하면 더 좋은 방향을 하나 또는 둘 제시한다.
-- 긴 이론 설명보다 현재 코드와 직접 연결된 설명을 우선한다.
-- 사용자가 학습 중이라는 이유로 낮은 기준을 적용하지 않는다.
-
-## 목표
-
-이 프로젝트의 목표는 단순히 "작동하는 결과물"이 아니다.
-좋은 경계, 작은 단계, 명확한 의미론, 검증 가능한 구현을 통해
-작성자가 데이터베이스 엔진과 컴파일 파이프라인 설계를 제대로 배우는 것이다.
-
-그리고 그 학습의 결과물은 폐기용 예제가 아니라,
-실제로 사용할 수 있는 프로덕션 레벨 시스템으로 이어져야 한다.
+Report any command that could not be run.
