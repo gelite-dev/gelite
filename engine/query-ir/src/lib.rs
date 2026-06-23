@@ -115,7 +115,10 @@ impl ResolvedShape {
     }
 
     pub fn fields(&self) -> Vec<&ResolvedShapeField> {
-        self.items.iter().filter_map(ResolvedShapeItem::as_field).collect()
+        self.items
+            .iter()
+            .filter_map(ResolvedShapeItem::as_field)
+            .collect()
     }
 }
 
@@ -472,6 +475,7 @@ pub enum ValueExpr {
     Path(ResolvedPath),
     Literal(Literal),
     Arithmetic(ArithmeticExpr),
+    UnaryArithmetic(UnaryArithmeticExpr),
 }
 
 /// Resolved arithmetic value expression.
@@ -527,6 +531,43 @@ pub enum ArithmeticOp {
     Mul,
     Div,
     Mod,
+}
+
+/// Resolved unary arithmetic value expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnaryArithmeticExpr {
+    op: UnaryArithmeticOp,
+    operand: Box<ValueExpr>,
+    scalar_type: ScalarType,
+}
+
+impl UnaryArithmeticExpr {
+    pub fn new(op: UnaryArithmeticOp, operand: ValueExpr, scalar_type: ScalarType) -> Self {
+        Self {
+            op,
+            operand: Box::new(operand),
+            scalar_type,
+        }
+    }
+
+    pub fn op(&self) -> UnaryArithmeticOp {
+        self.op
+    }
+
+    pub fn operand(&self) -> &ValueExpr {
+        &self.operand
+    }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
+}
+
+/// Unary arithmetic operators implemented by the current IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryArithmeticOp {
+    Plus,
+    Minus,
 }
 
 /// Literal values represented by the current IR.
