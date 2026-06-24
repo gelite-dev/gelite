@@ -2826,6 +2826,36 @@ fn rejects_order_arithmetic_expr_through_multi_link() {
 }
 
 #[test]
+fn rejects_filter_unary_arithmetic_expr_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            path_expr(&["posts", "view_count"]),
+        )),
+        query_ast::CompareOp::Lt,
+        literal_int_expr(0),
+    ));
+
+    let query = SelectQuery::new(
+        "User",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("email")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query);
+
+    assert_eq!(resolved, Err(ResolveError::UnsupportedPath));
+}
+
+#[test]
 fn rejects_order_path_with_link_field() {
     let catalog = post_with_author_catalog();
 

@@ -453,6 +453,9 @@ fn resolve_typed_unary_arithmetic_expr(
     let scalar_type = source_scalar_type(operand.source);
 
     ensure_numeric_arithmetic_operand(scalar_type)?;
+    if value_expr_cardinality(&operand.value)? == schema_model::Cardinality::Many {
+        return Err(ResolveError::UnsupportedPath);
+    }
 
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
