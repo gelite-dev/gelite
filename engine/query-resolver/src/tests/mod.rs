@@ -199,6 +199,54 @@ fn resolves_computed_projection_nonzero_literal_division_as_required() {
 }
 
 #[test]
+fn resolves_computed_projection_signed_nonzero_literal_division_as_required() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![
+            ShapeItem::computed(
+                "negative_ratio",
+                arithmetic_expr(
+                    path_expr(&["view_count"]),
+                    query_ast::ArithmeticOp::Div,
+                    Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                        UnaryArithmeticOp::Minus,
+                        literal_int_expr(2),
+                    )),
+                ),
+            ),
+            ShapeItem::computed(
+                "positive_ratio",
+                arithmetic_expr(
+                    path_expr(&["view_count"]),
+                    query_ast::ArithmeticOp::Div,
+                    Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                        UnaryArithmeticOp::Plus,
+                        literal_int_expr(2),
+                    )),
+                ),
+            ),
+        ]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    for item in resolved.shape().items() {
+        let query_ir::ResolvedShapeItem::Computed(computed) = item else {
+            panic!("shape item should resolve to a computed projection");
+        };
+
+        assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
+        assert_eq!(computed.cardinality(), schema_model::Cardinality::Required);
+    }
+}
+
+#[test]
 fn resolves_computed_projection_unary_arithmetic_path() {
     let catalog = post_with_scalar_fields_catalog();
 

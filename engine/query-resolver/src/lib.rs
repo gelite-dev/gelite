@@ -981,6 +981,7 @@ fn is_nonzero_numeric_literal(value: &query_ir::ValueExpr) -> bool {
     match value {
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => *value != 0,
         query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => *value != 0.0,
+        query_ir::ValueExpr::UnaryArithmetic(unary) => is_nonzero_numeric_literal(unary.operand()),
         _ => false,
     }
 }
