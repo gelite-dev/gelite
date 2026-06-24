@@ -345,12 +345,13 @@ the grammar but rejected until subquery expression scope is defined.
 Precedence from strongest to weakest:
 
 1. primary expressions
-2. `*`, `/`, `%`
-3. `+`, `-`
-4. membership and comparisons
-5. `not`
-6. `and`
-7. `or`
+2. unary `+`, `-`
+3. `*`, `/`, `%`
+4. `+`, `-`
+5. membership and comparisons
+6. `not`
+7. `and`
+8. `or`
 
 ### Filter Expression Scope
 
