@@ -88,6 +88,41 @@ fn sqlite_sqlgen_can_render_computed_projection() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_computed_unary_arithmetic_projection() {
+    let computed = query_ir::ResolvedComputedField::new(
+        "neg_views",
+        query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
+            query_ir::UnaryArithmeticOp::Minus,
+            post_view_count_path_value(),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+
+    let ir = query_ir::SelectQuery::new(
+        post_type(),
+        query_ir::ResolvedShape::with_items(
+            post_type(),
+            vec![query_ir::ResolvedShapeItem::Computed(computed)],
+        ),
+        None,
+        vec![],
+        None,
+        None,
+    );
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT (-\"root\".\"view_count\") AS \"__gelite_value_0\" FROM \"post\" AS \"root\""
+    );
+    assert_eq!(statement.bind_values(), &[]);
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_selected_single_link_join() {
     let ir = post_query_with_shape(vec![post_title_shape_field(), post_author_shape_field()]);
     let plan = sqlite_query_plan::plan_select(&ir);
@@ -315,6 +350,32 @@ fn sqlite_sqlgen_can_render_arithmetic_filter_with_joined_operand() {
         statement.bind_values(),
         &[SQLiteBindValue::Int64(1), SQLiteBindValue::Int64(10)]
     );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_unary_arithmetic_filter_with_joined_operand() {
+    let unary = query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
+        query_ir::UnaryArithmeticOp::Minus,
+        post_author_score_path_value(),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        unary,
+        query_ir::CompareOp::Gt,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Int64(0)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" INNER JOIN \"user\" AS \"author\" ON \"root\".\"author_id\" = \"author\".\"id\" WHERE (-\"author\".\"score\") > ?"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(0)]);
 }
 
 #[test]
@@ -610,6 +671,28 @@ fn sqlite_sqlgen_can_render_order_by_arithmetic_expr() {
     );
 
     assert_eq!(statement.bind_values(), &[SQLiteBindValue::Int64(1)]);
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_order_by_unary_arithmetic_expr() {
+    let order_value = query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
+        query_ir::UnaryArithmeticOp::Plus,
+        post_view_count_path_value(),
+        schema_model::ScalarType::Int64,
+    ));
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Asc);
+
+    let ir = post_query_with_order_by(vec![order_by]);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" ORDER BY (+\"root\".\"view_count\") ASC"
+    );
+
+    assert_eq!(statement.bind_values(), &[]);
 }
 
 #[test]
