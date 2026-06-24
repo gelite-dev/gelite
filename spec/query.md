@@ -302,7 +302,9 @@ in_op             := "in"
                   | "not" "in"
 additive_expr     := multiplicative_expr (("+" | "-") multiplicative_expr)*
 multiplicative_expr
-                  := primary_expr (("*" | "/" | "%") primary_expr)*
+                  := unary_expr (("*" | "/" | "%") unary_expr)*
+unary_expr        := ("+" | "-") unary_expr
+                  | primary_expr
 primary_expr      := literal
                   | path
                   | "(" expr ")"
