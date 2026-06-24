@@ -276,6 +276,22 @@ fn select_pipeline_executes_computed_projection() {
 }
 
 #[test]
+fn select_pipeline_executes_unary_arithmetic_computed_projection() {
+    let result =
+        execute_query(r#"select Post { neg_views := -.view_count } order by +.view_count asc"#);
+
+    assert_eq!(result.columns(), &["__gelite_value_0".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Integer(-5)],
+            vec![SQLiteCellValue::Integer(-20)],
+            vec![SQLiteCellValue::Integer(-100)],
+        ]
+    );
+}
+
+#[test]
 fn select_pipeline_executes_root_scalar_arithmetic_filter() {
     let result =
         execute_query(r#"select Post { title } filter .view_count + 6 > 25 order by .title asc"#);
@@ -285,6 +301,21 @@ fn select_pipeline_executes_root_scalar_arithmetic_filter() {
         result.rows(),
         &[
             vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Published".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_single_link_unary_arithmetic_filter() {
+    let result =
+        execute_query(r#"select Post { title } filter -.author.score < 0 order by .title asc"#);
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Text("Draft".to_string())],
             vec![SQLiteCellValue::Text("Published".to_string())],
         ]
     );
@@ -314,6 +345,22 @@ fn select_pipeline_executes_single_link_arithmetic_order() {
         result.rows(),
         &[
             vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Draft".to_string())],
+            vec![SQLiteCellValue::Text("Published".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_membership_filter_with_unary_arithmetic_items() {
+    let result = execute_query(
+        r#"select Post { title } filter .view_count in [-5 + 10, +20] order by .title asc"#,
+    );
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
             vec![SQLiteCellValue::Text("Draft".to_string())],
             vec![SQLiteCellValue::Text("Published".to_string())],
         ]
