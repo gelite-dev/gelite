@@ -678,6 +678,52 @@ fn parser_parses_unary_plus_integer_literal() {
 }
 
 #[test]
+fn parser_parses_i64_min_literal_after_unary_minus_in_comparison() {
+    let query = parse_select("select Post { title } filter .view_count = -9223372036854775808")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            assert_path_expr(compare.left(), &["view_count"]);
+            assert_eq!(compare.op(), CompareOp::Eq);
+            assert_literal_expr(compare.right(), &Literal::Int64(i64::MIN));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_parses_i64_min_literal_after_unary_minus_in_value_expr_positions() {
+    let query = parse_select(
+        "select Post { min := -9223372036854775808 } filter .view_count in [-9223372036854775808] order by -9223372036854775808 asc",
+    )
+    .expect("query should parse");
+
+    let items = query.shape().items();
+    let computed = items[0]
+        .as_computed()
+        .expect("shape item should be a computed projection");
+    assert_literal_expr(computed.expr(), &Literal::Int64(i64::MIN));
+
+    let filter = query.filter().expect("query should have filter");
+    match filter {
+        Expr::In(in_expr) => {
+            assert_path_expr(in_expr.left(), &["view_count"]);
+            assert_eq!(in_expr.op(), InOp::In);
+            assert_eq!(in_expr.right().len(), 1);
+            assert_literal_expr(&in_expr.right()[0], &Literal::Int64(i64::MIN));
+        }
+        _ => panic!("filter should be in expression"),
+    }
+
+    assert_eq!(query.order_by().len(), 1);
+    assert_literal_expr(query.order_by()[0].expr(), &Literal::Int64(i64::MIN));
+    assert_eq!(query.order_by()[0].direction(), OrderDirection::Asc);
+}
+
+#[test]
 fn parser_parses_unary_minus_path() {
     let query =
         parse_select("select Post { title } filter -.view_count < 0").expect("query should parse");

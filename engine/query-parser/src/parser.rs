@@ -276,6 +276,12 @@ impl<'a> Parser<'a> {
         }
 
         if let Some(op) = self.consume_unary_arithmetic_op_if_present() {
+            if op == query_ast::UnaryArithmeticOp::Minus
+                && self.consume_i64_min_literal_if_present()
+            {
+                return Ok(Expr::Literal(query_ast::Literal::Int64(i64::MIN)));
+            }
+
             return Ok(Expr::UnaryArithmetic(query_ast::UnaryArithmeticExpr::new(
                 op,
                 self.parse_expr_bp(UNARY_RIGHT_BP)?,
@@ -803,6 +809,16 @@ impl<'a> Parser<'a> {
                 Some(query_ast::UnaryArithmeticOp::Minus)
             }
             _ => None,
+        }
+    }
+
+    fn consume_i64_min_literal_if_present(&mut self) -> bool {
+        match self.peek().map(Token::kind) {
+            Some(TokenKind::Int(value)) if value == "9223372036854775808" => {
+                self.advance();
+                true
+            }
+            _ => false,
         }
     }
 }
