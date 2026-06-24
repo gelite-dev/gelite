@@ -9,15 +9,17 @@ use fixtures::{
     filter_eq_string, filter_in_bools, filter_in_empty, filter_in_floats, filter_in_ints,
     filter_in_null, filter_in_path_item, filter_in_strings, filter_lt_null, filter_ne_null,
     filter_not_in_strings, filter_null_eq, filter_null_ne, literal_float_expr, literal_int_expr,
-    literal_string_expr, path_expr, post_only_catalog, post_with_author_catalog,
+    literal_null_expr, literal_string_expr, path_expr, post_only_catalog, post_with_author_catalog,
     post_with_optional_subtitle_catalog, post_with_scalar_fields_catalog, post_with_title_catalog,
     user_with_posts_catalog,
 };
 use query_ast::{
     ArithmeticExpr, CompareExpr,
     Expr::{self, Compare},
-    InExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+    InExpr, Path, PathStep, SelectQuery, Shape, ShapeItem, UnaryArithmeticExpr, UnaryArithmeticOp,
 };
+use query_ir::ValueExpr;
+use schema_model::{Cardinality, ScalarType};
 
 #[test]
 fn resolves_select_root_object_type() {
@@ -194,6 +196,390 @@ fn resolves_computed_projection_nonzero_literal_division_as_required() {
 
     assert_eq!(computed.scalar_type(), schema_model::ScalarType::Int64);
     assert_eq!(computed.cardinality(), schema_model::Cardinality::Required);
+}
+
+#[test]
+fn resolves_computed_projection_unary_arithmetic_path() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "neg_views",
+            Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                UnaryArithmeticOp::Minus,
+                path_expr(&["view_count"]),
+            )),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    assert_eq!(resolved.shape().items().len(), 1);
+    let query_ir::ResolvedShapeItem::Computed(computed) = &resolved.shape().items()[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+
+    assert_eq!(computed.output_name(), "neg_views");
+    assert_eq!(computed.scalar_type(), ScalarType::Int64);
+    assert_eq!(computed.cardinality(), Cardinality::Required);
+    match computed.value() {
+        ValueExpr::UnaryArithmetic(unary) => {
+            assert_eq!(unary.op(), query_ir::UnaryArithmeticOp::Minus);
+            assert_eq!(unary.scalar_type(), ScalarType::Int64);
+            let query_ir::ValueExpr::Path(path) = unary.operand() else {
+                panic!("unary operand should resolve to a path");
+            };
+
+            let [step] = path.steps() else {
+                panic!("unary operand should resolve to one path step");
+            };
+
+            assert_eq!(path.root_object_type().name(), "Post");
+            assert_eq!(step.field().name(), "view_count");
+            assert_eq!(step.cardinality(), schema_model::Cardinality::Required);
+            assert_eq!(
+                path.result_cardinality(),
+                schema_model::Cardinality::Required
+            );
+        }
+        other => panic!("computed value should be unary arithmetic, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolves_filter_compare_unary_arithmetic_path() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            path_expr(&["view_count"]),
+        )),
+        query_ast::CompareOp::Lt,
+        literal_int_expr(0),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    assert_eq!(compare.op(), query_ir::CompareOp::Lt);
+
+    let ValueExpr::UnaryArithmetic(unary) = compare.left() else {
+        panic!("filter left side should resolve to unary arithmetic");
+    };
+
+    assert_eq!(unary.op(), query_ir::UnaryArithmeticOp::Minus);
+    assert_eq!(unary.scalar_type(), ScalarType::Int64);
+
+    let ValueExpr::Path(path) = unary.operand() else {
+        panic!("unary operand should resolve to a path");
+    };
+
+    let [step] = path.steps() else {
+        panic!("unary operand should resolve to one path step");
+    };
+
+    assert_eq!(path.root_object_type().name(), "Post");
+    assert_eq!(step.field().name(), "view_count");
+    assert_eq!(step.cardinality(), Cardinality::Required);
+    assert_eq!(path.result_cardinality(), Cardinality::Required);
+
+    let ValueExpr::Literal(query_ir::Literal::Int64(value)) = compare.right() else {
+        panic!("filter right side should resolve to an int64 literal");
+    };
+
+    assert_eq!(*value, 0);
+}
+
+#[test]
+fn rejects_unary_arithmetic_string_operand() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            literal_string_expr("hello"),
+        )),
+        query_ast::CompareOp::Eq,
+        literal_int_expr(1),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::NonNumericArithmeticOperand {
+            actual: "str".to_string(),
+        })
+    );
+}
+
+#[test]
+fn resolves_order_unary_arithmetic_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+    let order = query_ast::OrderExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            path_expr(&["view_count"]),
+        )),
+        query_ast::OrderDirection::Desc,
+    );
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), None, vec![order], None, None);
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    assert_eq!(resolved.order_by().len(), 1);
+    assert_eq!(
+        resolved.order_by()[0].direction(),
+        query_ir::OrderDirection::Desc
+    );
+
+    let ValueExpr::UnaryArithmetic(unary) = resolved.order_by()[0].value() else {
+        panic!("order by should resolve to unary arithmetic");
+    };
+    assert_eq!(unary.op(), query_ir::UnaryArithmeticOp::Minus);
+    assert_eq!(unary.scalar_type(), ScalarType::Int64);
+
+    let ValueExpr::Path(path) = unary.operand() else {
+        panic!("unary order operand should resolve to a path");
+    };
+    let [step] = path.steps() else {
+        panic!("unary order operand should resolve to one path step");
+    };
+
+    assert_eq!(path.root_object_type().name(), "Post");
+    assert_eq!(step.field().name(), "view_count");
+    assert_eq!(step.cardinality(), Cardinality::Required);
+    assert_eq!(path.result_cardinality(), Cardinality::Required);
+}
+
+#[test]
+fn resolves_membership_unary_arithmetic_literal_item() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["view_count"]),
+        query_ast::InOp::In,
+        vec![
+            Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                UnaryArithmeticOp::Minus,
+                literal_int_expr(1),
+            )),
+            Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                UnaryArithmeticOp::Plus,
+                literal_int_expr(2),
+            )),
+        ],
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    let ValueExpr::Path(path) = in_expr.left() else {
+        panic!("in expression left side should resolve to a path");
+    };
+    let [step] = path.steps() else {
+        panic!("in expression left side should resolve to one path step");
+    };
+    assert_eq!(step.field().name(), "view_count");
+    assert_eq!(in_expr.op(), query_ir::InOp::In);
+    assert_eq!(in_expr.right().len(), 2);
+
+    let ValueExpr::UnaryArithmetic(first) = &in_expr.right()[0] else {
+        panic!("first membership item should resolve to unary arithmetic");
+    };
+    assert_eq!(first.op(), query_ir::UnaryArithmeticOp::Minus);
+    assert_eq!(first.scalar_type(), ScalarType::Int64);
+    assert_eq!(
+        first.operand(),
+        &ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+
+    let ValueExpr::UnaryArithmetic(second) = &in_expr.right()[1] else {
+        panic!("second membership item should resolve to unary arithmetic");
+    };
+    assert_eq!(second.op(), query_ir::UnaryArithmeticOp::Plus);
+    assert_eq!(second.scalar_type(), ScalarType::Int64);
+    assert_eq!(
+        second.operand(),
+        &ValueExpr::Literal(query_ir::Literal::Int64(2))
+    );
+}
+
+#[test]
+fn resolves_filter_compare_unary_arithmetic_literal_rhs() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        path_expr(&["view_count"]),
+        query_ast::CompareOp::Eq,
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            literal_int_expr(1),
+        )),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    let ValueExpr::Path(path) = compare.left() else {
+        panic!("filter left side should resolve to a path");
+    };
+    let [step] = path.steps() else {
+        panic!("filter left side should resolve to one path step");
+    };
+    assert_eq!(step.field().name(), "view_count");
+    assert_eq!(compare.op(), query_ir::CompareOp::Eq);
+
+    let ValueExpr::UnaryArithmetic(unary) = compare.right() else {
+        panic!("filter right side should resolve to unary arithmetic");
+    };
+    assert_eq!(unary.op(), query_ir::UnaryArithmeticOp::Minus);
+    assert_eq!(unary.scalar_type(), ScalarType::Int64);
+    assert_eq!(
+        unary.operand(),
+        &ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+}
+
+#[test]
+fn rejects_unary_arithmetic_bool_operand() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            literal_bool_expr(true),
+        )),
+        query_ast::CompareOp::Eq,
+        literal_int_expr(1),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::NonNumericArithmeticOperand {
+            actual: "bool".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_unary_arithmetic_null_operand() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            literal_null_expr(),
+        )),
+        query_ast::CompareOp::Eq,
+        literal_int_expr(1),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::NonNumericArithmeticOperand {
+            actual: "str".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_membership_unary_arithmetic_path_item() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["view_count"]),
+        query_ast::InOp::In,
+        vec![Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            path_expr(&["view_count"]),
+        ))],
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "membership list item".to_string(),
+        })
+    );
+}
+
+#[test]
+fn resolves_unary_arithmetic_parenthesized_binary_operand() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        Expr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            arithmetic_expr(
+                path_expr(&["view_count"]),
+                query_ast::ArithmeticOp::Add,
+                literal_int_expr(1),
+            ),
+        )),
+        query_ast::CompareOp::Lt,
+        literal_int_expr(0),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to a compare expression");
+    };
+
+    let ValueExpr::UnaryArithmetic(unary) = compare.left() else {
+        panic!("filter left side should resolve to unary arithmetic");
+    };
+    assert_eq!(unary.op(), query_ir::UnaryArithmeticOp::Minus);
+    assert_eq!(unary.scalar_type(), ScalarType::Int64);
+
+    let ValueExpr::Arithmetic(arithmetic) = unary.operand() else {
+        panic!("unary operand should resolve to arithmetic");
+    };
+    assert_eq!(arithmetic.op(), query_ir::ArithmeticOp::Add);
+
+    let ValueExpr::Path(path) = arithmetic.left() else {
+        panic!("arithmetic left side should resolve to a path");
+    };
+    let [step] = path.steps() else {
+        panic!("arithmetic left side should resolve to one path step");
+    };
+    assert_eq!(step.field().name(), "view_count");
+    assert_eq!(
+        arithmetic.right(),
+        &ValueExpr::Literal(query_ir::Literal::Int64(1))
+    );
+
+    let ValueExpr::Literal(query_ir::Literal::Int64(value)) = compare.right() else {
+        panic!("filter right side should resolve to an int64 literal");
+    };
+    assert_eq!(*value, 0);
 }
 
 #[test]
@@ -527,6 +913,9 @@ fn resolves_filter_compare_path_to_field_and_literal() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
         query_ir::ValueExpr::Arithmetic(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should resolve to a path")
+        }
     }
 
     assert_eq!(compare.op(), query_ir::CompareOp::Eq);
@@ -1023,6 +1412,9 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
         query_ir::ValueExpr::Arithmetic(_) => {
             panic!("is null expression should reference a path")
         }
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
+            panic!("is null expression should reference a path")
+        }
     }
 }
 
@@ -1057,6 +1449,9 @@ fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("is null expression should reference a path"),
         query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is null expression should reference a path")
+        }
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
             panic!("is null expression should reference a path")
         }
     }
@@ -1094,6 +1489,9 @@ fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
         query_ir::ValueExpr::Arithmetic(_) => {
             panic!("is not null expression should reference a path")
         }
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
+            panic!("is not null expression should reference a path")
+        }
     }
 }
 
@@ -1127,6 +1525,9 @@ fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("is not null expression should reference a path"),
         query_ir::ValueExpr::Arithmetic(_) => {
+            panic!("is not null expression should reference a path")
+        }
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
             panic!("is not null expression should reference a path")
         }
     }
@@ -1303,6 +1704,9 @@ fn resolves_filter_in_literal_list_to_in_expr() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("in expression left side should be a path"),
         query_ir::ValueExpr::Arithmetic(_) => panic!("in expression left side should be a path"),
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
+            panic!("in expression left side should be a path")
+        }
     }
 
     assert_eq!(in_expr.op(), query_ir::InOp::In);
@@ -1892,6 +2296,7 @@ fn resolves_order_path_to_resolved_path() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::UnaryArithmetic(_) => panic!("order by should resolve to a path"),
     }
 }
 
@@ -2485,6 +2890,9 @@ fn resolves_filter_path_through_single_link_to_scalar_field() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("filter left side should resolve to a path"),
         query_ir::ValueExpr::Arithmetic(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should resolve to a path")
+        }
     }
 
     match compare.right() {
@@ -2567,5 +2975,6 @@ fn resolves_order_path_through_single_link_to_scalar_field() {
         }
         query_ir::ValueExpr::Literal(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::UnaryArithmetic(_) => panic!("order by should resolve to a path"),
     }
 }
