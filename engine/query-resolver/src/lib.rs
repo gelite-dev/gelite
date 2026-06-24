@@ -87,7 +87,10 @@ fn resolve_shape(
         items.push(resolved_item);
     }
 
-    Ok(query_ir::ResolvedShape::with_items(source_object_type, items))
+    Ok(query_ir::ResolvedShape::with_items(
+        source_object_type,
+        items,
+    ))
 }
 
 fn resolve_shape_item(
@@ -96,8 +99,10 @@ fn resolve_shape_item(
     item: &query_ast::ShapeItem,
 ) -> Result<query_ir::ResolvedShapeItem, ResolveError> {
     match item.kind() {
-        query_ast::ShapeItemKind::Field(field) => resolve_shape_field(catalog, source_object_type, field)
-            .map(query_ir::ResolvedShapeItem::Field),
+        query_ast::ShapeItemKind::Field(field) => {
+            resolve_shape_field(catalog, source_object_type, field)
+                .map(query_ir::ResolvedShapeItem::Field)
+        }
         query_ast::ShapeItemKind::Computed(computed) => {
             resolve_computed_shape_item(catalog, source_object_type, computed)
                 .map(query_ir::ResolvedShapeItem::Computed)
@@ -177,7 +182,7 @@ fn resolve_computed_shape_item(
     source_object_type: &schema_model::ObjectTypeRef,
     item: &query_ast::ComputedShapeItem,
 ) -> Result<query_ir::ResolvedComputedField, ResolveError> {
-    if !matches!(item.expr(), query_ast::Expr::Arithmetic(_)) {
+    if !computed_projection_expr_is_supported(item.expr()) {
         return Err(ResolveError::UnsupportedExpr {
             expr_type: "computed projection".to_string(),
         });
@@ -200,6 +205,13 @@ fn resolve_computed_shape_item(
         scalar_type,
         cardinality,
     ))
+}
+
+fn computed_projection_expr_is_supported(expr: &query_ast::Expr) -> bool {
+    matches!(
+        expr,
+        query_ast::Expr::Arithmetic(_) | query_ast::Expr::UnaryArithmetic(_)
+    )
 }
 
 fn resolve_expr(
@@ -308,6 +320,9 @@ fn resolve_expr(
         query_ast::Expr::Arithmetic(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "arithmetic value".to_string(),
         }),
+        query_ast::Expr::UnaryArithmetic(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "unary arithmetic value".to_string(),
+        }),
     }
 }
 
@@ -337,6 +352,9 @@ fn resolve_path_value_expr(
             expr_type: "null comparison literal".to_string(),
         }),
         query_ir::ValueExpr::Arithmetic(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison value".to_string(),
+        }),
+        query_ir::ValueExpr::UnaryArithmetic(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "null comparison value".to_string(),
         }),
     }
@@ -379,6 +397,9 @@ fn resolve_typed_value_expr(
         query_ast::Expr::Arithmetic(arithmetic) => {
             resolve_typed_arithmetic_expr(catalog, source_object_type, arithmetic)
         }
+        query_ast::Expr::UnaryArithmetic(unary) => {
+            resolve_typed_unary_arithmetic_expr(catalog, source_object_type, unary)
+        }
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
         }),
@@ -420,6 +441,36 @@ fn resolve_arithmetic_op(op: query_ast::ArithmeticOp) -> query_ir::ArithmeticOp 
         query_ast::ArithmeticOp::Mul => query_ir::ArithmeticOp::Mul,
         query_ast::ArithmeticOp::Div => query_ir::ArithmeticOp::Div,
         query_ast::ArithmeticOp::Mod => query_ir::ArithmeticOp::Mod,
+    }
+}
+
+fn resolve_typed_unary_arithmetic_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    unary: &query_ast::UnaryArithmeticExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    let operand = resolve_typed_value_expr(catalog, source_object_type, unary.operand())?;
+    let scalar_type = source_scalar_type(operand.source);
+
+    ensure_numeric_arithmetic_operand(scalar_type)?;
+    if value_expr_cardinality(&operand.value)? == schema_model::Cardinality::Many {
+        return Err(ResolveError::UnsupportedPath);
+    }
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
+            resolve_unary_arithmetic_op(unary.op()),
+            operand.value,
+            scalar_type,
+        )),
+        source: ValueSource::Computed(scalar_type),
+    })
+}
+
+fn resolve_unary_arithmetic_op(op: query_ast::UnaryArithmeticOp) -> query_ir::UnaryArithmeticOp {
+    match op {
+        query_ast::UnaryArithmeticOp::Plus => query_ir::UnaryArithmeticOp::Plus,
+        query_ast::UnaryArithmeticOp::Minus => query_ir::UnaryArithmeticOp::Minus,
     }
 }
 
@@ -544,6 +595,7 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
     match expr {
         query_ast::Expr::Literal(literal) => resolve_membership_literal(literal),
         query_ast::Expr::Arithmetic(arithmetic) => resolve_membership_arithmetic(arithmetic),
+        query_ast::Expr::UnaryArithmetic(unary) => resolve_membership_unary_arithmetic(unary),
         query_ast::Expr::Path(_)
         | query_ast::Expr::Compare(_)
         | query_ast::Expr::And(_, _)
@@ -553,6 +605,24 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
             expr_type: "membership list item".to_string(),
         }),
     }
+}
+
+fn resolve_membership_unary_arithmetic(
+    unary: &query_ast::UnaryArithmeticExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    let operand = resolve_membership_item(unary.operand())?;
+    let scalar_type = source_scalar_type(operand.source);
+
+    ensure_numeric_arithmetic_operand(scalar_type)?;
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::UnaryArithmetic(query_ir::UnaryArithmeticExpr::new(
+            resolve_unary_arithmetic_op(unary.op()),
+            operand.value,
+            scalar_type,
+        )),
+        source: ValueSource::Computed(scalar_type),
+    })
 }
 
 fn resolve_membership_literal(
@@ -766,6 +836,9 @@ fn resolve_order_value_expr(
         query_ast::Expr::Arithmetic(arithmetic) => {
             resolve_order_arithmetic_expr(catalog, source_object_type, arithmetic)
         }
+        query_ast::Expr::UnaryArithmetic(unary) => {
+            resolve_order_unary_arithmetic_expr(catalog, source_object_type, unary)
+        }
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "order value".to_string(),
         }),
@@ -798,6 +871,23 @@ fn resolve_order_arithmetic_expr(
     Ok(typed.value)
 }
 
+fn resolve_order_unary_arithmetic_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    unary: &query_ast::UnaryArithmeticExpr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    let typed = resolve_typed_unary_arithmetic_expr(catalog, source_object_type, unary)?;
+
+    if !value_expr_contains_path(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string(),
+        });
+    }
+    ensure_order_value_is_single_cardinality(&typed.value)?;
+
+    Ok(typed.value)
+}
+
 fn ensure_order_value_is_single_cardinality(
     value: &query_ir::ValueExpr,
 ) -> Result<(), ResolveError> {
@@ -810,6 +900,9 @@ fn ensure_order_value_is_single_cardinality(
         query_ir::ValueExpr::Arithmetic(arithmetic) => {
             ensure_order_value_is_single_cardinality(arithmetic.left())?;
             ensure_order_value_is_single_cardinality(arithmetic.right())
+        }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => {
+            ensure_order_value_is_single_cardinality(unary.operand())
         }
     }
 }
@@ -855,6 +948,16 @@ fn value_expr_cardinality(
                 }
             }
         }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => {
+            let cardinality = value_expr_cardinality(unary.operand())?;
+
+            match cardinality {
+                schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
+                schema_model::Cardinality::Optional | schema_model::Cardinality::Required => {
+                    Ok(cardinality)
+                }
+            }
+        }
     }
 }
 
@@ -866,6 +969,7 @@ fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {
             value_expr_contains_path(arithmetic.left())
                 || value_expr_contains_path(arithmetic.right())
         }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => value_expr_contains_path(unary.operand()),
     }
 }
 
@@ -880,6 +984,7 @@ fn is_nonzero_numeric_literal(value: &query_ir::ValueExpr) -> bool {
     match value {
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => *value != 0,
         query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => *value != 0.0,
+        query_ir::ValueExpr::UnaryArithmetic(unary) => is_nonzero_numeric_literal(unary.operand()),
         _ => false,
     }
 }

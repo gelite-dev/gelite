@@ -18,7 +18,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
     SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral,
-    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteUnaryArithmeticOp, SQLiteValueExpr,
+    SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -209,6 +210,13 @@ fn render_arithmetic_op(op: SQLiteArithmeticOp) -> &'static str {
     }
 }
 
+fn render_unary_arithmetic_op(op: SQLiteUnaryArithmeticOp) -> &'static str {
+    match op {
+        SQLiteUnaryArithmeticOp::Plus => "+",
+        SQLiteUnaryArithmeticOp::Minus => "-",
+    }
+}
+
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
@@ -235,6 +243,12 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
             let op = render_arithmetic_op(arithmetic.op());
 
             format!("({left} {op} {right})")
+        }
+        SQLiteValueExpr::UnaryArithmetic(unary) => {
+            let op = render_unary_arithmetic_op(unary.op());
+            let operand = render_value_expr(unary.operand(), bind_values);
+
+            format!("({op}{operand})")
         }
     }
 }

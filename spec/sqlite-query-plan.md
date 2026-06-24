@@ -219,6 +219,7 @@ Minimum supported forms for the arithmetic filter milestone:
 - column reference
 - literal
 - arithmetic expression
+- unary arithmetic expression
 
 Membership list items use the same value expression structure. The SQLite
 planner receives only resolver-accepted list items, so list items are non-null
@@ -253,6 +254,24 @@ SQL generation should render arithmetic operands with parentheses whenever
 omitting them could change meaning. The generated SQL may be more parenthesized
 than a handwritten query.
 
+### `SQLiteUnaryArithmeticExpr`
+
+Minimum fields:
+
+- unary arithmetic operator
+- operand SQLite value expression
+
+Supported operators:
+
+- unary `+`
+- unary `-`
+
+The SQLite planner receives only resolver-accepted unary arithmetic
+expressions. It should preserve the unary expression tree shape and leave SQL
+operator spelling and parentheses to SQL generation. SQL generation should
+parenthesize unary operands whenever the operand is not already a single column
+reference or literal.
+
 ## Ordering Model
 
 ### `SQLiteOrder`
@@ -264,8 +283,9 @@ Minimum fields:
 
 The value expression uses the same SQLite value-expression model as predicates.
 Supported order values in the arithmetic order milestone are scalar column
-references and numeric arithmetic expressions. Ordering expressions should only
-reference values already reachable through the planned join tree.
+references, numeric arithmetic expressions, and unary numeric arithmetic
+expressions. Ordering expressions should only reference values already reachable
+through the planned join tree.
 
 ## Select Value Model
 
@@ -290,9 +310,9 @@ Suggested roles:
 
 Schema-backed selected values usually lower to column references. Computed
 selected values lower to SQLite value expressions such as arithmetic trees and
-must not require a logical `schema_model::FieldRef`. The planner assigns stable
-SQL aliases for computed values so SQL generation and result decoding can refer
-to the same output column.
+unary arithmetic trees and must not require a logical `schema_model::FieldRef`.
+The planner assigns stable SQL aliases for computed values so SQL generation
+and result decoding can refer to the same output column.
 
 When a computed value appears inside a nested result shape, its value expression
 is lowered from that nested shape's source alias. It must not implicitly start

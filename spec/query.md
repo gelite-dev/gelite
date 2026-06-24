@@ -32,8 +32,9 @@ Only one statement is executed per request in the first version.
 - Decimal float literals must include digits on both sides of the decimal point,
   such as `0.5` or `10.5`. Shorthand forms such as `.5` and `5.` are not part
   of the MVP grammar.
-- A leading `+` or `-` is not part of a numeric literal. Signed values require
-  unary arithmetic operators, which are deferred.
+- A leading `+` or `-` is not part of a numeric literal. Signed values are
+  parsed as unary arithmetic operators applied to unsigned numeric literals or
+  other value expressions.
 - Boolean literals are `true` and `false`.
 - `null` is supported only where the schema allows an optional value.
 - Parameters are deferred. The first milestone may inline literals only.
@@ -75,6 +76,17 @@ order_clause     := "order" "by" order_item ("," order_item)*
 order_item       := expr ("asc" | "desc")?
 limit_clause     := "limit" INT
 offset_clause    := "offset" INT
+
+expr             := boolean_or_expr
+boolean_or_expr  := boolean_and_expr ("or" boolean_and_expr)*
+boolean_and_expr := boolean_not_expr ("and" boolean_not_expr)*
+boolean_not_expr := "not" boolean_not_expr | comparison_expr
+comparison_expr  := membership_expr (compare_op membership_expr)?
+membership_expr  := additive_expr (("in" | "not" "in") in_rhs)?
+additive_expr    := multiplicative_expr (("+" | "-") multiplicative_expr)*
+multiplicative_expr := unary_expr (("*" | "/" | "%") unary_expr)*
+unary_expr       := ("+" | "-") unary_expr | primary_expr
+primary_expr     := literal | path | "(" expr ")"
 ```
 
 ### Select Semantics
@@ -219,8 +231,10 @@ Supported arithmetic operators:
 - `/`
 - `%`
 
-These are binary operators. Unary `+` and unary `-` are not part of this
-milestone.
+The same `+` and `-` tokens are also accepted as unary prefix operators. Unary
+operators bind tighter than `*`, `/`, and `%`. For example, `-.score * 2`
+parses as `(-.score) * 2`, and `-(.score + 1)` preserves the parenthesized
+addition as the unary operand.
 
 Arithmetic is numeric only. The resolver accepts same-type numeric operands:
 
@@ -288,7 +302,9 @@ in_op             := "in"
                   | "not" "in"
 additive_expr     := multiplicative_expr (("+" | "-") multiplicative_expr)*
 multiplicative_expr
-                  := primary_expr (("*" | "/" | "%") primary_expr)*
+                  := unary_expr (("*" | "/" | "%") unary_expr)*
+unary_expr        := ("+" | "-") unary_expr
+                  | primary_expr
 primary_expr      := literal
                   | path
                   | "(" expr ")"
@@ -331,12 +347,13 @@ the grammar but rejected until subquery expression scope is defined.
 Precedence from strongest to weakest:
 
 1. primary expressions
-2. `*`, `/`, `%`
-3. `+`, `-`
-4. membership and comparisons
-5. `not`
-6. `and`
-7. `or`
+2. unary `+`, `-`
+3. `*`, `/`, `%`
+4. `+`, `-`
+5. membership and comparisons
+6. `not`
+7. `and`
+8. `or`
 
 ### Filter Expression Scope
 
@@ -346,6 +363,7 @@ The MVP supports:
 - traversal through declared single relation fields
 - scalar comparisons against literals
 - numeric arithmetic expressions used as comparison or membership operands
+- unary numeric arithmetic expressions
 - scalar membership checks against non-empty lists of non-null scalar value
   expressions
 - boolean composition
@@ -360,7 +378,6 @@ The MVP does not support:
 - subquery `in`
 - function calls
 - implicit numeric casts
-- unary arithmetic operators
 - path scoping with aliases
 
 ## Insert
@@ -559,7 +576,6 @@ These are intentionally out of scope until the end-to-end path is stable:
 - pagination cursors
 - function calls
 - explicit numeric casts
-- unary arithmetic operators
 - subqueries
 - query parameters
 - upsert

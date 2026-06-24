@@ -2,9 +2,9 @@ mod fixtures;
 
 use crate::{
     ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
-    OrderDirection, OrderExpr, ResolvedPath, ResolvedPathError, ResolvedPathStep,
-    ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
-    ResolvedComputedField, SelectQuery, ValueExpr,
+    OrderDirection, OrderExpr, ResolvedComputedField, ResolvedPath, ResolvedPathError,
+    ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
+    SelectQuery, UnaryArithmeticExpr, UnaryArithmeticOp, ValueExpr,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -64,10 +64,7 @@ fn resolved_shape_can_contain_computed_projection() {
         Cardinality::Required,
     );
 
-    let shape = ResolvedShape::with_items(
-        post_type(),
-        vec![ResolvedShapeItem::Computed(computed)],
-    );
+    let shape = ResolvedShape::with_items(post_type(), vec![ResolvedShapeItem::Computed(computed)]);
     let items = shape.items();
 
     assert_eq!(items.len(), 1);
@@ -82,6 +79,23 @@ fn resolved_shape_can_contain_computed_projection() {
         panic!("computed projection should store an arithmetic value expression");
     };
     assert_eq!(arithmetic.op(), ArithmeticOp::Add);
+}
+
+#[test]
+fn unary_arithmetic_expr_can_store_operand_and_operator() {
+    let expr = ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+        UnaryArithmeticOp::Minus,
+        ValueExpr::Literal(Literal::Int64(1)),
+        ScalarType::Int64,
+    ));
+
+    let ValueExpr::UnaryArithmetic(unary) = expr else {
+        panic!("value expression should store a unary arithmetic expression");
+    };
+
+    assert_eq!(unary.op(), UnaryArithmeticOp::Minus);
+    assert_eq!(unary.operand(), &ValueExpr::Literal(Literal::Int64(1)));
+    assert_eq!(unary.scalar_type(), ScalarType::Int64);
 }
 
 #[test]
@@ -299,6 +313,7 @@ fn resolved_select_query_can_store_order_by_path() {
         }
         ValueExpr::Literal(_) => panic!("order by should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("order by should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => panic!("order by should reference a resolved path"),
     }
 }
 
@@ -332,6 +347,9 @@ fn resolved_select_query_can_store_filter_compare_expr() {
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should reference a resolved path")
+        }
     }
 
     match compare.right() {
@@ -341,6 +359,7 @@ fn resolved_select_query_can_store_filter_compare_expr() {
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
+        ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -373,6 +392,7 @@ fn resolved_select_query_can_store_filter_compare_int_literal() {
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
+        ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -405,6 +425,7 @@ fn resolved_select_query_can_store_filter_compare_bool_literal() {
         }
         ValueExpr::Path(_) => panic!("filter right side should store a literal"),
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
+        ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -459,6 +480,9 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should reference a resolved path")
+        }
     }
 }
 
@@ -489,6 +513,9 @@ fn resolved_select_query_can_store_filter_is_not_null_expr() {
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should reference a resolved path")
+        }
     }
 }
 
@@ -524,6 +551,9 @@ fn resolved_select_query_can_store_filter_in_expr() {
         }
         ValueExpr::Literal(_) => panic!("filter left side should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => {
+            panic!("filter left side should reference a resolved path")
+        }
     }
 
     assert_eq!(in_expr.op(), InOp::In);
@@ -583,6 +613,9 @@ fn value_expr_can_reference_resolved_path() {
         }
         ValueExpr::Literal(_) => panic!("value expression should reference a resolved path"),
         ValueExpr::Arithmetic(_) => panic!("value expression should reference a resolved path"),
+        ValueExpr::UnaryArithmetic(_) => {
+            panic!("value expression should reference a resolved path")
+        }
     }
 }
 
@@ -597,6 +630,7 @@ fn value_expr_can_store_literal() {
         }
         ValueExpr::Path(_) => panic!("value expression should store a literal"),
         ValueExpr::Arithmetic(_) => panic!("value expression should store a literal"),
+        ValueExpr::UnaryArithmetic(_) => panic!("value expression should store a literal"),
     }
 }
 

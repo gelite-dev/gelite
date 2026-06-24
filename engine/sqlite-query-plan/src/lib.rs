@@ -261,7 +261,9 @@ impl SQLiteFieldSelectValue {
     pub fn source_alias(&self) -> &str {
         match &self.value {
             SQLiteValueExpr::Column(column) => column.source_alias(),
-            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+            SQLiteValueExpr::Literal(_)
+            | SQLiteValueExpr::Arithmetic(_)
+            | SQLiteValueExpr::UnaryArithmetic(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -270,7 +272,9 @@ impl SQLiteFieldSelectValue {
     pub fn column_name(&self) -> &str {
         match &self.value {
             SQLiteValueExpr::Column(column) => column.column_name(),
-            SQLiteValueExpr::Literal(_) | SQLiteValueExpr::Arithmetic(_) => {
+            SQLiteValueExpr::Literal(_)
+            | SQLiteValueExpr::Arithmetic(_)
+            | SQLiteValueExpr::UnaryArithmetic(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -479,8 +483,12 @@ fn plan_shape_values(
                 )),
             },
             query_ir::ResolvedShapeItem::Computed(computed) => {
-                let planned =
-                    plan_value_expr(computed.value(), source_alias, source_nullable, join_aliases);
+                let planned = plan_value_expr(
+                    computed.value(),
+                    source_alias,
+                    source_nullable,
+                    join_aliases,
+                );
                 values.push(SQLiteSelectValue::computed(
                     computed.output_name(),
                     computed_aliases.next_alias(),
@@ -708,6 +716,7 @@ pub enum SQLiteValueExpr {
     Column(SQLiteColumnRef),
     Literal(SQLiteLiteral),
     Arithmetic(SQLiteArithmeticExpr),
+    UnaryArithmetic(SQLiteUnaryArithmeticExpr),
 }
 
 /// Backend-specific arithmetic value expression.
@@ -750,6 +759,37 @@ impl SQLiteArithmeticOp {
             query_ir::ArithmeticOp::Mul => Self::Mul,
             query_ir::ArithmeticOp::Div => Self::Div,
             query_ir::ArithmeticOp::Mod => Self::Mod,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SQLiteUnaryArithmeticExpr {
+    op: SQLiteUnaryArithmeticOp,
+    operand: Box<SQLiteValueExpr>,
+}
+
+impl SQLiteUnaryArithmeticExpr {
+    pub fn op(&self) -> SQLiteUnaryArithmeticOp {
+        self.op
+    }
+
+    pub fn operand(&self) -> &SQLiteValueExpr {
+        &self.operand
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteUnaryArithmeticOp {
+    Plus,
+    Minus,
+}
+
+impl SQLiteUnaryArithmeticOp {
+    pub fn from_ir(op: query_ir::UnaryArithmeticOp) -> Self {
+        match op {
+            query_ir::UnaryArithmeticOp::Plus => Self::Plus,
+            query_ir::UnaryArithmeticOp::Minus => Self::Minus,
         }
     }
 }
@@ -1012,6 +1052,18 @@ fn plan_value_expr(
                 joins,
             }
         }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => {
+            let operand =
+                plan_value_expr(unary.operand(), source_alias, source_nullable, join_aliases);
+
+            PlannedValueExpr {
+                value: SQLiteValueExpr::UnaryArithmetic(SQLiteUnaryArithmeticExpr {
+                    op: SQLiteUnaryArithmeticOp::from_ir(unary.op()),
+                    operand: Box::new(operand.value),
+                }),
+                joins: operand.joins,
+            }
+        }
     }
 }
 
@@ -1030,10 +1082,7 @@ struct PlannedWhereExpr {
     joins: Vec<SQLiteJoin>,
 }
 
-fn plan_where_expr(
-    expr: &Expr,
-    join_aliases: &mut SQLiteJoinAliasAllocator,
-) -> PlannedWhereExpr {
+fn plan_where_expr(expr: &Expr, join_aliases: &mut SQLiteJoinAliasAllocator) -> PlannedWhereExpr {
     match expr {
         Expr::Compare(compare) => {
             let left = plan_value_expr(compare.left(), "root", false, join_aliases);
