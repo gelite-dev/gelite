@@ -2,8 +2,8 @@ mod fixtures;
 
 use crate::{
     SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteJoinReason,
-    SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteValueExpr, SQLiteValueRole,
-    SQLiteWhereExpr, plan_select,
+    SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteUnaryArithmeticOp, SQLiteValueExpr,
+    SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -19,7 +19,7 @@ use fixtures::{
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
-    SelectQuery,
+    SelectQuery, UnaryArithmeticExpr, UnaryArithmeticOp,
 };
 
 fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &str) {
@@ -30,6 +30,7 @@ fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &st
         }
         SQLiteValueExpr::Literal(_) => panic!("order value should be a column"),
         SQLiteValueExpr::Arithmetic(_) => panic!("order value should be a column"),
+        SQLiteValueExpr::UnaryArithmetic(_) => panic!("order value should be a column"),
     }
 }
 
@@ -41,6 +42,7 @@ fn assert_column_value(value: &SQLiteValueExpr, source_alias: &str, column_name:
         }
         SQLiteValueExpr::Literal(_) => panic!("value should be a column"),
         SQLiteValueExpr::Arithmetic(_) => panic!("value should be a column"),
+        SQLiteValueExpr::UnaryArithmetic(_) => panic!("value should be a column"),
     }
 }
 
@@ -50,7 +52,20 @@ fn assert_int_literal_value(value: &SQLiteValueExpr, expected: i64) {
         SQLiteValueExpr::Literal(_) => panic!("value should be an int literal"),
         SQLiteValueExpr::Column(_) => panic!("value should be a literal"),
         SQLiteValueExpr::Arithmetic(_) => panic!("value should be a literal"),
+        SQLiteValueExpr::UnaryArithmetic(_) => panic!("value should be a literal"),
     }
+}
+
+fn assert_unary_value(
+    value: &SQLiteValueExpr,
+    expected_op: SQLiteUnaryArithmeticOp,
+) -> &SQLiteValueExpr {
+    let SQLiteValueExpr::UnaryArithmetic(unary) = value else {
+        panic!("value should be a unary arithmetic expression");
+    };
+
+    assert_eq!(unary.op(), expected_op);
+    unary.operand()
 }
 
 fn assert_selected_field(
@@ -176,6 +191,43 @@ fn sqlite_select_plan_can_project_computed_value() {
     assert_eq!(arithmetic.op(), SQLiteArithmeticOp::Add);
     assert_column_value(arithmetic.left(), "root", "view_count");
     assert_int_literal_value(arithmetic.right(), 1);
+}
+
+#[test]
+fn sqlite_select_plan_can_project_computed_unary_arithmetic_value() {
+    let computed = ResolvedComputedField::new(
+        "neg_views",
+        query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+            UnaryArithmeticOp::Minus,
+            post_view_count_path_value(),
+            schema_model::ScalarType::Int64,
+        )),
+        schema_model::ScalarType::Int64,
+        schema_model::Cardinality::Required,
+    );
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::with_items(post_type(), vec![ResolvedShapeItem::Computed(computed)]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let selected_values = plan.selected_values();
+
+    assert_eq!(selected_values.len(), 1);
+    assert_eq!(selected_values[0].output_name(), "neg_views");
+    assert_eq!(selected_values[0].role(), SQLiteValueRole::Computed);
+    let computed_value = selected_values[0]
+        .as_computed()
+        .expect("selected value should be computed");
+    assert_eq!(computed_value.sql_alias(), "__gelite_value_0");
+
+    let operand = assert_unary_value(selected_values[0].value(), SQLiteUnaryArithmeticOp::Minus);
+    assert_column_value(operand, "root", "view_count");
 }
 
 #[test]
@@ -309,7 +361,10 @@ fn sqlite_select_plan_uses_planner_owned_alias_for_nested_computed_path_join() {
         "author_best_friend",
         post_best_friend_field(),
         schema_model::Cardinality::Required,
-        Some(ResolvedShape::new(user_type(), vec![user_name_shape_field()])),
+        Some(ResolvedShape::new(
+            user_type(),
+            vec![user_name_shape_field()],
+        )),
     );
     let ir = SelectQuery::new(
         post_type(),
@@ -409,8 +464,10 @@ fn sqlite_select_plan_assigns_unique_sql_aliases_for_repeated_computed_output_na
         schema_model::ScalarType::Int64,
         schema_model::Cardinality::Required,
     );
-    let author_shape =
-        ResolvedShape::with_items(user_type(), vec![ResolvedShapeItem::Computed(nested_computed)]);
+    let author_shape = ResolvedShape::with_items(
+        user_type(),
+        vec![ResolvedShapeItem::Computed(nested_computed)],
+    );
     let author = ResolvedShapeField::new(
         "author",
         post_author_field(),
@@ -932,6 +989,35 @@ fn sqlite_select_plan_can_order_by_numeric_arithmetic_expr() {
 }
 
 #[test]
+fn sqlite_select_plan_can_order_by_unary_arithmetic_expr() {
+    let order_value = query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+        UnaryArithmeticOp::Minus,
+        post_view_count_path_value(),
+        schema_model::ScalarType::Int64,
+    ));
+
+    let order_by = query_ir::OrderExpr::new(order_value, query_ir::OrderDirection::Desc);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![post_title_shape_field()]),
+        None,
+        vec![order_by],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let order_by = plan.order_by();
+
+    assert_eq!(order_by.len(), 1);
+    assert_eq!(order_by[0].direction(), SQLiteOrderDirection::Desc);
+
+    let operand = assert_unary_value(order_by[0].value(), SQLiteUnaryArithmeticOp::Minus);
+    assert_column_value(operand, "root", "view_count");
+}
+
+#[test]
 fn sqlite_select_plan_preserves_parenthesized_order_arithmetic_shape() {
     let inner = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
         post_view_count_path_value(),
@@ -1137,6 +1223,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
                 }
                 SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(compare.op(), SQLiteCompareOp::Eq);
@@ -1150,6 +1239,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
                 }
                 SQLiteValueExpr::Column(_) => panic!("filter right side should be a literal"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1215,6 +1307,42 @@ fn sqlite_select_plan_can_filter_arithmetic_expr_compared_to_int_literal() {
 }
 
 #[test]
+fn sqlite_select_plan_can_filter_unary_arithmetic_expr_compared_to_int_literal() {
+    let unary = query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+        UnaryArithmeticOp::Minus,
+        post_view_count_path_value(),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::CompareExpr::new(
+        unary,
+        query_ir::CompareOp::Lt,
+        query_ir::ValueExpr::Literal(Literal::Int64(0)),
+    );
+
+    let expr = query_ir::Expr::Compare(filter);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::Compare(compare)) = plan.filter() else {
+        panic!("expected compare filter");
+    };
+
+    assert_eq!(compare.op(), SQLiteCompareOp::Lt);
+    let operand = assert_unary_value(compare.left(), SQLiteUnaryArithmeticOp::Minus);
+    assert_column_value(operand, "root", "view_count");
+    assert_int_literal_value(compare.right(), 0);
+}
+
+#[test]
 fn sqlite_select_plan_collects_joins_from_arithmetic_expr_operands() {
     let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
         post_author_score_path_value(),
@@ -1277,6 +1405,58 @@ fn sqlite_select_plan_collects_joins_from_arithmetic_expr_operands() {
 }
 
 #[test]
+fn sqlite_select_plan_collects_joins_from_unary_arithmetic_expr_operand() {
+    let unary = query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+        UnaryArithmeticOp::Minus,
+        post_author_score_path_value(),
+        schema_model::ScalarType::Int64,
+    ));
+    let filter = query_ir::CompareExpr::new(
+        unary,
+        query_ir::CompareOp::Gt,
+        query_ir::ValueExpr::Literal(Literal::Int64(0)),
+    );
+
+    let expr = query_ir::Expr::Compare(filter);
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let joins = plan.joins();
+    assert_eq!(joins.len(), 1);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_table(), "user");
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[0].on().left_column(), "author_id");
+    assert_eq!(joins[0].on().right_column(), "id");
+
+    match joins[0].reason() {
+        SQLiteJoinReason::PathTraversal { path } => {
+            assert_eq!(path, &vec!["author".to_string()]);
+        }
+        SQLiteJoinReason::SelectedSingleLink { .. } => {
+            panic!("unary arithmetic operand join should be marked as path traversal")
+        }
+    }
+
+    let Some(SQLiteWhereExpr::Compare(compare)) = plan.filter() else {
+        panic!("expected compare filter");
+    };
+
+    let operand = assert_unary_value(compare.left(), SQLiteUnaryArithmeticOp::Minus);
+    assert_column_value(operand, "author", "score");
+}
+
+#[test]
 fn sqlite_select_plan_can_filter_single_link_scalar_path_equals_string_literal() {
     let filter = query_ir::CompareExpr::new(
         post_author_name_path_value(),
@@ -1306,6 +1486,7 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_equals_string_literal()
             }
             SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
             SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
+            SQLiteValueExpr::UnaryArithmetic(_) => panic!("filter left side should be a column"),
         },
         _ => panic!("expected compare filter"),
     }
@@ -1385,6 +1566,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_int_literal() {
                 SQLiteValueExpr::Literal(_) => panic!("filter right side should be an int literal"),
                 SQLiteValueExpr::Column(_) => panic!("filter right side should be a literal"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1424,6 +1608,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_bool_literal() {
                 SQLiteValueExpr::Literal(_) => panic!("filter right side should be a bool literal"),
                 SQLiteValueExpr::Column(_) => panic!("filter right side should be a literal"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1462,6 +1649,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
                 }
                 SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(in_expr.op(), SQLiteInOp::In);
@@ -1475,6 +1665,51 @@ fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
         }
         _ => panic!("expected in filter"),
     }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_path_in_unary_arithmetic_literal_list() {
+    let expr = query_ir::Expr::In(query_ir::InExpr::new(
+        post_view_count_path_value(),
+        query_ir::InOp::In,
+        vec![
+            query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                UnaryArithmeticOp::Minus,
+                query_ir::ValueExpr::Literal(Literal::Int64(1)),
+                schema_model::ScalarType::Int64,
+            )),
+            query_ir::ValueExpr::UnaryArithmetic(UnaryArithmeticExpr::new(
+                UnaryArithmeticOp::Plus,
+                query_ir::ValueExpr::Literal(Literal::Int64(2)),
+                schema_model::ScalarType::Int64,
+            )),
+        ],
+    ));
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(expr),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::In(in_expr)) = plan.filter() else {
+        panic!("expected in filter");
+    };
+
+    assert_column_value(in_expr.left(), "root", "view_count");
+    assert_eq!(in_expr.op(), SQLiteInOp::In);
+    assert_eq!(in_expr.right().len(), 2);
+
+    let operand = assert_unary_value(&in_expr.right()[0], SQLiteUnaryArithmeticOp::Minus);
+    assert_int_literal_value(operand, 1);
+
+    let operand = assert_unary_value(&in_expr.right()[1], SQLiteUnaryArithmeticOp::Plus);
+    assert_int_literal_value(operand, 2);
 }
 
 #[test]
@@ -1508,6 +1743,9 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_not_in_literal_list() {
                 }
                 SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(in_expr.op(), SQLiteInOp::NotIn);
@@ -1549,6 +1787,7 @@ fn sqlite_select_plan_can_filter_root_scalar_field_is_null() {
             }
             SQLiteValueExpr::Literal(_) => panic!("is null value should be a column"),
             SQLiteValueExpr::Arithmetic(_) => panic!("is null value should be a column"),
+            SQLiteValueExpr::UnaryArithmetic(_) => panic!("is null value should be a column"),
         },
         _ => panic!("expected is null filter"),
     }
@@ -1726,6 +1965,9 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
                 }
                 SQLiteValueExpr::Literal(_) => panic!("filter left side should be a column"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(compare.op(), SQLiteCompareOp::Eq);
@@ -1739,6 +1981,9 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
                 }
                 SQLiteValueExpr::Column(_) => panic!("filter right side should be a literal"),
                 SQLiteValueExpr::Arithmetic(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::UnaryArithmetic(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
