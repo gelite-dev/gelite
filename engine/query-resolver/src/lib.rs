@@ -221,64 +221,7 @@ fn resolve_expr(
 ) -> Result<query_ir::Expr, ResolveError> {
     match expr {
         query_ast::Expr::Compare(compare) => {
-            if is_null_literal(compare.right()) {
-                if compare.op() == query_ast::CompareOp::Ne {
-                    let left = resolve_null_comparable_path_value_expr(
-                        catalog,
-                        source_object_type,
-                        compare.left(),
-                    )?;
-                    return Ok(query_ir::Expr::IsNotNull(left));
-                }
-
-                if compare.op() != query_ast::CompareOp::Eq {
-                    return Err(ResolveError::UnsupportedExpr {
-                        expr_type: "null comparison operator".to_string(),
-                    });
-                }
-
-                let left = resolve_null_comparable_path_value_expr(
-                    catalog,
-                    source_object_type,
-                    compare.left(),
-                )?;
-                return Ok(query_ir::Expr::IsNull(left));
-            }
-
-            if is_null_literal(compare.left()) {
-                if compare.op() == query_ast::CompareOp::Ne {
-                    let right = resolve_null_comparable_path_value_expr(
-                        catalog,
-                        source_object_type,
-                        compare.right(),
-                    )?;
-                    return Ok(query_ir::Expr::IsNotNull(right));
-                }
-
-                if compare.op() != query_ast::CompareOp::Eq {
-                    return Err(ResolveError::UnsupportedExpr {
-                        expr_type: "null comparison operator".to_string(),
-                    });
-                }
-
-                let right = resolve_null_comparable_path_value_expr(
-                    catalog,
-                    source_object_type,
-                    compare.right(),
-                )?;
-                return Ok(query_ir::Expr::IsNull(right));
-            }
-
-            let left = resolve_typed_value_expr(catalog, source_object_type, compare.left())?;
-            let right = resolve_typed_value_expr(catalog, source_object_type, compare.right())?;
-
-            ensure_compatible_comparison(&left.source, &right.source)?;
-
-            Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
-                left.value,
-                resolve_compare_op(compare.op()),
-                right.value,
-            )))
+            resolve_compare_expr(catalog, source_object_type, compare)
         }
         query_ast::Expr::And(left, right) => Ok(query_ir::Expr::And(
             Box::new(resolve_expr(catalog, source_object_type, left)?),
@@ -293,24 +236,7 @@ fn resolve_expr(
             source_object_type,
             inner,
         )?))),
-        query_ast::Expr::In(in_expr) => {
-            let left = resolve_typed_value_expr(catalog, source_object_type, in_expr.left())?;
-            let op = match in_expr.op() {
-                query_ast::InOp::In => query_ir::InOp::In,
-                query_ast::InOp::NotIn => query_ir::InOp::NotIn,
-            };
-            let right = resolve_membership_items(in_expr.right())?;
-
-            for item in &right {
-                ensure_compatible_membership_item(&left.source, &item.source)?;
-            }
-
-            let right = right.into_iter().map(|item| item.value).collect();
-
-            Ok(query_ir::Expr::In(query_ir::InExpr::new(
-                left.value, op, right,
-            )))
-        }
+        query_ast::Expr::In(in_expr) => resolve_in_expr(catalog, source_object_type, in_expr),
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "literal".to_string(),
         }),
@@ -323,6 +249,104 @@ fn resolve_expr(
         query_ast::Expr::UnaryArithmetic(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "unary arithmetic value".to_string(),
         }),
+    }
+}
+
+fn resolve_compare_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    compare: &query_ast::CompareExpr,
+) -> Result<query_ir::Expr, ResolveError> {
+    if let Some(expr) = resolve_null_compare_expr(
+        catalog,
+        source_object_type,
+        compare.left(),
+        compare.op(),
+        compare.right(),
+    )? {
+        return Ok(expr);
+    }
+
+    if let Some(expr) = resolve_null_compare_expr(
+        catalog,
+        source_object_type,
+        compare.right(),
+        compare.op(),
+        compare.left(),
+    )? {
+        return Ok(expr);
+    }
+
+    let left = resolve_typed_value_expr(catalog, source_object_type, compare.left())?;
+    let right = resolve_typed_value_expr(catalog, source_object_type, compare.right())?;
+
+    ensure_compatible_comparison(&left.source, &right.source)?;
+
+    Ok(query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        left.value,
+        resolve_compare_op(compare.op()),
+        right.value,
+    )))
+}
+
+fn resolve_null_compare_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    null_candidate: &query_ast::Expr,
+    op: query_ast::CompareOp,
+    compared_expr: &query_ast::Expr,
+) -> Result<Option<query_ir::Expr>, ResolveError> {
+    if !is_null_literal(null_candidate) {
+        return Ok(None);
+    }
+
+    match op {
+        query_ast::CompareOp::Eq => {
+            let value = resolve_null_comparable_path_value_expr(
+                catalog,
+                source_object_type,
+                compared_expr,
+            )?;
+            Ok(Some(query_ir::Expr::IsNull(value)))
+        }
+        query_ast::CompareOp::Ne => {
+            let value = resolve_null_comparable_path_value_expr(
+                catalog,
+                source_object_type,
+                compared_expr,
+            )?;
+            Ok(Some(query_ir::Expr::IsNotNull(value)))
+        }
+        _ => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison operator".to_string(),
+        }),
+    }
+}
+
+fn resolve_in_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    in_expr: &query_ast::InExpr,
+) -> Result<query_ir::Expr, ResolveError> {
+    let left = resolve_typed_value_expr(catalog, source_object_type, in_expr.left())?;
+    let op = resolve_in_op(in_expr.op());
+    let right = resolve_membership_items(in_expr.right())?;
+
+    for item in &right {
+        ensure_compatible_membership_item(&left.source, &item.source)?;
+    }
+
+    let right = right.into_iter().map(|item| item.value).collect();
+
+    Ok(query_ir::Expr::In(query_ir::InExpr::new(
+        left.value, op, right,
+    )))
+}
+
+fn resolve_in_op(op: query_ast::InOp) -> query_ir::InOp {
+    match op {
+        query_ast::InOp::In => query_ir::InOp::In,
+        query_ast::InOp::NotIn => query_ir::InOp::NotIn,
     }
 }
 
