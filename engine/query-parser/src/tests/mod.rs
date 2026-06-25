@@ -5,7 +5,10 @@ use crate::{
     LexErrorKind, TokenKind, lex, parse_select,
 };
 use alloc::string::ToString;
-use fixtures::{assert_literal_expr, assert_path_expr, assert_unary_arithmetic_expr};
+use fixtures::{
+    assert_and_expr, assert_arithmetic_expr, assert_compare_expr, assert_literal_expr,
+    assert_not_expr, assert_or_expr, assert_path_expr, assert_unary_arithmetic_expr,
+};
 use query_ast::{ArithmeticOp, CompareOp, Expr, InOp, Literal, OrderDirection, UnaryArithmeticOp};
 
 #[test]
@@ -1131,69 +1134,28 @@ fn parser_preserves_boolean_precedence_with_arithmetic() {
 
     let filter = query.filter().expect("query should have filter");
 
-    match filter {
-        Expr::Or(left, right) => {
-            match left.as_ref() {
-                Expr::And(left, right) => {
-                    match left.as_ref() {
-                        Expr::Compare(compare) => {
-                            match compare.left() {
-                                Expr::Arithmetic(arithmetic) => {
-                                    assert_path_expr(arithmetic.left(), &["views"]);
-                                    assert_eq!(arithmetic.op(), ArithmeticOp::Add);
-                                    assert_literal_expr(arithmetic.right(), &Literal::Int64(1));
-                                }
-                                other => {
-                                    panic!(
-                                        "left side should be arithmetic expression, got {other:?}"
-                                    )
-                                }
-                            }
+    let (or_left, or_right) = assert_or_expr(filter);
+    let (and_left, and_right) = assert_and_expr(or_left);
 
-                            assert_eq!(compare.op(), CompareOp::Ge);
-                            assert_literal_expr(compare.right(), &Literal::Int64(10));
-                        }
-                        other => panic!("left side should be compare expression, got {other:?}"),
-                    }
+    let (views_compare_left, views_compare_right) = assert_compare_expr(and_left, CompareOp::Ge);
+    let (views_arithmetic_left, views_arithmetic_right) =
+        assert_arithmetic_expr(views_compare_left, ArithmeticOp::Add);
+    assert_path_expr(views_arithmetic_left, &["views"]);
+    assert_literal_expr(views_arithmetic_right, &Literal::Int64(1));
+    assert_literal_expr(views_compare_right, &Literal::Int64(10));
 
-                    match right.as_ref() {
-                        Expr::Compare(compare) => {
-                            match compare.left() {
-                                Expr::Arithmetic(arithmetic) => {
-                                    assert_path_expr(arithmetic.left(), &["likes"]);
-                                    assert_eq!(arithmetic.op(), ArithmeticOp::Mul);
-                                    assert_literal_expr(arithmetic.right(), &Literal::Int64(2));
-                                }
-                                other => {
-                                    panic!(
-                                        "left side should be arithmetic expression, got {other:?}"
-                                    )
-                                }
-                            }
+    let (likes_compare_left, likes_compare_right) = assert_compare_expr(and_right, CompareOp::Ge);
+    let (likes_arithmetic_left, likes_arithmetic_right) =
+        assert_arithmetic_expr(likes_compare_left, ArithmeticOp::Mul);
+    assert_path_expr(likes_arithmetic_left, &["likes"]);
+    assert_literal_expr(likes_arithmetic_right, &Literal::Int64(2));
+    assert_literal_expr(likes_compare_right, &Literal::Int64(20));
 
-                            assert_eq!(compare.op(), CompareOp::Ge);
-                            assert_literal_expr(compare.right(), &Literal::Int64(20));
-                        }
-                        other => panic!("right side should be compare expression, got {other:?}"),
-                    }
-                }
-                other => panic!("left side should be and expression, got {other:?}"),
-            }
-
-            match right.as_ref() {
-                Expr::Not(inner) => match inner.as_ref() {
-                    Expr::Compare(compare) => {
-                        assert_path_expr(compare.left(), &["archived"]);
-                        assert_eq!(compare.op(), CompareOp::Eq);
-                        assert_literal_expr(compare.right(), &Literal::Bool(true));
-                    }
-                    other => panic!("not operand should be compare expression, got {other:?}"),
-                },
-                other => panic!("right side should be not expression, got {other:?}"),
-            }
-        }
-        other => panic!("filter should be or expression, got {other:?}"),
-    }
+    let not_operand = assert_not_expr(or_right);
+    let (archived_compare_left, archived_compare_right) =
+        assert_compare_expr(not_operand, CompareOp::Eq);
+    assert_path_expr(archived_compare_left, &["archived"]);
+    assert_literal_expr(archived_compare_right, &Literal::Bool(true));
 }
 
 #[test]
