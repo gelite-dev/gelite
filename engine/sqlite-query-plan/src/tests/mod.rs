@@ -16,7 +16,8 @@ use fixtures::{
     post_best_friend_field, post_best_friend_shape_field, post_id_path_value, post_id_shape_field,
     post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
     post_type, post_view_count_path_value, user_best_friend_score_path_value,
-    user_name_shape_field, user_score_field, user_type,
+    user_best_friend_with_best_friend_shape_field, user_name_shape_field, user_query_with_shape,
+    user_score_field, user_type,
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
@@ -2093,6 +2094,69 @@ fn sqlite_select_plan_can_join_nested_selected_single_link() {
             panic!("nested selected link join should be marked as selected single link")
         }
     }
+}
+
+#[test]
+fn sqlite_select_plan_uses_unique_aliases_for_repeated_nested_selected_link_names() {
+    let ir = user_query_with_shape(vec![user_best_friend_with_best_friend_shape_field()]);
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_alias(), "best_friend");
+    assert_eq!(joins[1].source_alias(), "best_friend");
+    assert_ne!(joins[1].target_alias(), "best_friend");
+    assert_ne!(joins[1].target_alias(), joins[0].target_alias());
+    assert_eq!(joins[1].on().left_alias(), "best_friend");
+    assert_eq!(joins[1].on().right_alias(), joins[1].target_alias());
+
+    assert_selected_field(
+        &plan.selected_values()[0],
+        "best_friend",
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &plan.selected_values()[1],
+        joins[1].target_alias(),
+        "id",
+        "id",
+        "id",
+        SQLiteValueRole::ObjectId,
+    );
+    assert_selected_field(
+        &plan.selected_values()[2],
+        joins[1].target_alias(),
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
+
+    let first_friend = &plan.result_shape().fields()[0];
+    let first_friend_shape = first_friend
+        .nested_shape()
+        .expect("first best_friend should have nested result shape");
+    let second_friend = &first_friend_shape.fields()[0];
+    let second_friend_shape = second_friend
+        .nested_shape()
+        .expect("second best_friend should have nested result shape");
+    let second_friend_identity = second_friend_shape
+        .identity_value()
+        .expect("second best_friend shape should have identity value");
+    let second_friend_name = second_friend_shape.fields()[0]
+        .value()
+        .expect("second best_friend name should point to a selected value");
+
+    assert_eq!(
+        second_friend_identity.source_alias(),
+        joins[1].target_alias()
+    );
+    assert_eq!(second_friend_name.source_alias(), joins[1].target_alias());
 }
 
 #[test]

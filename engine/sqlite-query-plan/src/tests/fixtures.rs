@@ -202,6 +202,18 @@ pub fn user_best_friend_shape_field() -> query_ir::ResolvedShapeField {
     )
 }
 
+pub fn user_best_friend_with_best_friend_shape_field() -> query_ir::ResolvedShapeField {
+    let best_friend_shape =
+        query_ir::ResolvedShape::new(user_type(), vec![user_best_friend_shape_field()]);
+
+    query_ir::ResolvedShapeField::new(
+        "best_friend",
+        user_best_friend_field(),
+        schema_model::Cardinality::Required,
+        Some(best_friend_shape),
+    )
+}
+
 pub fn post_author_with_best_friend_shape_field() -> query_ir::ResolvedShapeField {
     let author_shape = query_ir::ResolvedShape::new(
         user_type(),
@@ -278,6 +290,17 @@ pub fn post_query_with_shape(fields: Vec<query_ir::ResolvedShapeField>) -> query
     query_ir::SelectQuery::new(
         post_type(),
         query_ir::ResolvedShape::new(post_type(), fields),
+        None,
+        vec![],
+        None,
+        None,
+    )
+}
+
+pub fn user_query_with_shape(fields: Vec<query_ir::ResolvedShapeField>) -> query_ir::SelectQuery {
+    query_ir::SelectQuery::new(
+        user_type(),
+        query_ir::ResolvedShape::new(user_type(), fields),
         None,
         vec![],
         None,

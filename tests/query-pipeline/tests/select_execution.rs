@@ -80,10 +80,21 @@ fn insert_blog_fixture_rows(runner: &mut NativeSQLiteRunner) {
         .execute_with_values(
             "INSERT INTO user (id, email, score, best_friend_id) VALUES (?, ?, ?, ?)",
             &[
+                SQLiteValuePlan::Text("user-3".to_string()),
+                SQLiteValuePlan::Text("carol@example.com".to_string()),
+                SQLiteValuePlan::Integer(50),
+                SQLiteValuePlan::Null,
+            ],
+        )
+        .expect("third user fixture row should insert");
+    runner
+        .execute_with_values(
+            "INSERT INTO user (id, email, score, best_friend_id) VALUES (?, ?, ?, ?)",
+            &[
                 SQLiteValuePlan::Text("user-2".to_string()),
                 SQLiteValuePlan::Text("blocked@example.com".to_string()),
                 SQLiteValuePlan::Integer(0),
-                SQLiteValuePlan::Null,
+                SQLiteValuePlan::Text("user-3".to_string()),
             ],
         )
         .expect("second user fixture row should insert");
@@ -311,6 +322,43 @@ filter .title = "Draft""#,
             SQLiteCellValue::Text("alice@example.com".to_string()),
             SQLiteCellValue::Text("user-2".to_string()),
             SQLiteCellValue::Text("blocked@example.com".to_string()),
+        ]]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_repeated_nested_selected_single_link_names() {
+    let result = execute_query(
+        r#"select User {
+  email,
+  best_friend: {
+    email,
+    best_friend: {
+      email
+    }
+  }
+}
+filter .email = "alice@example.com""#,
+    );
+
+    assert_eq!(
+        result.columns(),
+        &[
+            "email".to_string(),
+            "id".to_string(),
+            "email".to_string(),
+            "id".to_string(),
+            "email".to_string(),
+        ]
+    );
+    assert_eq!(
+        result.rows(),
+        &[vec![
+            SQLiteCellValue::Text("alice@example.com".to_string()),
+            SQLiteCellValue::Text("user-2".to_string()),
+            SQLiteCellValue::Text("blocked@example.com".to_string()),
+            SQLiteCellValue::Text("user-3".to_string()),
+            SQLiteCellValue::Text("carol@example.com".to_string()),
         ]]
     );
 }
