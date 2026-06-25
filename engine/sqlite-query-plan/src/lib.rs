@@ -33,7 +33,8 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let selected_column_names = selected_field_column_names(ir.shape());
     let mut select_aliases = SQLiteComputedAliasAllocator::new(selected_column_names.clone());
     let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
-    let selected_shape_aliases = plan_selected_shape_aliases(ir.shape(), &mut join_aliases);
+    let selected_shape_aliases =
+        plan_selected_shape_aliases(ir.shape(), root_path_aliases(ir), &mut join_aliases);
     let planned_shape_values = plan_shape_values(
         ir.shape(),
         "root",
@@ -422,10 +423,12 @@ impl SQLiteSelectedShapeAliases {
 
 fn plan_selected_shape_aliases(
     shape: &query_ir::ResolvedShape,
+    reserved_root_path_aliases: Vec<String>,
     join_aliases: &mut SQLiteJoinAliasAllocator,
 ) -> SQLiteSelectedShapeAliases {
     let mut aliases = Vec::new();
     let mut used_aliases = vec!["root".to_string()];
+    used_aliases.extend(reserved_root_path_aliases);
     collect_selected_shape_aliases(shape, &[], &mut used_aliases, &mut aliases, join_aliases);
 
     SQLiteSelectedShapeAliases { aliases }
@@ -450,10 +453,10 @@ fn collect_selected_shape_aliases(
         let mut child_path = shape_path.to_vec();
         child_path.push(index);
         let preferred_alias = field.output_name();
-        let sql_alias = if used_aliases
+        let conflicts_with_existing_alias = used_aliases
             .iter()
-            .any(|used_alias| used_alias == preferred_alias)
-        {
+            .any(|used_alias| used_alias == preferred_alias);
+        let sql_alias = if !shape_path.is_empty() && conflicts_with_existing_alias {
             join_aliases.next_alias()
         } else {
             preferred_alias.to_string()
@@ -471,6 +474,82 @@ fn collect_selected_shape_aliases(
             aliases,
             join_aliases,
         );
+    }
+}
+
+fn root_path_aliases(ir: &SelectQuery) -> Vec<String> {
+    let mut aliases = Vec::new();
+
+    if let Some(filter) = ir.filter() {
+        collect_root_path_aliases_from_expr(filter, &mut aliases);
+    }
+
+    for order in ir.order_by() {
+        collect_root_path_aliases_from_value(order.value(), &mut aliases);
+    }
+
+    collect_root_computed_path_aliases(ir.shape(), &mut aliases);
+
+    aliases
+}
+
+fn collect_root_computed_path_aliases(shape: &query_ir::ResolvedShape, aliases: &mut Vec<String>) {
+    for item in shape.items() {
+        let query_ir::ResolvedShapeItem::Computed(computed) = item else {
+            continue;
+        };
+
+        collect_root_path_aliases_from_value(computed.value(), aliases);
+    }
+}
+
+fn collect_root_path_aliases_from_expr(expr: &Expr, aliases: &mut Vec<String>) {
+    match expr {
+        Expr::Compare(compare) => {
+            collect_root_path_aliases_from_value(compare.left(), aliases);
+            collect_root_path_aliases_from_value(compare.right(), aliases);
+        }
+        Expr::IsNull(value) | Expr::IsNotNull(value) => {
+            collect_root_path_aliases_from_value(value, aliases);
+        }
+        Expr::In(in_expr) => {
+            collect_root_path_aliases_from_value(in_expr.left(), aliases);
+            for value in in_expr.right() {
+                collect_root_path_aliases_from_value(value, aliases);
+            }
+        }
+        Expr::And(left, right) | Expr::Or(left, right) => {
+            collect_root_path_aliases_from_expr(left, aliases);
+            collect_root_path_aliases_from_expr(right, aliases);
+        }
+        Expr::Not(inner) => collect_root_path_aliases_from_expr(inner, aliases),
+    }
+}
+
+fn collect_root_path_aliases_from_value(value: &query_ir::ValueExpr, aliases: &mut Vec<String>) {
+    match value {
+        query_ir::ValueExpr::Path(path) => collect_root_path_alias_from_path(path, aliases),
+        query_ir::ValueExpr::Literal(_) => {}
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            collect_root_path_aliases_from_value(arithmetic.left(), aliases);
+            collect_root_path_aliases_from_value(arithmetic.right(), aliases);
+        }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => {
+            collect_root_path_aliases_from_value(unary.operand(), aliases);
+        }
+    }
+}
+
+fn collect_root_path_alias_from_path(path: &query_ir::ResolvedPath, aliases: &mut Vec<String>) {
+    let Some(first_step) = path.steps().first() else {
+        return;
+    };
+
+    if matches!(
+        first_step.kind(),
+        query_ir::ResolvedPathStepKind::Link { .. }
+    ) {
+        aliases.push(first_step.field().name().to_string());
     }
 }
 

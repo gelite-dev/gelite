@@ -105,6 +105,26 @@ pub fn post_author_score_path_value() -> query_ir::ValueExpr {
     )
 }
 
+pub fn post_best_friend_name_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![
+                query_ir::ResolvedPathStep::link(
+                    post_best_friend_field(),
+                    user_type(),
+                    schema_model::Cardinality::Required,
+                ),
+                query_ir::ResolvedPathStep::scalar(
+                    user_name_field(),
+                    schema_model::Cardinality::Required,
+                ),
+            ],
+        )
+        .expect("post best_friend name path should be valid"),
+    )
+}
+
 pub fn user_type() -> ObjectTypeRef {
     ObjectTypeRef::new(ObjectTypeId::new(2), "User")
 }

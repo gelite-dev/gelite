@@ -13,11 +13,11 @@ use fixtures::{
     optional_post_author_with_best_friend_shape_field, post_author_field,
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
     post_author_shape_field_with_id_then_name, post_author_with_best_friend_shape_field,
-    post_best_friend_field, post_best_friend_shape_field, post_id_path_value, post_id_shape_field,
-    post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
-    post_type, post_view_count_path_value, user_best_friend_score_path_value,
-    user_best_friend_with_best_friend_shape_field, user_name_shape_field, user_query_with_shape,
-    user_score_field, user_type,
+    post_best_friend_field, post_best_friend_name_path_value, post_best_friend_shape_field,
+    post_id_path_value, post_id_shape_field, post_query_with_shape, post_title_field,
+    post_title_path_value, post_title_shape_field, post_type, post_view_count_path_value,
+    user_best_friend_score_path_value, user_best_friend_with_best_friend_shape_field,
+    user_name_shape_field, user_query_with_shape, user_score_field, user_type,
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
@@ -2157,6 +2157,50 @@ fn sqlite_select_plan_uses_unique_aliases_for_repeated_nested_selected_link_name
         joins[1].target_alias()
     );
     assert_eq!(second_friend_name.source_alias(), joins[1].target_alias());
+}
+
+#[test]
+fn sqlite_select_plan_avoids_root_path_alias_collision_with_nested_selected_link() {
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        post_best_friend_name_path_value(),
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("Carol".to_string())),
+    ));
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(
+            post_type(),
+            vec![post_author_with_best_friend_shape_field()],
+        ),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_ne!(joins[1].target_alias(), "best_friend");
+    assert_eq!(joins[2].source_alias(), "root");
+    assert_eq!(joins[2].target_alias(), "best_friend");
+
+    assert_selected_field(
+        &plan.selected_values()[3],
+        joins[1].target_alias(),
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
+
+    let Some(SQLiteWhereExpr::Compare(compare)) = plan.filter() else {
+        panic!("filter should be a compare expression");
+    };
+    assert_column_value(compare.left(), "best_friend", "name");
 }
 
 #[test]
