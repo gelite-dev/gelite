@@ -41,6 +41,11 @@ struct ReplRuntime<'a> {
         Option<&'a mut dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String>>,
 }
 
+enum ReplLoopAction {
+    Continue,
+    Break,
+}
+
 impl ReplRuntime<'_> {
     fn run(&mut self, catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
         match options.query {
@@ -91,57 +96,108 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>)
     let mut interrupt_count = 0;
 
     loop {
-        let prompt = if pending.is_empty() {
-            "gelite> "
-        } else {
-            "   ...> "
-        };
+        let prompt = repl_prompt(&pending);
 
         match editor.readline(prompt) {
-            Ok(line) => {
-                interrupt_count = 0;
-                let trimmed = line.trim();
-
-                if pending.is_empty() && is_exit_command(trimmed) {
-                    break;
-                }
-
-                if !pending.is_empty() {
-                    pending.push('\n');
-                }
-                pending.push_str(&line);
-
-                if needs_more_input(&pending) {
-                    continue;
-                }
-
-                let query_text = pending.trim().to_string();
-                pending.clear();
-
-                if !query_text.is_empty() {
-                    let _ = editor.add_history_entry(query_text.as_str());
-                    let _ = runtime.inspect_query(catalog, &query_text, debug);
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                pending.clear();
-                interrupt_count += 1;
-
-                if interrupt_count >= 2 {
-                    break;
-                }
-
-                println!("input cancelled. Press Ctrl-C again to leave.");
-            }
-            Err(ReadlineError::Eof) => break,
+            Ok(line) => match handle_repl_line(
+                catalog,
+                debug,
+                runtime,
+                &mut editor,
+                &mut pending,
+                &mut interrupt_count,
+                line,
+            )? {
+                ReplLoopAction::Continue => {}
+                ReplLoopAction::Break => break,
+            },
             Err(error) => {
-                eprintln!("failed to read input: {error}");
-                return Err(());
+                match handle_repl_read_error(error, &mut pending, &mut interrupt_count)? {
+                    ReplLoopAction::Continue => {}
+                    ReplLoopAction::Break => break,
+                }
             }
         }
     }
 
     Ok(())
+}
+
+fn repl_prompt(pending: &str) -> &'static str {
+    if pending.is_empty() {
+        "gelite> "
+    } else {
+        "   ...> "
+    }
+}
+
+fn handle_repl_line(
+    catalog: &SchemaCatalog,
+    debug: bool,
+    runtime: &mut ReplRuntime<'_>,
+    editor: &mut DefaultEditor,
+    pending: &mut String,
+    interrupt_count: &mut i32,
+    line: String,
+) -> Result<ReplLoopAction, ()> {
+    *interrupt_count = 0;
+
+    if pending.is_empty() && is_exit_command(line.trim()) {
+        return Ok(ReplLoopAction::Break);
+    }
+
+    append_pending_line(pending, &line);
+
+    if needs_more_input(pending) {
+        return Ok(ReplLoopAction::Continue);
+    }
+
+    let query_text = pending.trim().to_string();
+    pending.clear();
+
+    if !query_text.is_empty() {
+        let _ = editor.add_history_entry(query_text.as_str());
+        let _ = runtime.inspect_query(catalog, &query_text, debug);
+    }
+
+    Ok(ReplLoopAction::Continue)
+}
+
+fn append_pending_line(pending: &mut String, line: &str) {
+    if !pending.is_empty() {
+        pending.push('\n');
+    }
+    pending.push_str(line);
+}
+
+fn handle_repl_read_error(
+    error: ReadlineError,
+    pending: &mut String,
+    interrupt_count: &mut i32,
+) -> Result<ReplLoopAction, ()> {
+    match error {
+        ReadlineError::Interrupted => handle_repl_interrupt(pending, interrupt_count),
+        ReadlineError::Eof => Ok(ReplLoopAction::Break),
+        error => {
+            eprintln!("failed to read input: {error}");
+            Err(())
+        }
+    }
+}
+
+fn handle_repl_interrupt(
+    pending: &mut String,
+    interrupt_count: &mut i32,
+) -> Result<ReplLoopAction, ()> {
+    pending.clear();
+    *interrupt_count += 1;
+
+    if *interrupt_count >= 2 {
+        return Ok(ReplLoopAction::Break);
+    }
+
+    println!("input cancelled. Press Ctrl-C again to leave.");
+    Ok(ReplLoopAction::Continue)
 }
 
 fn is_exit_command(input: &str) -> bool {
