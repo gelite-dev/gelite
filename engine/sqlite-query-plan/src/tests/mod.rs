@@ -9,13 +9,14 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
-    empty_post_query, optional_post_author_shape_field, post_author_field,
+    empty_post_query, optional_post_author_shape_field,
+    optional_post_author_with_best_friend_shape_field, post_author_field,
     post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_best_friend_field,
-    post_best_friend_shape_field, post_id_path_value, post_id_shape_field, post_query_with_shape,
-    post_title_field, post_title_path_value, post_title_shape_field, post_type,
-    post_view_count_path_value, user_best_friend_score_path_value, user_name_shape_field,
-    user_score_field, user_type,
+    post_author_shape_field_with_id_then_name, post_author_with_best_friend_shape_field,
+    post_best_friend_field, post_best_friend_shape_field, post_id_path_value, post_id_shape_field,
+    post_query_with_shape, post_title_field, post_title_path_value, post_title_shape_field,
+    post_type, post_view_count_path_value, user_best_friend_score_path_value,
+    user_name_shape_field, user_score_field, user_type,
 };
 use query_ir::{
     Literal, ResolvedComputedField, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
@@ -2057,6 +2058,57 @@ fn sqlite_select_plan_can_join_selected_single_link() {
             panic!("selected link join should be marked as selected single link")
         }
     }
+}
+
+#[test]
+fn sqlite_select_plan_can_join_nested_selected_single_link() {
+    let ir = post_query_with_shape(vec![post_author_with_best_friend_shape_field()]);
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_table(), "user");
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[0].on().left_alias(), "root");
+    assert_eq!(joins[0].on().left_column(), "author_id");
+    assert_eq!(joins[0].on().right_alias(), "author");
+
+    assert_eq!(joins[1].kind(), SQLiteJoinKind::Inner);
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].target_table(), "user");
+    assert_eq!(joins[1].target_alias(), "best_friend");
+    assert_eq!(joins[1].on().left_alias(), "author");
+    assert_eq!(joins[1].on().left_column(), "best_friend_id");
+    assert_eq!(joins[1].on().right_alias(), "best_friend");
+
+    match joins[1].reason() {
+        SQLiteJoinReason::SelectedSingleLink { field } => {
+            assert_eq!(field.name(), "best_friend");
+        }
+        SQLiteJoinReason::PathTraversal { .. } => {
+            panic!("nested selected link join should be marked as selected single link")
+        }
+    }
+}
+
+#[test]
+fn sqlite_select_plan_uses_left_join_for_nested_selected_link_under_optional_source() {
+    let ir = post_query_with_shape(vec![optional_post_author_with_best_friend_shape_field()]);
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 2);
+    assert_eq!(joins[0].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[0].source_alias(), "root");
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].kind(), SQLiteJoinKind::Left);
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_eq!(joins[1].target_alias(), "best_friend");
 }
 
 #[test]

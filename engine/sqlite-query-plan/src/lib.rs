@@ -66,13 +66,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
         None => (None, vec![]),
     };
 
-    let mut joins: Vec<SQLiteJoin> = ir
-        .shape()
-        .fields()
-        .into_iter()
-        .filter(|field| field.child_shape().is_some())
-        .map(SQLiteJoin::selected_single_link)
-        .collect();
+    let mut joins = plan_selected_shape_joins(ir.shape(), "root", false);
 
     joins.extend(planned_shape_values.joins);
     joins.extend(filter_joins);
@@ -500,6 +494,40 @@ fn plan_shape_values(
     }
 
     PlannedShapeValues { values, joins }
+}
+
+fn plan_selected_shape_joins(
+    shape: &query_ir::ResolvedShape,
+    source_alias: &str,
+    source_nullable: bool,
+) -> Vec<SQLiteJoin> {
+    let mut joins = Vec::new();
+
+    for item in shape.items() {
+        let query_ir::ResolvedShapeItem::Field(field) = item else {
+            continue;
+        };
+
+        let Some(child_shape) = field.child_shape() else {
+            continue;
+        };
+
+        let target_alias = field.output_name();
+        let join_cardinality = path_step_join_cardinality(source_nullable, field.cardinality());
+
+        joins.push(SQLiteJoin::selected_single_link(
+            source_alias,
+            field,
+            join_cardinality,
+        ));
+        joins.extend(plan_selected_shape_joins(
+            child_shape,
+            target_alias,
+            source_nullable || field.cardinality() == Cardinality::Optional,
+        ));
+    }
+
+    joins
 }
 
 fn plan_result_shape(
@@ -1292,7 +1320,11 @@ pub struct SQLiteJoin {
 }
 
 impl SQLiteJoin {
-    pub fn selected_single_link(shape_field: &query_ir::ResolvedShapeField) -> Self {
+    pub fn selected_single_link(
+        source_alias: &str,
+        shape_field: &query_ir::ResolvedShapeField,
+        cardinality: Cardinality,
+    ) -> Self {
         let child_shape = shape_field
             .child_shape()
             .expect("selected link field must have child shape");
@@ -1300,8 +1332,8 @@ impl SQLiteJoin {
         let field = shape_field.field().clone();
 
         Self {
-            kind: SQLiteJoinKind::for_single_link(shape_field.cardinality()),
-            source_alias: "root".to_string(),
+            kind: SQLiteJoinKind::for_single_link(cardinality),
+            source_alias: source_alias.to_string(),
             target_table: child_shape
                 .source_object_type()
                 .name()
@@ -1309,7 +1341,7 @@ impl SQLiteJoin {
                 .to_string(),
             target_alias: shape_field.output_name().to_string(),
             on: SQLiteJoinCondition {
-                left_alias: "root".to_string(),
+                left_alias: source_alias.to_string(),
                 left_column: format!("{}_id", field.name()),
                 right_alias: shape_field.output_name().to_string(),
                 right_column: "id".to_string(),
