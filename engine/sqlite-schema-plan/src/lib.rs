@@ -281,32 +281,19 @@ fn plan_catalog_field_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogFieldRow
     for (object_index, object_type) in catalog.object_types().iter().enumerate() {
         let object_id = (object_index + 1) as i64;
 
-        rows.push(SQLiteCatalogFieldRow::new(
-            object_id,
-            1,
-            "id".to_string(),
-            SQLiteCatalogFieldKind::Scalar,
-            Cardinality::Required,
-            Some(ScalarType::Uuid),
-            None,
-            true,
-            false,
-        ));
+        rows.push(SQLiteCatalogFieldRow::implicit_id(object_id));
 
         for (field_index, field) in object_type.declared_fields().iter().enumerate() {
             let field_id = (field_index + 2) as i64;
 
             match field {
                 Field::Scalar(scalar) => {
-                    rows.push(SQLiteCatalogFieldRow::new(
+                    rows.push(SQLiteCatalogFieldRow::scalar(
                         object_id,
                         field_id,
                         field.name().to_string(),
-                        SQLiteCatalogFieldKind::Scalar,
                         field.cardinality(),
-                        Some(scalar.scalar_type()),
-                        None,
-                        false,
+                        scalar.scalar_type(),
                         scalar.is_unique(),
                     ));
                 }
@@ -317,15 +304,12 @@ fn plan_catalog_field_rows(catalog: &SchemaCatalog) -> Vec<SQLiteCatalogFieldRow
                         .id()
                         .value();
 
-                    rows.push(SQLiteCatalogFieldRow::new(
+                    rows.push(SQLiteCatalogFieldRow::link(
                         object_id,
                         field_id,
                         field.name().to_string(),
-                        SQLiteCatalogFieldKind::Link,
                         field.cardinality(),
-                        None,
-                        Some(target_object_id),
-                        false,
+                        target_object_id,
                         link.is_unique(),
                     ));
                 }
@@ -739,26 +723,58 @@ pub struct SQLiteCatalogFieldRow {
 }
 
 impl SQLiteCatalogFieldRow {
-    pub fn new(
+    pub fn implicit_id(object_id: i64) -> Self {
+        Self {
+            object_id,
+            field_id: 1,
+            name: "id".to_string(),
+            field_kind: SQLiteCatalogFieldKind::Scalar,
+            cardinality: Cardinality::Required,
+            scalar_type: Some(ScalarType::Uuid),
+            target_object_id: None,
+            is_implicit: true,
+            is_unique: false,
+        }
+    }
+
+    pub fn scalar(
         object_id: i64,
         field_id: i64,
         name: impl Into<String>,
-        field_kind: SQLiteCatalogFieldKind,
         cardinality: Cardinality,
-        scalar_type: Option<ScalarType>,
-        target_object_id: Option<i64>,
-        is_implicit: bool,
+        scalar_type: ScalarType,
         is_unique: bool,
     ) -> Self {
         Self {
             object_id,
             field_id,
             name: name.into(),
-            field_kind,
+            field_kind: SQLiteCatalogFieldKind::Scalar,
             cardinality,
-            scalar_type,
-            target_object_id,
-            is_implicit,
+            scalar_type: Some(scalar_type),
+            target_object_id: None,
+            is_implicit: false,
+            is_unique,
+        }
+    }
+
+    pub fn link(
+        object_id: i64,
+        field_id: i64,
+        name: impl Into<String>,
+        cardinality: Cardinality,
+        target_object_id: i64,
+        is_unique: bool,
+    ) -> Self {
+        Self {
+            object_id,
+            field_id,
+            name: name.into(),
+            field_kind: SQLiteCatalogFieldKind::Link,
+            cardinality,
+            scalar_type: None,
+            target_object_id: Some(target_object_id),
+            is_implicit: false,
             is_unique,
         }
     }
