@@ -141,6 +141,10 @@ pub fn user_best_friend_field() -> FieldRef {
     FieldRef::new(FieldId::new(4), user_type(), "best_friend")
 }
 
+pub fn user_posts_field() -> FieldRef {
+    FieldRef::new(FieldId::new(5), user_type(), "posts")
+}
+
 pub fn user_best_friend_score_path_value() -> query_ir::ValueExpr {
     query_ir::ValueExpr::Path(
         query_ir::ResolvedPath::try_new(
@@ -251,6 +255,24 @@ pub fn post_author_with_best_friend_shape_field() -> query_ir::ResolvedShapeFiel
 pub fn optional_post_author_with_best_friend_shape_field() -> query_ir::ResolvedShapeField {
     let author_shape =
         query_ir::ResolvedShape::new(user_type(), vec![user_best_friend_shape_field()]);
+
+    query_ir::ResolvedShapeField::new(
+        "author",
+        post_author_field(),
+        schema_model::Cardinality::Optional,
+        Some(author_shape),
+    )
+}
+
+pub fn optional_post_author_with_posts_shape_field() -> query_ir::ResolvedShapeField {
+    let posts_shape = query_ir::ResolvedShape::new(post_type(), vec![post_title_shape_field()]);
+    let posts = query_ir::ResolvedShapeField::new(
+        "posts",
+        user_posts_field(),
+        schema_model::Cardinality::Many,
+        Some(posts_shape),
+    );
+    let author_shape = query_ir::ResolvedShape::new(user_type(), vec![posts]);
 
     query_ir::ResolvedShapeField::new(
         "author",

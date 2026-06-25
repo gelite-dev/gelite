@@ -10,12 +10,13 @@ use alloc::string::ToString;
 use alloc::vec;
 use fixtures::{
     empty_post_query, optional_post_author_shape_field,
-    optional_post_author_with_best_friend_shape_field, post_author_field,
-    post_author_name_path_value, post_author_score_path_value, post_author_shape_field,
-    post_author_shape_field_with_id_then_name, post_author_with_best_friend_shape_field,
-    post_best_friend_field, post_best_friend_name_path_value, post_best_friend_shape_field,
-    post_id_path_value, post_id_shape_field, post_query_with_shape, post_title_field,
-    post_title_path_value, post_title_shape_field, post_type, post_view_count_path_value,
+    optional_post_author_with_best_friend_shape_field, optional_post_author_with_posts_shape_field,
+    post_author_field, post_author_name_path_value, post_author_score_path_value,
+    post_author_shape_field, post_author_shape_field_with_id_then_name,
+    post_author_with_best_friend_shape_field, post_best_friend_field,
+    post_best_friend_name_path_value, post_best_friend_shape_field, post_id_path_value,
+    post_id_shape_field, post_query_with_shape, post_title_field, post_title_path_value,
+    post_title_shape_field, post_type, post_view_count_path_value,
     user_best_friend_score_path_value, user_best_friend_with_best_friend_shape_field,
     user_name_shape_field, user_query_with_shape, user_score_field, user_type,
 };
@@ -2217,6 +2218,14 @@ fn sqlite_select_plan_uses_left_join_for_nested_selected_link_under_optional_sou
     assert_eq!(joins[1].kind(), SQLiteJoinKind::Left);
     assert_eq!(joins[1].source_alias(), "author");
     assert_eq!(joins[1].target_alias(), "best_friend");
+}
+
+#[test]
+#[should_panic(expected = "multi link joins are not supported yet")]
+fn sqlite_select_plan_preserves_multi_link_cardinality_under_optional_source() {
+    let ir = post_query_with_shape(vec![optional_post_author_with_posts_shape_field()]);
+
+    let _ = plan_select(&ir);
 }
 
 #[test]

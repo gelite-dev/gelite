@@ -1171,10 +1171,10 @@ fn path_step_join_cardinality(
     current_nullable: bool,
     step_cardinality: Cardinality,
 ) -> Cardinality {
-    if current_nullable {
-        Cardinality::Optional
-    } else {
-        step_cardinality
+    match (current_nullable, step_cardinality) {
+        (_, Cardinality::Many) => Cardinality::Many,
+        (true, _) => Cardinality::Optional,
+        (false, cardinality) => cardinality,
     }
 }
 
