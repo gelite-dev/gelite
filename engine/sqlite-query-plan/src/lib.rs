@@ -33,8 +33,10 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let selected_column_names = selected_field_column_names(ir.shape());
     let mut select_aliases = SQLiteComputedAliasAllocator::new(selected_column_names.clone());
     let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
+    let root_path_aliases = root_path_aliases(ir);
+    join_aliases.reserve_aliases(&root_path_aliases);
     let selected_shape_aliases =
-        plan_selected_shape_aliases(ir.shape(), root_path_aliases(ir), &mut join_aliases);
+        plan_selected_shape_aliases(ir.shape(), root_path_aliases, &mut join_aliases);
     let planned_shape_values = plan_shape_values(
         ir.shape(),
         "root",
@@ -378,6 +380,14 @@ impl SQLiteJoinAliasAllocator {
 
             if !self.reserved.iter().any(|reserved| reserved == &alias) {
                 return alias;
+            }
+        }
+    }
+
+    fn reserve_aliases(&mut self, aliases: &[String]) {
+        for alias in aliases {
+            if !self.reserved.iter().any(|reserved| reserved == alias) {
+                self.reserved.push(alias.clone());
             }
         }
     }

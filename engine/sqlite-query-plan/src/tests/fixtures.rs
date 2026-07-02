@@ -18,6 +18,10 @@ pub fn post_best_friend_field() -> FieldRef {
     FieldRef::new(FieldId::new(6), post_type(), "best_friend")
 }
 
+pub fn post_generated_join_name_field() -> FieldRef {
+    FieldRef::new(FieldId::new(7), post_type(), "__gelite_join_0")
+}
+
 pub fn post_view_count_field() -> FieldRef {
     FieldRef::new(FieldId::new(4), post_type(), "view_count")
 }
@@ -122,6 +126,26 @@ pub fn post_best_friend_name_path_value() -> query_ir::ValueExpr {
             ],
         )
         .expect("post best_friend name path should be valid"),
+    )
+}
+
+pub fn post_generated_join_name_path_value() -> query_ir::ValueExpr {
+    query_ir::ValueExpr::Path(
+        query_ir::ResolvedPath::try_new(
+            post_type(),
+            vec![
+                query_ir::ResolvedPathStep::link(
+                    post_generated_join_name_field(),
+                    user_type(),
+                    schema_model::Cardinality::Required,
+                ),
+                query_ir::ResolvedPathStep::scalar(
+                    user_name_field(),
+                    schema_model::Cardinality::Required,
+                ),
+            ],
+        )
+        .expect("post generated join name path should be valid"),
     )
 }
 
