@@ -1,9 +1,9 @@
 mod fixtures;
 
 use crate::{
-    SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteJoinReason,
-    SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteUnaryArithmeticOp, SQLiteValueExpr,
-    SQLiteValueRole, SQLiteWhereExpr, plan_select,
+    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
+    SQLiteJoinReason, SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteUnaryArithmeticOp,
+    SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -1312,6 +1312,45 @@ fn sqlite_select_plan_can_filter_arithmetic_expr_compared_to_int_literal() {
     match compare.right() {
         SQLiteValueExpr::Literal(SQLiteLiteral::Int64(value)) => assert_eq!(*value, 10),
         _ => panic!("comparison right side should be an int literal"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_cast_expr_compared_to_float_literal() {
+    let cast = query_ir::ValueExpr::Cast(query_ir::CastExpr::new(
+        post_view_count_path_value(),
+        schema_model::ScalarType::Float64,
+    ));
+    let filter = query_ir::CompareExpr::new(
+        cast,
+        query_ir::CompareOp::Ge,
+        query_ir::ValueExpr::Literal(Literal::Float64(10.5)),
+    );
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(query_ir::Expr::Compare(filter)),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::Compare(compare)) = plan.filter() else {
+        panic!("expected compare filter");
+    };
+
+    let SQLiteValueExpr::Cast(cast) = compare.left() else {
+        panic!("filter left side should be a cast expression");
+    };
+    assert_eq!(cast.target(), SQLiteCastTarget::Float64);
+    assert_column_value(cast.operand(), "root", "view_count");
+
+    match compare.right() {
+        SQLiteValueExpr::Literal(SQLiteLiteral::Float64(value)) => assert_eq!(*value, 10.5),
+        _ => panic!("comparison right side should be a float literal"),
     }
 }
 

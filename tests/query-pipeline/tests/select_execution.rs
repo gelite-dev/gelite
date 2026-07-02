@@ -248,6 +248,23 @@ fn select_pipeline_renders_arithmetic_order_from_query_text() {
 }
 
 #[test]
+fn select_pipeline_renders_numeric_cast_filter_from_query_text() {
+    let statement = render_query(r#"select Post { title } filter f64(.view_count) / 2.0 >= 10.5"#);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (CAST(\"root\".\"view_count\" AS REAL) / ?) >= ?"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::Float64(2.0),
+            SQLiteBindValue::Float64(10.5),
+        ]
+    );
+}
+
+#[test]
 fn select_pipeline_renders_computed_projection_from_query_text() {
     let statement = render_query(r#"select Post { score := .view_count + 1 }"#);
 
@@ -383,6 +400,22 @@ fn select_pipeline_executes_unary_arithmetic_computed_projection() {
 fn select_pipeline_executes_root_scalar_arithmetic_filter() {
     let result =
         execute_query(r#"select Post { title } filter .view_count + 6 > 25 order by .title asc"#);
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[
+            vec![SQLiteCellValue::Text("Archived".to_string())],
+            vec![SQLiteCellValue::Text("Published".to_string())],
+        ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_root_scalar_numeric_cast_filter() {
+    let result = execute_query(
+        r#"select Post { title } filter f64(.view_count) / 2.0 >= 10.0 order by .title asc"#,
+    );
 
     assert_eq!(result.columns(), &["title".to_string()]);
     assert_eq!(
