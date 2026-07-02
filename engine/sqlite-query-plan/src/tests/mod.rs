@@ -2205,6 +2205,41 @@ fn sqlite_select_plan_avoids_root_path_alias_collision_with_nested_selected_link
 }
 
 #[test]
+fn sqlite_select_plan_reserves_root_selected_aliases_before_nested_selected_links() {
+    let ir = post_query_with_shape(vec![
+        post_author_with_best_friend_shape_field(),
+        post_best_friend_shape_field(),
+    ]);
+
+    let plan = plan_select(&ir);
+    let joins = plan.joins();
+
+    assert_eq!(joins.len(), 3);
+    assert_eq!(joins[0].target_alias(), "author");
+    assert_eq!(joins[1].source_alias(), "author");
+    assert_ne!(joins[1].target_alias(), "best_friend");
+    assert_eq!(joins[2].source_alias(), "root");
+    assert_eq!(joins[2].target_alias(), "best_friend");
+
+    assert_selected_field(
+        &plan.selected_values()[3],
+        joins[1].target_alias(),
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
+    assert_selected_field(
+        &plan.selected_values()[5],
+        "best_friend",
+        "name",
+        "name",
+        "name",
+        SQLiteValueRole::Scalar,
+    );
+}
+
+#[test]
 fn sqlite_select_plan_uses_left_join_for_nested_selected_link_under_optional_source() {
     let ir = post_query_with_shape(vec![optional_post_author_with_best_friend_shape_field()]);
 

@@ -429,9 +429,27 @@ fn plan_selected_shape_aliases(
     let mut aliases = Vec::new();
     let mut used_aliases = vec!["root".to_string()];
     used_aliases.extend(reserved_root_path_aliases);
+    used_aliases.extend(root_selected_link_aliases(shape));
     collect_selected_shape_aliases(shape, &[], &mut used_aliases, &mut aliases, join_aliases);
 
     SQLiteSelectedShapeAliases { aliases }
+}
+
+fn root_selected_link_aliases(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    shape
+        .items()
+        .iter()
+        .filter_map(|item| {
+            let query_ir::ResolvedShapeItem::Field(field) = item else {
+                return None;
+            };
+
+            field
+                .child_shape()
+                .is_some()
+                .then(|| field.output_name().to_string())
+        })
+        .collect()
 }
 
 fn collect_selected_shape_aliases(
