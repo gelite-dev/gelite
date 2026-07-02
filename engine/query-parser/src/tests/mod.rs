@@ -81,6 +81,25 @@ fn lexer_can_tokenize_arithmetic_operators() {
 }
 
 #[test]
+fn lexer_can_tokenize_function_call_expression() {
+    let tokens = lex("filter f64(.view_count) / 2.0 >= 10.5").expect("query should lex");
+
+    assert_eq!(tokens[0].kind(), &TokenKind::Keyword(Keyword::Filter));
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("f64".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::LParen);
+    assert_eq!(tokens[3].kind(), &TokenKind::Dot);
+    assert_eq!(
+        tokens[4].kind(),
+        &TokenKind::Ident("view_count".to_string())
+    );
+    assert_eq!(tokens[5].kind(), &TokenKind::RParen);
+    assert_eq!(tokens[6].kind(), &TokenKind::Slash);
+    assert_eq!(tokens[7].kind(), &TokenKind::Float("2.0".to_string()));
+    assert_eq!(tokens[8].kind(), &TokenKind::Ge);
+    assert_eq!(tokens[9].kind(), &TokenKind::Float("10.5".to_string()));
+}
+
+#[test]
 fn lexer_can_tokenize_computed_shape_assignment() {
     let tokens = lex("select Post { score := .likes + 1 }").expect("query should lex");
 
@@ -637,6 +656,35 @@ fn parser_can_parse_filter_arithmetic_addition() {
 
             assert_eq!(compare.op(), CompareOp::Ge);
             assert_literal_expr(compare.right(), &Literal::Int64(100));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_can_parse_function_call_as_arithmetic_operand() {
+    let query = parse_select("select Post { title } filter f64(.view_count) / 2.0 >= 10.5")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let Expr::Arithmetic(arithmetic) = compare.left() else {
+                panic!("left side should be arithmetic expression");
+            };
+            assert_eq!(arithmetic.op(), ArithmeticOp::Div);
+
+            let Expr::FunctionCall(function) = arithmetic.left() else {
+                panic!("arithmetic left operand should be a function call");
+            };
+            assert_eq!(function.name(), "f64");
+            assert_eq!(function.args().len(), 1);
+            assert_path_expr(&function.args()[0], &["view_count"]);
+
+            assert_literal_expr(arithmetic.right(), &Literal::Float64(2.0));
+            assert_eq!(compare.op(), CompareOp::Ge);
+            assert_literal_expr(compare.right(), &Literal::Float64(10.5));
         }
         _ => panic!("filter should be compare expression"),
     }
