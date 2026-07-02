@@ -389,6 +389,9 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Path(self.parse_path(true)?))
             }
             Some(token) => match token.kind() {
+                TokenKind::Ident(_) if self.next_token_is_lparen() => {
+                    self.parse_function_call_expr()
+                }
                 TokenKind::Ident(_) => Ok(Expr::Path(self.parse_path(false)?)),
                 TokenKind::Int(_)
                 | TokenKind::Float(_)
@@ -410,6 +413,32 @@ impl<'a> Parser<'a> {
                 None,
             )),
         }
+    }
+
+    fn parse_function_call_expr(&mut self) -> Result<Expr, ParseError> {
+        let name = self.expect_ident()?;
+        self.expect_token(TokenKind::LParen)?;
+
+        let mut args = vec![];
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::RParen)
+        {
+            self.expect_rparen()?;
+            return Ok(Expr::FunctionCall(query_ast::FunctionCallExpr::new(
+                name, args,
+            )));
+        }
+
+        args.push(self.parse_expr()?);
+        while self.consume_comma_if_present() {
+            args.push(self.parse_expr()?);
+        }
+
+        self.expect_rparen()?;
+        Ok(Expr::FunctionCall(query_ast::FunctionCallExpr::new(
+            name, args,
+        )))
     }
 
     fn parse_order_clause(&mut self) -> Result<Vec<OrderExpr>, ParseError> {
@@ -810,6 +839,12 @@ impl<'a> Parser<'a> {
             }
             _ => None,
         }
+    }
+
+    fn next_token_is_lparen(&self) -> bool {
+        self.tokens
+            .get(self.cursor + 1)
+            .is_some_and(|token| token.kind() == &TokenKind::LParen)
     }
 
     fn consume_i64_min_literal_if_present(&mut self) -> bool {

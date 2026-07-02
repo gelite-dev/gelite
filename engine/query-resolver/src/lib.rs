@@ -249,6 +249,9 @@ fn resolve_expr(
         query_ast::Expr::UnaryArithmetic(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "unary arithmetic value".to_string(),
         }),
+        query_ast::Expr::FunctionCall(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
+        }),
     }
 }
 
@@ -426,6 +429,9 @@ fn resolve_typed_value_expr(
         }
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
+        }),
+        query_ast::Expr::FunctionCall(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
         }),
         query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
@@ -622,6 +628,7 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
         query_ast::Expr::UnaryArithmetic(unary) => resolve_membership_unary_arithmetic(unary),
         query_ast::Expr::Path(_)
         | query_ast::Expr::Compare(_)
+        | query_ast::Expr::FunctionCall(_)
         | query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
         | query_ast::Expr::Not(_)
@@ -868,6 +875,9 @@ fn resolve_order_value_expr(
         }),
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
+        }),
+        query_ast::Expr::FunctionCall(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
         }),
         query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
