@@ -241,19 +241,51 @@ Arithmetic is numeric only. The resolver accepts same-type numeric operands:
 - `int64 op int64`
 - `float64 op float64`
 
-`float64` arithmetic may use declared `float64` fields and decimal float
-literals. Integer literals are `int64` literals unless an explicit cast is used
-in a later milestone.
+`float64` arithmetic may use declared `float64` fields, decimal float literals,
+and explicit `f64(expr)` casts. Integer literals are `int64` literals unless an
+explicit cast is used.
 
-Mixed numeric operands such as `int64 + float64` are rejected until explicit
-cast expressions are supported. String, boolean, uuid, `null`, object, and link
-operands are rejected before SQLite planning. `%` is accepted only for
-`int64 % int64`.
+Mixed numeric operands such as `int64 + float64` are rejected unless one side is
+explicitly cast to the other numeric type. String, boolean, uuid, `null`,
+object, and link operands are rejected before SQLite planning. `%` is accepted
+only for `int64 % int64`.
 
 `int64 / int64` follows SQLite integer division semantics. If fractional
-division is required, the query must use explicit casts once `f64(expr)` is
-supported. Division by zero is not normalized by Gelite in this milestone; if a
-runtime operand is zero, SQLite's result is used.
+division is required, the query must use an explicit `f64(expr)` cast. Division
+by zero is not normalized by Gelite in this milestone; if a runtime operand is
+zero, SQLite's result is used.
+
+### Numeric Casts
+
+Numeric casts use the function-call syntax but are resolved as explicit cast
+expressions, not as general user-defined functions:
+
+```text
+filter f64(.view_count) / 2.0 >= 10.5
+filter i64(.score) % 10 = 0
+```
+
+Supported cast functions:
+
+- `i64(expr) -> int64`
+- `f64(expr) -> float64`
+
+Each cast accepts exactly one scalar numeric value expression. The resolver
+accepts `int64` and `float64` sources and rejects string, boolean, uuid,
+datetime, `null`, object, link, and many-cardinality operands before SQLite
+planning. String-to-number casts are deferred because they would expose
+SQLite-specific text coercion behavior.
+
+Numeric casts may appear anywhere a scalar value expression is allowed,
+including filter comparisons, membership list items, order expressions, and
+computed select projections. Context-specific restrictions still apply:
+membership list items must be row-independent, and order expressions must refer
+to the current row rather than being literal-only.
+
+The parser may represent any `IDENT "(" ... ")"` form as a function call, but
+the resolver only accepts the built-in numeric casts listed above in this
+milestone. Unsupported function names and unsupported arities are rejected
+before Semantic IR construction.
 
 ### Ordering
 
@@ -262,7 +294,8 @@ Order clauses use the value-expression subset of the shared expression grammar.
 Supported order values:
 
 - scalar paths
-- numeric arithmetic expressions over scalar paths and numeric literals
+- numeric arithmetic expressions over scalar paths, numeric literals, and
+  numeric casts
 
 Examples:
 
@@ -270,6 +303,7 @@ Examples:
 order by .title asc
 order by .view_count + 1 desc
 order by (.view_count + 1) * 10 asc
+order by f64(.view_count) / 2.0 asc
 ```
 
 Order expressions must resolve to scalar values. Boolean expressions such as
@@ -278,9 +312,10 @@ SQLite planning. Literal-only order values such as `order by 1` are also
 rejected in this milestone because they do not refer to data from the current
 row.
 
-Arithmetic in order clauses follows the same numeric rules as arithmetic in
-filters: operands must be same-type numeric values, `%` is accepted only for
-`int64 % int64`, and division semantics are delegated to SQLite.
+Arithmetic and casts in order clauses follow the same numeric rules as
+arithmetic and casts in filters: arithmetic operands must be same-type numeric
+values, `%` is accepted only for `int64 % int64`, and division semantics are
+delegated to SQLite.
 
 ### Expression Grammar
 
@@ -319,14 +354,15 @@ expr_list         := expr ("," expr)*
 subquery_expr     := "(" select_stmt ")"
 ```
 
-Only path, literal, arithmetic, comparison, bracketed-list `in`,
-bracketed-list `not in`, boolean, and parenthesized expressions are accepted by
-the resolver in the current expression milestones. Context determines which
-subset is valid: filters accept boolean expressions, ordering accepts scalar
-order values, and the first computed projection milestone accepts numeric
+Only path, literal, arithmetic, numeric cast function calls, comparison,
+bracketed-list `in`, bracketed-list `not in`, boolean, and parenthesized
+expressions are accepted by the resolver in the current expression milestones.
+Context determines which subset is valid: filters accept boolean expressions,
+ordering accepts scalar order values, and computed projection accepts numeric
 arithmetic value expressions.
-`function_call` and `subquery_expr` are reserved syntax positions. The parser
-may produce AST nodes for them before the resolver accepts specific forms.
+`function_call` is currently accepted only for built-in numeric casts:
+`i64(expr)` and `f64(expr)`. Other function names remain reserved. `subquery_expr`
+is also reserved until subquery expression scope is defined.
 
 The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
 accept `null` as a list item because it is a literal expression, but the
@@ -364,6 +400,7 @@ The MVP supports:
 - scalar comparisons against literals
 - numeric arithmetic expressions used as comparison or membership operands
 - unary numeric arithmetic expressions
+- explicit numeric casts with `i64(expr)` and `f64(expr)`
 - scalar membership checks against non-empty lists of non-null scalar value
   expressions
 - boolean composition
@@ -376,7 +413,7 @@ The MVP does not support:
 - aggregation
 - `exists`
 - subquery `in`
-- function calls
+- arbitrary function calls other than supported built-in numeric casts
 - implicit numeric casts
 - path scoping with aliases
 
@@ -574,8 +611,7 @@ These are intentionally out of scope until the end-to-end path is stable:
 - aggregation
 - grouping
 - pagination cursors
-- function calls
-- explicit numeric casts
+- arbitrary function calls beyond supported built-in numeric casts
 - subqueries
 - query parameters
 - upsert
