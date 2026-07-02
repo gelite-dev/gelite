@@ -96,6 +96,31 @@ pub enum Expr {
     In(InExpr),
     Arithmetic(ArithmeticExpr),
     UnaryArithmetic(UnaryArithmeticExpr),
+    FunctionCall(FunctionCallExpr),
+}
+
+/// Function call expression parsed from `name(args...)` syntax.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionCallExpr {
+    name: String,
+    args: Vec<Expr>,
+}
+
+impl FunctionCallExpr {
+    pub fn new(name: impl Into<String>, args: Vec<Expr>) -> Self {
+        Self {
+            name: name.into(),
+            args,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn args(&self) -> &[Expr] {
+        &self.args
+    }
 }
 
 /// Membership expression parsed from an `in` or `not in` filter clause.

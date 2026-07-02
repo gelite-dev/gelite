@@ -1,6 +1,6 @@
 use crate::{
-    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
-    OrderDirection, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, FunctionCallExpr, InExpr, InOp,
+    Literal, OrderDirection, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
 };
 use alloc::string::ToString;
 use alloc::vec;
@@ -168,6 +168,25 @@ fn compare_expr_can_store_non_equality_operator() {
     );
 
     assert_eq!(expr.op(), CompareOp::Ge);
+}
+
+#[test]
+fn function_call_expr_can_store_name_and_arguments() {
+    let expr = Expr::FunctionCall(FunctionCallExpr::new(
+        "f64",
+        vec![Expr::Path(Path::new(vec![PathStep::new("view_count")]))],
+    ));
+
+    let Expr::FunctionCall(function) = expr else {
+        panic!("expected expression to be a function call");
+    };
+
+    assert_eq!(function.name(), "f64");
+    assert_eq!(function.args().len(), 1);
+    let Expr::Path(path) = &function.args()[0] else {
+        panic!("expected function argument to be a path");
+    };
+    assert_eq!(path.steps()[0].field_name(), "view_count");
 }
 
 #[test]

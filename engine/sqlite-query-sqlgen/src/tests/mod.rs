@@ -323,6 +323,68 @@ fn sqlite_sqlgen_can_render_arithmetic_filter_compared_to_float_literal() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_cast_filter_compared_to_float_literal() {
+    let cast = query_ir::ValueExpr::Cast(query_ir::CastExpr::new(
+        post_view_count_path_value(),
+        schema_model::ScalarType::Float64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        cast,
+        query_ir::CompareOp::Ge,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(10.5)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE CAST(\"root\".\"view_count\" AS REAL) >= ?"
+    );
+
+    assert_eq!(statement.bind_values(), &[SQLiteBindValue::Float64(10.5)]);
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_cast_arithmetic_filter_with_bind_order() {
+    let cast = query_ir::ValueExpr::Cast(query_ir::CastExpr::new(
+        post_view_count_path_value(),
+        schema_model::ScalarType::Float64,
+    ));
+    let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
+        cast,
+        query_ir::ArithmeticOp::Div,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(2.0)),
+        schema_model::ScalarType::Float64,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        arithmetic,
+        query_ir::CompareOp::Ge,
+        query_ir::ValueExpr::Literal(query_ir::Literal::Float64(10.5)),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (CAST(\"root\".\"view_count\" AS REAL) / ?) >= ?"
+    );
+
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::Float64(2.0),
+            SQLiteBindValue::Float64(10.5)
+        ]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_arithmetic_filter_with_joined_operand() {
     let arithmetic = query_ir::ValueExpr::Arithmetic(query_ir::ArithmeticExpr::new(
         post_author_score_path_value(),

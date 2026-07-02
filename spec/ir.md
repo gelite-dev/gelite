@@ -280,6 +280,7 @@ Minimum variants:
 - path
 - arithmetic
 - unary arithmetic
+- cast
 - comparison
 - membership
 - boolean `and`
@@ -294,7 +295,7 @@ Minimum metadata:
 The result type may be a scalar type, an object type for future subquery work,
 or a dedicated boolean type for predicates. The current implementation needs
 literal scalar values, resolved scalar paths, arithmetic scalar values, unary
-arithmetic scalar values, and boolean predicate results.
+arithmetic scalar values, numeric cast values, and boolean predicate results.
 
 The expression tree does not store SQLite SQL fragments. SQLite-specific
 operator spelling, parentheses, bind placeholders, and joins belong to SQLite
@@ -399,6 +400,41 @@ operands are rejected before SQLite planning.
 Unary arithmetic has the same cardinality as its operand. It does not introduce
 additional `NULL` results by itself.
 
+### `CastExpr`
+
+Represents a resolved explicit scalar cast.
+
+Minimum fields:
+
+- operand expression
+- target scalar type
+- result cardinality
+
+Supported target types in the numeric cast milestone:
+
+- `int64`
+- `float64`
+
+Supported source and target combinations:
+
+- `int64 -> int64`
+- `int64 -> float64`
+- `float64 -> int64`
+- `float64 -> float64`
+
+The source syntax for these casts is the built-in function-call form
+`i64(expr)` or `f64(expr)`, but Semantic IR stores the resolved meaning as a
+cast expression rather than as an opaque function call. The resolver must
+reject unsupported function names, unsupported arities, non-numeric source
+types, `null`, object values, link values, and many-cardinality operands before
+IR construction.
+
+Cast cardinality follows the operand cardinality. A cast of an optional scalar
+is optional; a cast of a required scalar or literal is required. Casts do not
+introduce additional `NULL` results by themselves. SQLite runtime conversion
+details are backend-specific lowering behavior and must not be encoded as SQL
+fragments in Semantic IR.
+
 ### `CompareExpr`
 
 Minimum fields:
@@ -473,8 +509,10 @@ accepted Semantic IR:
 - `FunctionCallExpr`
 - `SubqueryExpr`
 
-The resolver must reject unsupported forms with diagnostics. Do not pass an
-unsupported expression through IR as an opaque node.
+The resolver may lower accepted built-in function calls to specific Semantic IR
+nodes, such as `CastExpr` for `i64(expr)` and `f64(expr)`. It must reject
+unsupported forms with diagnostics. Do not pass an unsupported expression
+through IR as an opaque node.
 
 ## Ordering Model
 
@@ -486,8 +524,9 @@ Minimum fields:
 - direction: `asc` or `desc`
 
 The order value must resolve to a scalar `ValueExpr`. Supported order values in
-the arithmetic order milestone are resolved scalar paths and numeric arithmetic
-expressions over scalar paths and numeric literals, including unary arithmetic.
+the arithmetic and numeric cast milestones are resolved scalar paths, numeric
+arithmetic expressions over scalar paths and numeric literals, unary
+arithmetic, and numeric casts that refer to the current row.
 Boolean expressions, membership expressions, and literal-only order values are
 rejected by the resolver before SQLite planning.
 

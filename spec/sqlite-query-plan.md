@@ -220,6 +220,7 @@ Minimum supported forms for the arithmetic filter milestone:
 - literal
 - arithmetic expression
 - unary arithmetic expression
+- cast expression
 
 Membership list items use the same value expression structure. The SQLite
 planner receives only resolver-accepted list items, so list items are non-null
@@ -272,6 +273,31 @@ operator spelling and parentheses to SQL generation. SQL generation should
 parenthesize unary operands whenever the operand is not already a single column
 reference or literal.
 
+### `SQLiteCastExpr`
+
+Minimum fields:
+
+- operand SQLite value expression
+- target scalar type
+
+Supported target types in the numeric cast milestone:
+
+- `int64`
+- `float64`
+
+The SQLite planner receives only resolver-accepted casts. It should not repeat
+Gelite cast type validation. Its responsibility is to lower the cast operand to
+a SQLite value expression, preserve the operand tree shape and bind order, and
+record the target type for SQL generation.
+
+SQL generation renders numeric casts as SQLite `CAST` expressions:
+
+- `int64` target: `CAST(<expr> AS INTEGER)`
+- `float64` target: `CAST(<expr> AS REAL)`
+
+The generated SQL should keep the cast expression structured until rendering.
+Do not store raw SQL fragments in the plan.
+
 ## Ordering Model
 
 ### `SQLiteOrder`
@@ -283,9 +309,9 @@ Minimum fields:
 
 The value expression uses the same SQLite value-expression model as predicates.
 Supported order values in the arithmetic order milestone are scalar column
-references, numeric arithmetic expressions, and unary numeric arithmetic
-expressions. Ordering expressions should only reference values already reachable
-through the planned join tree.
+references, numeric arithmetic expressions, unary numeric arithmetic
+expressions, and numeric cast expressions. Ordering expressions should only
+reference values already reachable through the planned join tree.
 
 ## Select Value Model
 
