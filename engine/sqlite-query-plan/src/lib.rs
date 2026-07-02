@@ -33,16 +33,29 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
     let selected_column_names = selected_field_column_names(ir.shape());
     let mut select_aliases = SQLiteComputedAliasAllocator::new(selected_column_names.clone());
     let mut join_aliases = SQLiteJoinAliasAllocator::new(selected_link_aliases(ir.shape()));
+    let root_path_aliases = root_path_aliases(ir);
+    join_aliases.reserve_aliases(&root_path_aliases);
+    let selected_shape_aliases =
+        plan_selected_shape_aliases(ir.shape(), root_path_aliases, &mut join_aliases);
     let planned_shape_values = plan_shape_values(
         ir.shape(),
         "root",
         false,
+        &[],
+        &selected_shape_aliases,
         &mut select_aliases,
         &mut join_aliases,
     );
     let selected_values = planned_shape_values.values;
     let mut result_aliases = SQLiteComputedAliasAllocator::new(selected_column_names);
-    let result_shape = plan_result_shape(ir.shape(), "root", false, &mut result_aliases);
+    let result_shape = plan_result_shape(
+        ir.shape(),
+        "root",
+        false,
+        &[],
+        &selected_shape_aliases,
+        &mut result_aliases,
+    );
 
     let planned_orders: Vec<PlannedOrder> = ir
         .order_by()
@@ -66,13 +79,8 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
         None => (None, vec![]),
     };
 
-    let mut joins: Vec<SQLiteJoin> = ir
-        .shape()
-        .fields()
-        .into_iter()
-        .filter(|field| field.child_shape().is_some())
-        .map(SQLiteJoin::selected_single_link)
-        .collect();
+    let mut joins =
+        plan_selected_shape_joins(ir.shape(), "root", false, &[], &selected_shape_aliases);
 
     joins.extend(planned_shape_values.joins);
     joins.extend(filter_joins);
@@ -376,6 +384,14 @@ impl SQLiteJoinAliasAllocator {
         }
     }
 
+    fn reserve_aliases(&mut self, aliases: &[String]) {
+        for alias in aliases {
+            if !self.reserved.iter().any(|reserved| reserved == alias) {
+                self.reserved.push(alias.clone());
+            }
+        }
+    }
+
     fn alias_for_path(&mut self, source_alias: &str, path: &[String]) -> String {
         if let Some(cached) = self
             .path_aliases
@@ -392,6 +408,176 @@ impl SQLiteJoinAliasAllocator {
             target_alias: target_alias.clone(),
         });
         target_alias
+    }
+}
+
+struct SQLiteSelectedShapeAliases {
+    aliases: Vec<SQLiteSelectedShapeAlias>,
+}
+
+struct SQLiteSelectedShapeAlias {
+    shape_path: Vec<usize>,
+    sql_alias: String,
+}
+
+impl SQLiteSelectedShapeAliases {
+    fn alias_for_path(&self, shape_path: &[usize]) -> &str {
+        self.aliases
+            .iter()
+            .find(|alias| alias.shape_path == shape_path)
+            .expect("selected shape alias should exist for nested field")
+            .sql_alias
+            .as_str()
+    }
+}
+
+fn plan_selected_shape_aliases(
+    shape: &query_ir::ResolvedShape,
+    reserved_root_path_aliases: Vec<String>,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) -> SQLiteSelectedShapeAliases {
+    let mut aliases = Vec::new();
+    let mut used_aliases = vec!["root".to_string()];
+    used_aliases.extend(reserved_root_path_aliases);
+    used_aliases.extend(root_selected_link_aliases(shape));
+    collect_selected_shape_aliases(shape, &[], &mut used_aliases, &mut aliases, join_aliases);
+
+    SQLiteSelectedShapeAliases { aliases }
+}
+
+fn root_selected_link_aliases(shape: &query_ir::ResolvedShape) -> Vec<String> {
+    shape
+        .items()
+        .iter()
+        .filter_map(|item| {
+            let query_ir::ResolvedShapeItem::Field(field) = item else {
+                return None;
+            };
+
+            field
+                .child_shape()
+                .is_some()
+                .then(|| field.output_name().to_string())
+        })
+        .collect()
+}
+
+fn collect_selected_shape_aliases(
+    shape: &query_ir::ResolvedShape,
+    shape_path: &[usize],
+    used_aliases: &mut Vec<String>,
+    aliases: &mut Vec<SQLiteSelectedShapeAlias>,
+    join_aliases: &mut SQLiteJoinAliasAllocator,
+) {
+    for (index, item) in shape.items().iter().enumerate() {
+        let query_ir::ResolvedShapeItem::Field(field) = item else {
+            continue;
+        };
+
+        let Some(child_shape) = field.child_shape() else {
+            continue;
+        };
+
+        let mut child_path = shape_path.to_vec();
+        child_path.push(index);
+        let preferred_alias = field.output_name();
+        let conflicts_with_existing_alias = used_aliases
+            .iter()
+            .any(|used_alias| used_alias == preferred_alias);
+        let sql_alias = if !shape_path.is_empty() && conflicts_with_existing_alias {
+            join_aliases.next_alias()
+        } else {
+            preferred_alias.to_string()
+        };
+
+        used_aliases.push(sql_alias.clone());
+        aliases.push(SQLiteSelectedShapeAlias {
+            shape_path: child_path.clone(),
+            sql_alias,
+        });
+        collect_selected_shape_aliases(
+            child_shape,
+            &child_path,
+            used_aliases,
+            aliases,
+            join_aliases,
+        );
+    }
+}
+
+fn root_path_aliases(ir: &SelectQuery) -> Vec<String> {
+    let mut aliases = Vec::new();
+
+    if let Some(filter) = ir.filter() {
+        collect_root_path_aliases_from_expr(filter, &mut aliases);
+    }
+
+    for order in ir.order_by() {
+        collect_root_path_aliases_from_value(order.value(), &mut aliases);
+    }
+
+    collect_root_computed_path_aliases(ir.shape(), &mut aliases);
+
+    aliases
+}
+
+fn collect_root_computed_path_aliases(shape: &query_ir::ResolvedShape, aliases: &mut Vec<String>) {
+    for item in shape.items() {
+        let query_ir::ResolvedShapeItem::Computed(computed) = item else {
+            continue;
+        };
+
+        collect_root_path_aliases_from_value(computed.value(), aliases);
+    }
+}
+
+fn collect_root_path_aliases_from_expr(expr: &Expr, aliases: &mut Vec<String>) {
+    match expr {
+        Expr::Compare(compare) => {
+            collect_root_path_aliases_from_value(compare.left(), aliases);
+            collect_root_path_aliases_from_value(compare.right(), aliases);
+        }
+        Expr::IsNull(value) | Expr::IsNotNull(value) => {
+            collect_root_path_aliases_from_value(value, aliases);
+        }
+        Expr::In(in_expr) => {
+            collect_root_path_aliases_from_value(in_expr.left(), aliases);
+            for value in in_expr.right() {
+                collect_root_path_aliases_from_value(value, aliases);
+            }
+        }
+        Expr::And(left, right) | Expr::Or(left, right) => {
+            collect_root_path_aliases_from_expr(left, aliases);
+            collect_root_path_aliases_from_expr(right, aliases);
+        }
+        Expr::Not(inner) => collect_root_path_aliases_from_expr(inner, aliases),
+    }
+}
+
+fn collect_root_path_aliases_from_value(value: &query_ir::ValueExpr, aliases: &mut Vec<String>) {
+    match value {
+        query_ir::ValueExpr::Path(path) => collect_root_path_alias_from_path(path, aliases),
+        query_ir::ValueExpr::Literal(_) => {}
+        query_ir::ValueExpr::Arithmetic(arithmetic) => {
+            collect_root_path_aliases_from_value(arithmetic.left(), aliases);
+            collect_root_path_aliases_from_value(arithmetic.right(), aliases);
+        }
+        query_ir::ValueExpr::UnaryArithmetic(unary) => {
+            collect_root_path_aliases_from_value(unary.operand(), aliases);
+        }
+    }
+}
+
+fn collect_root_path_alias_from_path(path: &query_ir::ResolvedPath, aliases: &mut Vec<String>) {
+    let Some(first_step) = path.steps().first() else {
+        return;
+    };
+
+    if matches!(
+        first_step.kind(),
+        query_ir::ResolvedPathStepKind::Link { .. }
+    ) {
+        aliases.push(first_step.field().name().to_string());
     }
 }
 
@@ -443,17 +629,21 @@ fn plan_shape_values(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
     source_nullable: bool,
+    shape_path: &[usize],
+    selected_shape_aliases: &SQLiteSelectedShapeAliases,
     computed_aliases: &mut SQLiteComputedAliasAllocator,
     join_aliases: &mut SQLiteJoinAliasAllocator,
 ) -> PlannedShapeValues {
     let mut values = Vec::new();
     let mut joins = Vec::new();
 
-    for item in shape.items() {
+    for (index, item) in shape.items().iter().enumerate() {
         match item {
             query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
                 Some(child_shape) => {
-                    let nested_alias = field.output_name();
+                    let mut child_path = shape_path.to_vec();
+                    child_path.push(index);
+                    let nested_alias = selected_shape_aliases.alias_for_path(&child_path);
                     let child_id_field = FieldRef::new(
                         schema_model::FieldId::new(1),
                         child_shape.source_object_type().clone(),
@@ -470,6 +660,8 @@ fn plan_shape_values(
                         child_shape,
                         nested_alias,
                         source_nullable || field.cardinality() == Cardinality::Optional,
+                        &child_path,
+                        selected_shape_aliases,
                         computed_aliases,
                         join_aliases,
                     );
@@ -502,28 +694,80 @@ fn plan_shape_values(
     PlannedShapeValues { values, joins }
 }
 
+fn plan_selected_shape_joins(
+    shape: &query_ir::ResolvedShape,
+    source_alias: &str,
+    source_nullable: bool,
+    shape_path: &[usize],
+    selected_shape_aliases: &SQLiteSelectedShapeAliases,
+) -> Vec<SQLiteJoin> {
+    let mut joins = Vec::new();
+
+    for (index, item) in shape.items().iter().enumerate() {
+        let query_ir::ResolvedShapeItem::Field(field) = item else {
+            continue;
+        };
+
+        let Some(child_shape) = field.child_shape() else {
+            continue;
+        };
+
+        let mut child_path = shape_path.to_vec();
+        child_path.push(index);
+        let target_alias = selected_shape_aliases.alias_for_path(&child_path);
+        let join_cardinality = path_step_join_cardinality(source_nullable, field.cardinality());
+
+        joins.push(SQLiteJoin::selected_single_link_with_alias(
+            source_alias,
+            field,
+            target_alias,
+            join_cardinality,
+        ));
+        joins.extend(plan_selected_shape_joins(
+            child_shape,
+            target_alias,
+            source_nullable || field.cardinality() == Cardinality::Optional,
+            &child_path,
+            selected_shape_aliases,
+        ));
+    }
+
+    joins
+}
+
 fn plan_result_shape(
     shape: &query_ir::ResolvedShape,
     source_alias: &str,
     include_identity: bool,
+    shape_path: &[usize],
+    selected_shape_aliases: &SQLiteSelectedShapeAliases,
     computed_aliases: &mut SQLiteComputedAliasAllocator,
 ) -> SQLiteResultShapePlan {
     let fields = shape
         .items()
         .iter()
-        .map(|item| match item {
+        .enumerate()
+        .map(|(index, item)| match item {
             query_ir::ResolvedShapeItem::Field(field) => match field.child_shape() {
-                Some(child_shape) => SQLiteResultField {
-                    output_name: field.output_name().to_string(),
-                    cardinality: field.cardinality(),
-                    value: None,
-                    nested_shape: Some(plan_result_shape(
-                        child_shape,
-                        field.output_name(),
-                        true,
-                        computed_aliases,
-                    )),
-                },
+                Some(child_shape) => {
+                    let mut child_path = shape_path.to_vec();
+                    child_path.push(index);
+                    let nested_alias = selected_shape_aliases.alias_for_path(&child_path);
+
+                    SQLiteResultField {
+                        output_name: field.output_name().to_string(),
+                        cardinality: field.cardinality(),
+                        value: None,
+                        nested_shape: Some(plan_result_shape(
+                            child_shape,
+                            nested_alias,
+                            true,
+                            &child_path,
+                            selected_shape_aliases,
+                            computed_aliases,
+                        )),
+                    }
+                }
                 None => SQLiteResultField {
                     output_name: field.output_name().to_string(),
                     cardinality: field.cardinality(),
@@ -955,10 +1199,10 @@ fn path_step_join_cardinality(
     current_nullable: bool,
     step_cardinality: Cardinality,
 ) -> Cardinality {
-    if current_nullable {
-        Cardinality::Optional
-    } else {
-        step_cardinality
+    match (current_nullable, step_cardinality) {
+        (_, Cardinality::Many) => Cardinality::Many,
+        (true, _) => Cardinality::Optional,
+        (false, cardinality) => cardinality,
     }
 }
 
@@ -1292,7 +1536,25 @@ pub struct SQLiteJoin {
 }
 
 impl SQLiteJoin {
-    pub fn selected_single_link(shape_field: &query_ir::ResolvedShapeField) -> Self {
+    pub fn selected_single_link(
+        source_alias: &str,
+        shape_field: &query_ir::ResolvedShapeField,
+        cardinality: Cardinality,
+    ) -> Self {
+        Self::selected_single_link_with_alias(
+            source_alias,
+            shape_field,
+            shape_field.output_name(),
+            cardinality,
+        )
+    }
+
+    fn selected_single_link_with_alias(
+        source_alias: &str,
+        shape_field: &query_ir::ResolvedShapeField,
+        target_alias: &str,
+        cardinality: Cardinality,
+    ) -> Self {
         let child_shape = shape_field
             .child_shape()
             .expect("selected link field must have child shape");
@@ -1300,18 +1562,18 @@ impl SQLiteJoin {
         let field = shape_field.field().clone();
 
         Self {
-            kind: SQLiteJoinKind::for_single_link(shape_field.cardinality()),
-            source_alias: "root".to_string(),
+            kind: SQLiteJoinKind::for_single_link(cardinality),
+            source_alias: source_alias.to_string(),
             target_table: child_shape
                 .source_object_type()
                 .name()
                 .to_ascii_lowercase()
                 .to_string(),
-            target_alias: shape_field.output_name().to_string(),
+            target_alias: target_alias.to_string(),
             on: SQLiteJoinCondition {
-                left_alias: "root".to_string(),
+                left_alias: source_alias.to_string(),
                 left_column: format!("{}_id", field.name()),
-                right_alias: shape_field.output_name().to_string(),
+                right_alias: target_alias.to_string(),
                 right_column: "id".to_string(),
             },
             reason: SQLiteJoinReason::SelectedSingleLink { field },
