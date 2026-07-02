@@ -210,7 +210,9 @@ fn resolve_computed_shape_item(
 fn computed_projection_expr_is_supported(expr: &query_ast::Expr) -> bool {
     matches!(
         expr,
-        query_ast::Expr::Arithmetic(_) | query_ast::Expr::UnaryArithmetic(_)
+        query_ast::Expr::Arithmetic(_)
+            | query_ast::Expr::UnaryArithmetic(_)
+            | query_ast::Expr::FunctionCall(_)
     )
 }
 
@@ -384,6 +386,9 @@ fn resolve_path_value_expr(
         query_ir::ValueExpr::UnaryArithmetic(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "null comparison value".to_string(),
         }),
+        query_ir::ValueExpr::Cast(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison value".to_string(),
+        }),
     }
 }
 
@@ -427,17 +432,54 @@ fn resolve_typed_value_expr(
         query_ast::Expr::UnaryArithmetic(unary) => {
             resolve_typed_unary_arithmetic_expr(catalog, source_object_type, unary)
         }
+        query_ast::Expr::FunctionCall(function) => {
+            resolve_typed_function_call_expr(catalog, source_object_type, function)
+        }
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
-        }),
-        query_ast::Expr::FunctionCall(_) => Err(ResolveError::UnsupportedExpr {
-            expr_type: "function call".to_string(),
         }),
         query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
         | query_ast::Expr::Not(_)
         | query_ast::Expr::In(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "boolean value".to_string(),
+        }),
+    }
+}
+
+fn resolve_typed_function_call_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    let target_type = numeric_cast_target(function.name())?;
+
+    if function.args().len() != 1 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "numeric cast arity".to_string(),
+        });
+    }
+
+    let operand = resolve_typed_value_expr(catalog, source_object_type, &function.args()[0])?;
+    let operand_type = source_scalar_type(operand.source);
+
+    ensure_numeric_arithmetic_operand(operand_type)?;
+    if value_expr_cardinality(&operand.value)? == schema_model::Cardinality::Many {
+        return Err(ResolveError::UnsupportedPath);
+    }
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::Cast(query_ir::CastExpr::new(operand.value, target_type)),
+        source: ValueSource::Computed(target_type),
+    })
+}
+
+fn numeric_cast_target(name: &str) -> Result<schema_model::ScalarType, ResolveError> {
+    match name {
+        "i64" => Ok(schema_model::ScalarType::Int64),
+        "f64" => Ok(schema_model::ScalarType::Float64),
+        _ => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
         }),
     }
 }
@@ -626,9 +668,9 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
         query_ast::Expr::Literal(literal) => resolve_membership_literal(literal),
         query_ast::Expr::Arithmetic(arithmetic) => resolve_membership_arithmetic(arithmetic),
         query_ast::Expr::UnaryArithmetic(unary) => resolve_membership_unary_arithmetic(unary),
+        query_ast::Expr::FunctionCall(function) => resolve_membership_function_call(function),
         query_ast::Expr::Path(_)
         | query_ast::Expr::Compare(_)
-        | query_ast::Expr::FunctionCall(_)
         | query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
         | query_ast::Expr::Not(_)
@@ -636,6 +678,28 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
             expr_type: "membership list item".to_string(),
         }),
     }
+}
+
+fn resolve_membership_function_call(
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    let target_type = numeric_cast_target(function.name())?;
+
+    if function.args().len() != 1 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "numeric cast arity".to_string(),
+        });
+    }
+
+    let operand = resolve_membership_item(&function.args()[0])?;
+    let operand_type = source_scalar_type(operand.source);
+
+    ensure_numeric_arithmetic_operand(operand_type)?;
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::Cast(query_ir::CastExpr::new(operand.value, target_type)),
+        source: ValueSource::Computed(target_type),
+    })
 }
 
 fn resolve_membership_unary_arithmetic(
@@ -870,14 +934,14 @@ fn resolve_order_value_expr(
         query_ast::Expr::UnaryArithmetic(unary) => {
             resolve_order_unary_arithmetic_expr(catalog, source_object_type, unary)
         }
+        query_ast::Expr::FunctionCall(function) => {
+            resolve_order_function_call_expr(catalog, source_object_type, function)
+        }
         query_ast::Expr::Literal(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "order value".to_string(),
         }),
         query_ast::Expr::Compare(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "comparison value".to_string(),
-        }),
-        query_ast::Expr::FunctionCall(_) => Err(ResolveError::UnsupportedExpr {
-            expr_type: "function call".to_string(),
         }),
         query_ast::Expr::And(_, _)
         | query_ast::Expr::Or(_, _)
@@ -886,6 +950,23 @@ fn resolve_order_value_expr(
             expr_type: "boolean value".to_string(),
         }),
     }
+}
+
+fn resolve_order_function_call_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    function: &query_ast::FunctionCallExpr,
+) -> Result<query_ir::ValueExpr, ResolveError> {
+    let typed = resolve_typed_function_call_expr(catalog, source_object_type, function)?;
+
+    if !value_expr_contains_path(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "order value".to_string(),
+        });
+    }
+    ensure_order_value_is_single_cardinality(&typed.value)?;
+
+    Ok(typed.value)
 }
 
 fn resolve_order_arithmetic_expr(
@@ -938,6 +1019,7 @@ fn ensure_order_value_is_single_cardinality(
         query_ir::ValueExpr::UnaryArithmetic(unary) => {
             ensure_order_value_is_single_cardinality(unary.operand())
         }
+        query_ir::ValueExpr::Cast(cast) => ensure_order_value_is_single_cardinality(cast.operand()),
     }
 }
 
@@ -992,6 +1074,16 @@ fn value_expr_cardinality(
                 }
             }
         }
+        query_ir::ValueExpr::Cast(cast) => {
+            let cardinality = value_expr_cardinality(cast.operand())?;
+
+            match cardinality {
+                schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
+                schema_model::Cardinality::Optional | schema_model::Cardinality::Required => {
+                    Ok(cardinality)
+                }
+            }
+        }
     }
 }
 
@@ -1004,6 +1096,7 @@ fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {
                 || value_expr_contains_path(arithmetic.right())
         }
         query_ir::ValueExpr::UnaryArithmetic(unary) => value_expr_contains_path(unary.operand()),
+        query_ir::ValueExpr::Cast(cast) => value_expr_contains_path(cast.operand()),
     }
 }
 
@@ -1019,6 +1112,7 @@ fn is_nonzero_numeric_literal(value: &query_ir::ValueExpr) -> bool {
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => *value != 0,
         query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => *value != 0.0,
         query_ir::ValueExpr::UnaryArithmetic(unary) => is_nonzero_numeric_literal(unary.operand()),
+        query_ir::ValueExpr::Cast(_) => false,
         _ => false,
     }
 }

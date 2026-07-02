@@ -1,8 +1,9 @@
 use alloc::string::String;
 use alloc::vec;
+use alloc::vec::Vec;
 use query_ast::{
-    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, Path,
-    PathStep,
+    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, FunctionCallExpr, InExpr, InOp,
+    Literal, Path, PathStep,
 };
 use schema_model::{Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog};
 
@@ -162,6 +163,10 @@ pub fn literal_null_expr() -> Expr {
 
 pub fn arithmetic_expr(left: Expr, op: ArithmeticOp, right: Expr) -> Expr {
     Expr::Arithmetic(ArithmeticExpr::new(left, op, right))
+}
+
+pub fn function_call_expr(name: &str, args: Vec<Expr>) -> Expr {
+    Expr::FunctionCall(FunctionCallExpr::new(name, args))
 }
 
 pub fn filter_eq_string(path: &[&str], value: &str) -> Expr {

@@ -691,6 +691,33 @@ fn parser_can_parse_function_call_as_arithmetic_operand() {
 }
 
 #[test]
+fn parser_preserves_function_call_argument_count() {
+    let query = parse_select("select Post { title } filter concat() = concat(.title, \"!\")")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let Expr::FunctionCall(left) = compare.left() else {
+                panic!("left side should be a function call");
+            };
+            assert_eq!(left.name(), "concat");
+            assert_eq!(left.args().len(), 0);
+
+            let Expr::FunctionCall(right) = compare.right() else {
+                panic!("right side should be a function call");
+            };
+            assert_eq!(right.name(), "concat");
+            assert_eq!(right.args().len(), 2);
+            assert_path_expr(&right.args()[0], &["title"]);
+            assert_literal_expr(&right.args()[1], &Literal::String("!".to_string()));
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_parses_unary_minus_integer_literal() {
     let query =
         parse_select("select Post { title } filter -1 < .view_count").expect("query should parse");

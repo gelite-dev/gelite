@@ -271,7 +271,8 @@ impl SQLiteFieldSelectValue {
             SQLiteValueExpr::Column(column) => column.source_alias(),
             SQLiteValueExpr::Literal(_)
             | SQLiteValueExpr::Arithmetic(_)
-            | SQLiteValueExpr::UnaryArithmetic(_) => {
+            | SQLiteValueExpr::UnaryArithmetic(_)
+            | SQLiteValueExpr::Cast(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -282,7 +283,8 @@ impl SQLiteFieldSelectValue {
             SQLiteValueExpr::Column(column) => column.column_name(),
             SQLiteValueExpr::Literal(_)
             | SQLiteValueExpr::Arithmetic(_)
-            | SQLiteValueExpr::UnaryArithmetic(_) => {
+            | SQLiteValueExpr::UnaryArithmetic(_)
+            | SQLiteValueExpr::Cast(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -564,6 +566,9 @@ fn collect_root_path_aliases_from_value(value: &query_ir::ValueExpr, aliases: &m
         }
         query_ir::ValueExpr::UnaryArithmetic(unary) => {
             collect_root_path_aliases_from_value(unary.operand(), aliases);
+        }
+        query_ir::ValueExpr::Cast(cast) => {
+            collect_root_path_aliases_from_value(cast.operand(), aliases);
         }
     }
 }
@@ -961,6 +966,46 @@ pub enum SQLiteValueExpr {
     Literal(SQLiteLiteral),
     Arithmetic(SQLiteArithmeticExpr),
     UnaryArithmetic(SQLiteUnaryArithmeticExpr),
+    Cast(SQLiteCastExpr),
+}
+
+/// Backend-specific scalar cast value expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SQLiteCastExpr {
+    operand: Box<SQLiteValueExpr>,
+    target: SQLiteCastTarget,
+}
+
+impl SQLiteCastExpr {
+    pub fn operand(&self) -> &SQLiteValueExpr {
+        &self.operand
+    }
+
+    pub fn target(&self) -> SQLiteCastTarget {
+        self.target
+    }
+}
+
+/// SQLite cast targets emitted by the planner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteCastTarget {
+    Int64,
+    Float64,
+}
+
+impl SQLiteCastTarget {
+    fn from_scalar_type(scalar_type: schema_model::ScalarType) -> Self {
+        match scalar_type {
+            schema_model::ScalarType::Int64 => Self::Int64,
+            schema_model::ScalarType::Float64 => Self::Float64,
+            schema_model::ScalarType::Str
+            | schema_model::ScalarType::Bool
+            | schema_model::ScalarType::Uuid
+            | schema_model::ScalarType::DateTime => {
+                unreachable!("SQLite planner receives only resolver-accepted numeric casts")
+            }
+        }
+    }
 }
 
 /// Backend-specific arithmetic value expression.
@@ -1304,6 +1349,18 @@ fn plan_value_expr(
                 value: SQLiteValueExpr::UnaryArithmetic(SQLiteUnaryArithmeticExpr {
                     op: SQLiteUnaryArithmeticOp::from_ir(unary.op()),
                     operand: Box::new(operand.value),
+                }),
+                joins: operand.joins,
+            }
+        }
+        query_ir::ValueExpr::Cast(cast) => {
+            let operand =
+                plan_value_expr(cast.operand(), source_alias, source_nullable, join_aliases);
+
+            PlannedValueExpr {
+                value: SQLiteValueExpr::Cast(SQLiteCastExpr {
+                    operand: Box::new(operand.value),
+                    target: SQLiteCastTarget::from_scalar_type(cast.target_type()),
                 }),
                 joins: operand.joins,
             }

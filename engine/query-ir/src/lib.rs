@@ -476,6 +476,31 @@ pub enum ValueExpr {
     Literal(Literal),
     Arithmetic(ArithmeticExpr),
     UnaryArithmetic(UnaryArithmeticExpr),
+    Cast(CastExpr),
+}
+
+/// Resolved explicit scalar cast value expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CastExpr {
+    operand: Box<ValueExpr>,
+    target_type: ScalarType,
+}
+
+impl CastExpr {
+    pub fn new(operand: ValueExpr, target_type: ScalarType) -> Self {
+        Self {
+            operand: Box::new(operand),
+            target_type,
+        }
+    }
+
+    pub fn operand(&self) -> &ValueExpr {
+        &self.operand
+    }
+
+    pub fn target_type(&self) -> ScalarType {
+        self.target_type
+    }
 }
 
 /// Resolved arithmetic value expression.

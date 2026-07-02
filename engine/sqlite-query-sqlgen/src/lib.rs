@@ -17,9 +17,9 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteArithmeticOp, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind, SQLiteLiteral,
-    SQLiteOrderDirection, SQLiteSelectPlan, SQLiteUnaryArithmeticOp, SQLiteValueExpr,
-    SQLiteWhereExpr,
+    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
+    SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteUnaryArithmeticOp,
+    SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -217,6 +217,13 @@ fn render_unary_arithmetic_op(op: SQLiteUnaryArithmeticOp) -> &'static str {
     }
 }
 
+fn render_cast_target(target: SQLiteCastTarget) -> &'static str {
+    match target {
+        SQLiteCastTarget::Int64 => "INTEGER",
+        SQLiteCastTarget::Float64 => "REAL",
+    }
+}
+
 fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindValue>) -> String {
     match value {
         SQLiteValueExpr::Column(column) => {
@@ -249,6 +256,12 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
             let operand = render_value_expr(unary.operand(), bind_values);
 
             format!("({op}{operand})")
+        }
+        SQLiteValueExpr::Cast(cast) => {
+            let operand = render_value_expr(cast.operand(), bind_values);
+            let target = render_cast_target(cast.target());
+
+            format!("CAST({operand} AS {target})")
         }
     }
 }
