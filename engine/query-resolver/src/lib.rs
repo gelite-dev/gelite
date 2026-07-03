@@ -14,6 +14,7 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 use query_ast::Path;
 
@@ -558,8 +559,7 @@ fn resolve_typed_str_expr(
 
     let scalar_type = source_scalar_type(typed.source);
     let cardinality = value_expr_cardinality(&typed.value)?;
-    let mut args = Vec::new();
-    args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+    let args = vec![query_ir::StringFunctionArg::new(typed.value, scalar_type)];
 
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
@@ -871,8 +871,7 @@ fn resolve_membership_str(
     }
 
     let scalar_type = source_scalar_type(typed.source);
-    let mut args = Vec::new();
-    args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+    let args = vec![query_ir::StringFunctionArg::new(typed.value, scalar_type)];
 
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
