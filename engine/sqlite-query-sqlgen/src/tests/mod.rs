@@ -423,6 +423,41 @@ fn sqlite_sqlgen_can_render_str_bool_filter() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_str_uuid_filter_as_stored_text() {
+    let str_uuid = query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+        query_ir::StringFunctionKind::Str,
+        vec![query_ir::StringFunctionArg::new(
+            post_title_path_value(),
+            schema_model::ScalarType::Uuid,
+        )],
+        schema_model::Cardinality::Required,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        str_uuid,
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String(
+            "00000000-0000-0000-0000-000000000001".to_string(),
+        )),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE \"root\".\"title\" = ?"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[SQLiteBindValue::String(
+            "00000000-0000-0000-0000-000000000001".to_string()
+        )]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_cast_arithmetic_filter_with_bind_order() {
     let cast = query_ir::ValueExpr::Cast(query_ir::CastExpr::new(
         post_view_count_path_value(),

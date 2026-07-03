@@ -112,6 +112,41 @@ fn resolves_computed_projection_shape_item() {
 }
 
 #[test]
+fn resolves_computed_projection_concat_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::computed(
+            "label",
+            function_call_expr(
+                "concat",
+                vec![path_expr(&["title"]), literal_string_expr("!")],
+            ),
+        )]),
+        None,
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+    let query_ir::ResolvedShapeItem::Computed(computed) = &resolved.shape().items()[0] else {
+        panic!("shape item should resolve to a computed projection");
+    };
+
+    assert_eq!(computed.output_name(), "label");
+    assert_eq!(computed.scalar_type(), schema_model::ScalarType::Str);
+    assert_eq!(computed.cardinality(), schema_model::Cardinality::Required);
+
+    let query_ir::ValueExpr::StringFunction(function) = computed.value() else {
+        panic!("computed projection should store a string function expression");
+    };
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Concat);
+    assert_eq!(function.args().len(), 2);
+}
+
+#[test]
 fn resolves_computed_projection_runtime_division_as_optional() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -1454,6 +1489,89 @@ fn resolves_str_bool_filter_value_expr() {
 }
 
 #[test]
+fn rejects_str_without_exactly_one_argument() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr("str", vec![]),
+        query_ast::CompareOp::Eq,
+        literal_string_expr(""),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "str arity".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_str_null_operand() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr("str", vec![literal_null_expr()]),
+        query_ast::CompareOp::Eq,
+        literal_string_expr(""),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "str null operand".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_concat_null_argument() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr("concat", vec![path_expr(&["title"]), literal_null_expr()]),
+        query_ast::CompareOp::Eq,
+        literal_string_expr("Hello"),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "concat null argument".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_null_comparison_against_string_function_value() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr(
+            "concat",
+            vec![path_expr(&["title"]), literal_string_expr("!")],
+        ),
+        query_ast::CompareOp::Eq,
+        literal_null_expr(),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison value".to_string(),
+        })
+    );
+}
+
+#[test]
 fn rejects_concat_with_non_string_argument() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -2123,6 +2241,273 @@ fn resolves_filter_in_literal_list_to_in_expr() {
 }
 
 #[test]
+fn resolves_filter_in_concat_literal_item_to_value_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr(
+            "concat",
+            vec![literal_string_expr("Dr"), literal_string_expr("aft")],
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    let [query_ir::ValueExpr::StringFunction(function)] = in_expr.right() else {
+        panic!("membership item should resolve to a string function");
+    };
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Concat);
+    assert_eq!(function.args().len(), 2);
+}
+
+#[test]
+fn resolves_filter_in_str_literal_item_to_value_expr() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr("str", vec![literal_bool_expr(true)])],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolved");
+    let query_ir::Expr::In(in_expr) = resolved.filter().expect("filter should resolve") else {
+        panic!("filter should resolve to an in expression");
+    };
+
+    let [query_ir::ValueExpr::StringFunction(function)] = in_expr.right() else {
+        panic!("membership item should resolve to a string function");
+    };
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Str);
+    assert_eq!(
+        function.args()[0].scalar_type(),
+        schema_model::ScalarType::Bool
+    );
+}
+
+#[test]
+fn rejects_filter_in_unknown_function_item() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr(
+            "lower",
+            vec![literal_string_expr("draft")],
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_concat_item_without_at_least_two_arguments() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr(
+            "concat",
+            vec![literal_string_expr("Draft")],
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "concat arity".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_concat_item_with_null_argument() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr(
+            "concat",
+            vec![literal_string_expr("Draft"), literal_null_expr()],
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "null membership item".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_concat_item_with_non_string_argument() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr(
+            "concat",
+            vec![literal_string_expr("Draft"), literal_int_expr(1)],
+        )],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "str".to_string(),
+            actual: "int64".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_str_item_without_exactly_one_argument() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr("str", vec![])],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "str arity".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_filter_in_str_null_item() {
+    let catalog = post_with_title_catalog();
+
+    let filter = Expr::In(InExpr::new(
+        path_expr(&["title"]),
+        query_ast::InOp::In,
+        vec![function_call_expr("str", vec![literal_null_expr()])],
+    ));
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        Some(filter),
+        vec![],
+        None,
+        None,
+    );
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "null membership item".to_string(),
+        })
+    );
+}
+
+#[test]
 fn resolves_filter_in_int_literal_list_to_in_expr() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -2731,6 +3116,56 @@ fn resolves_order_path_to_resolved_path() {
         query_ir::ValueExpr::Cast(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::StringFunction(_) => panic!("order by should resolve to a path"),
     }
+}
+
+#[test]
+fn resolves_order_concat_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        function_call_expr(
+            "concat",
+            vec![path_expr(&["title"]), literal_string_expr("!")],
+        ),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new(
+        "Post",
+        Shape::new(vec![ShapeItem::new(
+            Path::new(vec![PathStep::new("title")]),
+            None,
+        )]),
+        None,
+        vec![order],
+        None,
+        None,
+    );
+
+    let resolved = resolve_select(&catalog, &query).expect("select query resolves");
+
+    let query_ir::ValueExpr::StringFunction(function) = resolved.order_by()[0].value() else {
+        panic!("order value should resolve to a string function");
+    };
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Concat);
+    assert_eq!(function.args().len(), 2);
+}
+
+#[test]
+fn rejects_order_str_expr_through_multi_link() {
+    let catalog = user_with_posts_catalog();
+
+    let order = query_ast::OrderExpr::new(
+        function_call_expr("str", vec![path_expr(&["posts", "view_count"])]),
+        query_ast::OrderDirection::Asc,
+    );
+
+    let query = SelectQuery::new("User", Shape::new(vec![]), None, vec![order], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedPath)
+    );
 }
 
 #[test]
