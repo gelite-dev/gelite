@@ -214,13 +214,14 @@ Predicates and later order/projection planning use structured SQLite value
 expressions. The plan should keep these expressions as data until
 `sqlite-query-sqlgen` serializes them.
 
-Minimum supported forms for the arithmetic filter milestone:
+Minimum supported forms for the current value-expression milestones:
 
 - column reference
 - literal
 - arithmetic expression
 - unary arithmetic expression
 - cast expression
+- string function expression
 
 Membership list items use the same value expression structure. The SQLite
 planner receives only resolver-accepted list items, so list items are non-null
@@ -298,6 +299,39 @@ SQL generation renders numeric casts as SQLite `CAST` expressions:
 The generated SQL should keep the cast expression structured until rendering.
 Do not store raw SQL fragments in the plan.
 
+### `SQLiteStringFunctionExpr`
+
+Minimum fields:
+
+- function kind
+- ordered SQLite value expression arguments
+- ordered argument scalar types
+
+Supported function kinds in the first string function milestone:
+
+- `concat`
+- `str`
+
+The SQLite planner receives only resolver-accepted string functions. It should
+not repeat Gelite arity, type, or cardinality validation. Its responsibility is
+to lower each argument to a SQLite value expression, preserve argument order and
+bind order, and carry enough scalar type information for SQL generation to
+render Gelite string conversion semantics.
+
+SQL generation renders `concat` as SQLite concatenation with `||`, using
+parentheses to preserve grouping when needed. The query language does not expose
+`||` directly.
+
+SQL generation renders `str` according to Gelite conversion semantics:
+
+- `str`, `uuid`, and `datetime` operands use their stored text expression
+- `int64` and `float64` operands use `CAST(<expr> AS TEXT)`
+- `bool` operands use a `CASE` expression that returns `'true'` for true and
+  `'false'` for false
+
+The generated SQL should keep string function expressions structured until
+rendering. Do not store raw SQL fragments in the plan.
+
 ## Ordering Model
 
 ### `SQLiteOrder`
@@ -308,10 +342,11 @@ Minimum fields:
 - direction
 
 The value expression uses the same SQLite value-expression model as predicates.
-Supported order values in the arithmetic order milestone are scalar column
-references, numeric arithmetic expressions, unary numeric arithmetic
-expressions, and numeric cast expressions. Ordering expressions should only
-reference values already reachable through the planned join tree.
+Supported order values in the arithmetic and string function milestones are
+scalar column references, numeric arithmetic expressions, unary numeric
+arithmetic expressions, numeric cast expressions, and supported string function
+expressions. Ordering expressions should only reference values already
+reachable through the planned join tree.
 
 ## Select Value Model
 
