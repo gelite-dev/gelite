@@ -348,6 +348,81 @@ fn sqlite_sqlgen_can_render_cast_filter_compared_to_float_literal() {
 }
 
 #[test]
+fn sqlite_sqlgen_can_render_concat_filter() {
+    let concat = query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+        query_ir::StringFunctionKind::Concat,
+        vec![
+            query_ir::StringFunctionArg::new(
+                post_title_path_value(),
+                schema_model::ScalarType::Str,
+            ),
+            query_ir::StringFunctionArg::new(
+                query_ir::ValueExpr::Literal(query_ir::Literal::String("!".to_string())),
+                schema_model::ScalarType::Str,
+            ),
+        ],
+        schema_model::Cardinality::Required,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        concat,
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("Hello!".to_string())),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"title\" || ?) = ?"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("!".to_string()),
+            SQLiteBindValue::String("Hello!".to_string())
+        ]
+    );
+}
+
+#[test]
+fn sqlite_sqlgen_can_render_str_bool_filter() {
+    let str_bool = query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+        query_ir::StringFunctionKind::Str,
+        vec![query_ir::StringFunctionArg::new(
+            query_ir::ValueExpr::Literal(query_ir::Literal::Bool(true)),
+            schema_model::ScalarType::Bool,
+        )],
+        schema_model::Cardinality::Required,
+    ));
+    let filter = query_ir::Expr::Compare(query_ir::CompareExpr::new(
+        str_bool,
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(query_ir::Literal::String("true".to_string())),
+    ));
+
+    let ir = post_query_with_filter(filter);
+    let plan = sqlite_query_plan::plan_select(&ir);
+
+    let statement = render_select(&plan);
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE CASE WHEN ? IS NULL THEN NULL WHEN ? THEN 'true' ELSE 'false' END = ?"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::Bool(true),
+            SQLiteBindValue::Bool(true),
+            SQLiteBindValue::String("true".to_string())
+        ]
+    );
+}
+
+#[test]
 fn sqlite_sqlgen_can_render_cast_arithmetic_filter_with_bind_order() {
     let cast = query_ir::ValueExpr::Cast(query_ir::CastExpr::new(
         post_view_count_path_value(),

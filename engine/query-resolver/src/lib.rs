@@ -389,6 +389,9 @@ fn resolve_path_value_expr(
         query_ir::ValueExpr::Cast(_) => Err(ResolveError::UnsupportedExpr {
             expr_type: "null comparison value".to_string(),
         }),
+        query_ir::ValueExpr::StringFunction(_) => Err(ResolveError::UnsupportedExpr {
+            expr_type: "null comparison value".to_string(),
+        }),
     }
 }
 
@@ -452,6 +455,21 @@ fn resolve_typed_function_call_expr(
     source_object_type: &schema_model::ObjectTypeRef,
     function: &query_ast::FunctionCallExpr,
 ) -> Result<TypedValueExpr, ResolveError> {
+    match function.name() {
+        "i64" | "f64" => resolve_typed_numeric_cast_expr(catalog, source_object_type, function),
+        "concat" => resolve_typed_concat_expr(catalog, source_object_type, function),
+        "str" => resolve_typed_str_expr(catalog, source_object_type, function),
+        _ => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
+        }),
+    }
+}
+
+fn resolve_typed_numeric_cast_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
     let target_type = numeric_cast_target(function.name())?;
 
     if function.args().len() != 1 {
@@ -471,6 +489,85 @@ fn resolve_typed_function_call_expr(
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::Cast(query_ir::CastExpr::new(operand.value, target_type)),
         source: ValueSource::Computed(target_type),
+    })
+}
+
+fn resolve_typed_concat_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    if function.args().len() < 2 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "concat arity".to_string(),
+        });
+    }
+
+    let mut args = Vec::new();
+    let mut cardinality = schema_model::Cardinality::Required;
+
+    for arg in function.args() {
+        let typed = resolve_typed_value_expr(catalog, source_object_type, arg)?;
+        let scalar_type = source_scalar_type(typed.source);
+
+        if value_expr_is_null_literal(&typed.value) {
+            return Err(ResolveError::UnsupportedExpr {
+                expr_type: "concat null argument".to_string(),
+            });
+        }
+
+        if scalar_type != schema_model::ScalarType::Str {
+            return Err(type_mismatch_error(
+                schema_model::ScalarType::Str,
+                scalar_type,
+            ));
+        }
+
+        cardinality = combine_value_cardinality(cardinality, value_expr_cardinality(&typed.value)?);
+        args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+    }
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+            query_ir::StringFunctionKind::Concat,
+            args,
+            cardinality,
+        )),
+        source: ValueSource::Computed(schema_model::ScalarType::Str),
+    })
+}
+
+fn resolve_typed_str_expr(
+    catalog: &schema_model::SchemaCatalog,
+    source_object_type: &schema_model::ObjectTypeRef,
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    if function.args().len() != 1 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "str arity".to_string(),
+        });
+    }
+
+    let typed = resolve_typed_value_expr(catalog, source_object_type, &function.args()[0])?;
+
+    if value_expr_is_null_literal(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "str null operand".to_string(),
+        });
+    }
+
+    let scalar_type = source_scalar_type(typed.source);
+    let cardinality = value_expr_cardinality(&typed.value)?;
+    let mut args = Vec::new();
+    args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+            query_ir::StringFunctionKind::Str,
+            args,
+            cardinality,
+        )),
+        source: ValueSource::Computed(schema_model::ScalarType::Str),
     })
 }
 
@@ -683,6 +780,19 @@ fn resolve_membership_item(expr: &query_ast::Expr) -> Result<TypedValueExpr, Res
 fn resolve_membership_function_call(
     function: &query_ast::FunctionCallExpr,
 ) -> Result<TypedValueExpr, ResolveError> {
+    match function.name() {
+        "i64" | "f64" => resolve_membership_numeric_cast(function),
+        "concat" => resolve_membership_concat(function),
+        "str" => resolve_membership_str(function),
+        _ => Err(ResolveError::UnsupportedExpr {
+            expr_type: "function call".to_string(),
+        }),
+    }
+}
+
+fn resolve_membership_numeric_cast(
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
     let target_type = numeric_cast_target(function.name())?;
 
     if function.args().len() != 1 {
@@ -699,6 +809,78 @@ fn resolve_membership_function_call(
     Ok(TypedValueExpr {
         value: query_ir::ValueExpr::Cast(query_ir::CastExpr::new(operand.value, target_type)),
         source: ValueSource::Computed(target_type),
+    })
+}
+
+fn resolve_membership_concat(
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    if function.args().len() < 2 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "concat arity".to_string(),
+        });
+    }
+
+    let mut args = Vec::new();
+
+    for arg in function.args() {
+        let typed = resolve_membership_item(arg)?;
+        let scalar_type = source_scalar_type(typed.source);
+
+        if value_expr_is_null_literal(&typed.value) {
+            return Err(ResolveError::UnsupportedExpr {
+                expr_type: "concat null argument".to_string(),
+            });
+        }
+
+        if scalar_type != schema_model::ScalarType::Str {
+            return Err(type_mismatch_error(
+                schema_model::ScalarType::Str,
+                scalar_type,
+            ));
+        }
+
+        args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+    }
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+            query_ir::StringFunctionKind::Concat,
+            args,
+            schema_model::Cardinality::Required,
+        )),
+        source: ValueSource::Computed(schema_model::ScalarType::Str),
+    })
+}
+
+fn resolve_membership_str(
+    function: &query_ast::FunctionCallExpr,
+) -> Result<TypedValueExpr, ResolveError> {
+    if function.args().len() != 1 {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "str arity".to_string(),
+        });
+    }
+
+    let typed = resolve_membership_item(&function.args()[0])?;
+
+    if value_expr_is_null_literal(&typed.value) {
+        return Err(ResolveError::UnsupportedExpr {
+            expr_type: "str null operand".to_string(),
+        });
+    }
+
+    let scalar_type = source_scalar_type(typed.source);
+    let mut args = Vec::new();
+    args.push(query_ir::StringFunctionArg::new(typed.value, scalar_type));
+
+    Ok(TypedValueExpr {
+        value: query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+            query_ir::StringFunctionKind::Str,
+            args,
+            schema_model::Cardinality::Required,
+        )),
+        source: ValueSource::Computed(schema_model::ScalarType::Str),
     })
 }
 
@@ -1020,6 +1202,30 @@ fn ensure_order_value_is_single_cardinality(
             ensure_order_value_is_single_cardinality(unary.operand())
         }
         query_ir::ValueExpr::Cast(cast) => ensure_order_value_is_single_cardinality(cast.operand()),
+        query_ir::ValueExpr::StringFunction(function) => {
+            for arg in function.args() {
+                ensure_order_value_is_single_cardinality(arg.value())?;
+            }
+
+            Ok(())
+        }
+    }
+}
+
+fn combine_value_cardinality(
+    left: schema_model::Cardinality,
+    right: schema_model::Cardinality,
+) -> schema_model::Cardinality {
+    match (left, right) {
+        (schema_model::Cardinality::Many, _) | (_, schema_model::Cardinality::Many) => {
+            schema_model::Cardinality::Many
+        }
+        (schema_model::Cardinality::Optional, _) | (_, schema_model::Cardinality::Optional) => {
+            schema_model::Cardinality::Optional
+        }
+        (schema_model::Cardinality::Required, schema_model::Cardinality::Required) => {
+            schema_model::Cardinality::Required
+        }
     }
 }
 
@@ -1084,6 +1290,22 @@ fn value_expr_cardinality(
                 }
             }
         }
+        query_ir::ValueExpr::StringFunction(function) => {
+            let cardinality = function
+                .args()
+                .iter()
+                .map(|arg| value_expr_cardinality(arg.value()))
+                .try_fold(schema_model::Cardinality::Required, |left, right| {
+                    right.map(|right| combine_value_cardinality(left, right))
+                })?;
+
+            match cardinality {
+                schema_model::Cardinality::Many => Err(ResolveError::UnsupportedPath),
+                schema_model::Cardinality::Optional | schema_model::Cardinality::Required => {
+                    Ok(cardinality)
+                }
+            }
+        }
     }
 }
 
@@ -1097,6 +1319,10 @@ fn value_expr_contains_path(value: &query_ir::ValueExpr) -> bool {
         }
         query_ir::ValueExpr::UnaryArithmetic(unary) => value_expr_contains_path(unary.operand()),
         query_ir::ValueExpr::Cast(cast) => value_expr_contains_path(cast.operand()),
+        query_ir::ValueExpr::StringFunction(function) => function
+            .args()
+            .iter()
+            .any(|arg| value_expr_contains_path(arg.value())),
     }
 }
 
@@ -1112,9 +1338,13 @@ fn is_nonzero_numeric_literal(value: &query_ir::ValueExpr) -> bool {
         query_ir::ValueExpr::Literal(query_ir::Literal::Int64(value)) => *value != 0,
         query_ir::ValueExpr::Literal(query_ir::Literal::Float64(value)) => *value != 0.0,
         query_ir::ValueExpr::UnaryArithmetic(unary) => is_nonzero_numeric_literal(unary.operand()),
-        query_ir::ValueExpr::Cast(_) => false,
+        query_ir::ValueExpr::Cast(_) | query_ir::ValueExpr::StringFunction(_) => false,
         _ => false,
     }
+}
+
+fn value_expr_is_null_literal(value: &query_ir::ValueExpr) -> bool {
+    matches!(value, query_ir::ValueExpr::Literal(query_ir::Literal::Null))
 }
 
 fn resolve_order_expr(

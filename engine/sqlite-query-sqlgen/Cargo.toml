@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+schema-model = { path = "../schema-model" }
 sqlite-query-plan = { path = "../sqlite-query-plan" }
 
 [dev-dependencies]
 query-ir = { path = "../query-ir" }
-schema-model = { path = "../schema-model" }

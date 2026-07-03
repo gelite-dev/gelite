@@ -265,6 +265,25 @@ fn select_pipeline_renders_numeric_cast_filter_from_query_text() {
 }
 
 #[test]
+fn select_pipeline_renders_string_function_filter_from_query_text() {
+    let statement = render_query(
+        r#"select Post { title } filter concat(.title, "!", str(.view_count)) = "Draft!5""#,
+    );
+
+    assert_eq!(
+        statement.sql(),
+        "SELECT \"root\".\"title\" FROM \"post\" AS \"root\" WHERE (\"root\".\"title\" || ? || CAST(\"root\".\"view_count\" AS TEXT)) = ?"
+    );
+    assert_eq!(
+        statement.bind_values(),
+        &[
+            SQLiteBindValue::String("!".to_string()),
+            SQLiteBindValue::String("Draft!5".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn select_pipeline_renders_computed_projection_from_query_text() {
     let statement = render_query(r#"select Post { score := .view_count + 1 }"#);
 
@@ -424,6 +443,19 @@ fn select_pipeline_executes_root_scalar_numeric_cast_filter() {
             vec![SQLiteCellValue::Text("Archived".to_string())],
             vec![SQLiteCellValue::Text("Published".to_string())],
         ]
+    );
+}
+
+#[test]
+fn select_pipeline_executes_string_function_filter() {
+    let result = execute_query(
+        r#"select Post { title } filter concat(.title, "!", str(.view_count)) = "Draft!5""#,
+    );
+
+    assert_eq!(result.columns(), &["title".to_string()]);
+    assert_eq!(
+        result.rows(),
+        &[vec![SQLiteCellValue::Text("Draft".to_string())]]
     );
 }
 

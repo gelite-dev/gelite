@@ -718,6 +718,52 @@ fn parser_preserves_function_call_argument_count() {
 }
 
 #[test]
+fn parser_preserves_variadic_concat_arguments() {
+    let query = parse_select(
+        "select Post { title } filter concat(.title, \" - \", .subtitle) = \"Hello - Draft\"",
+    )
+    .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let Expr::FunctionCall(function) = compare.left() else {
+                panic!("left side should be a function call");
+            };
+
+            assert_eq!(function.name(), "concat");
+            assert_eq!(function.args().len(), 3);
+            assert_path_expr(&function.args()[0], &["title"]);
+            assert_literal_expr(&function.args()[1], &Literal::String(" - ".to_string()));
+            assert_path_expr(&function.args()[2], &["subtitle"]);
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
+fn parser_preserves_str_function_call_argument() {
+    let query = parse_select("select Post { title } filter str(.published) = \"true\"")
+        .expect("query should parse");
+
+    let filter = query.filter().expect("query should have filter");
+
+    match filter {
+        Expr::Compare(compare) => {
+            let Expr::FunctionCall(function) = compare.left() else {
+                panic!("left side should be a function call");
+            };
+
+            assert_eq!(function.name(), "str");
+            assert_eq!(function.args().len(), 1);
+            assert_path_expr(&function.args()[0], &["published"]);
+        }
+        _ => panic!("filter should be compare expression"),
+    }
+}
+
+#[test]
 fn parser_parses_unary_minus_integer_literal() {
     let query =
         parse_select("select Post { title } filter -1 < .view_count").expect("query should parse");

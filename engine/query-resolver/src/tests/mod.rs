@@ -996,6 +996,9 @@ fn resolves_filter_compare_path_to_field_and_literal() {
             panic!("filter left side should resolve to a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("filter left side should resolve to a path")
+        }
     }
 
     assert_eq!(compare.op(), query_ir::CompareOp::Eq);
@@ -1378,6 +1381,123 @@ fn rejects_unknown_function_call() {
 }
 
 #[test]
+fn resolves_variadic_concat_filter_value_expr() {
+    let catalog = post_with_optional_subtitle_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr(
+            "concat",
+            vec![
+                path_expr(&["title"]),
+                literal_string_expr(" - "),
+                path_expr(&["subtitle"]),
+            ],
+        ),
+        query_ast::CompareOp::Eq,
+        literal_string_expr("Hello - Draft"),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+    let resolved = resolve_select(&catalog, &query).expect("query should resolve");
+
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should exist") else {
+        panic!("filter should resolve to a compare expression");
+    };
+    let query_ir::ValueExpr::StringFunction(function) = compare.left() else {
+        panic!("left side should resolve to a string function");
+    };
+
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Concat);
+    assert_eq!(function.cardinality(), schema_model::Cardinality::Optional);
+    assert_eq!(function.args().len(), 3);
+    assert_eq!(
+        function.args()[0].scalar_type(),
+        schema_model::ScalarType::Str
+    );
+    assert_eq!(
+        function.args()[1].scalar_type(),
+        schema_model::ScalarType::Str
+    );
+    assert_eq!(
+        function.args()[2].scalar_type(),
+        schema_model::ScalarType::Str
+    );
+}
+
+#[test]
+fn resolves_str_bool_filter_value_expr() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr("str", vec![path_expr(&["published"])]),
+        query_ast::CompareOp::Eq,
+        literal_string_expr("true"),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+    let resolved = resolve_select(&catalog, &query).expect("query should resolve");
+
+    let query_ir::Expr::Compare(compare) = resolved.filter().expect("filter should exist") else {
+        panic!("filter should resolve to a compare expression");
+    };
+    let query_ir::ValueExpr::StringFunction(function) = compare.left() else {
+        panic!("left side should resolve to a string function");
+    };
+
+    assert_eq!(function.kind(), query_ir::StringFunctionKind::Str);
+    assert_eq!(function.cardinality(), schema_model::Cardinality::Required);
+    assert_eq!(function.args().len(), 1);
+    assert_eq!(
+        function.args()[0].scalar_type(),
+        schema_model::ScalarType::Bool
+    );
+}
+
+#[test]
+fn rejects_concat_with_non_string_argument() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr(
+            "concat",
+            vec![path_expr(&["title"]), path_expr(&["view_count"])],
+        ),
+        query_ast::CompareOp::Eq,
+        literal_string_expr("Hello1"),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::IncompatibleOperandTypes {
+            expected: "str".to_string(),
+            actual: "int64".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_concat_without_at_least_two_arguments() {
+    let catalog = post_with_scalar_fields_catalog();
+
+    let filter = Expr::Compare(CompareExpr::new(
+        function_call_expr("concat", vec![path_expr(&["title"])]),
+        query_ast::CompareOp::Eq,
+        literal_string_expr("Hello"),
+    ));
+
+    let query = SelectQuery::new("Post", Shape::new(vec![]), Some(filter), vec![], None, None);
+
+    assert_eq!(
+        resolve_select(&catalog, &query),
+        Err(ResolveError::UnsupportedExpr {
+            expr_type: "concat arity".to_string(),
+        })
+    );
+}
+
+#[test]
 fn rejects_numeric_cast_without_exactly_one_argument() {
     let catalog = post_with_scalar_fields_catalog();
 
@@ -1679,6 +1799,9 @@ fn resolves_filter_compare_null_literal_to_is_null_expr() {
             panic!("is null expression should reference a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("is null expression should reference a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("is null expression should reference a path")
+        }
     }
 }
 
@@ -1719,6 +1842,9 @@ fn resolves_filter_compare_left_null_literal_to_is_null_expr() {
             panic!("is null expression should reference a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("is null expression should reference a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("is null expression should reference a path")
+        }
     }
 }
 
@@ -1758,6 +1884,9 @@ fn resolves_filter_compare_not_null_literal_to_is_not_null_expr() {
             panic!("is not null expression should reference a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("is not null expression should reference a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("is not null expression should reference a path")
+        }
     }
 }
 
@@ -1797,6 +1926,9 @@ fn resolves_filter_compare_left_not_null_literal_to_is_not_null_expr() {
             panic!("is not null expression should reference a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("is not null expression should reference a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("is not null expression should reference a path")
+        }
     }
 }
 
@@ -1975,6 +2107,9 @@ fn resolves_filter_in_literal_list_to_in_expr() {
             panic!("in expression left side should be a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("in expression left side should be a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("in expression left side should be a path")
+        }
     }
 
     assert_eq!(in_expr.op(), query_ir::InOp::In);
@@ -2594,6 +2729,7 @@ fn resolves_order_path_to_resolved_path() {
         query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::UnaryArithmetic(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::Cast(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::StringFunction(_) => panic!("order by should resolve to a path"),
     }
 }
 
@@ -3245,6 +3381,9 @@ fn resolves_filter_path_through_single_link_to_scalar_field() {
             panic!("filter left side should resolve to a path")
         }
         query_ir::ValueExpr::Cast(_) => panic!("filter left side should resolve to a path"),
+        query_ir::ValueExpr::StringFunction(_) => {
+            panic!("filter left side should resolve to a path")
+        }
     }
 
     match compare.right() {
@@ -3329,5 +3468,6 @@ fn resolves_order_path_through_single_link_to_scalar_field() {
         query_ir::ValueExpr::Arithmetic(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::UnaryArithmetic(_) => panic!("order by should resolve to a path"),
         query_ir::ValueExpr::Cast(_) => panic!("order by should resolve to a path"),
+        query_ir::ValueExpr::StringFunction(_) => panic!("order by should resolve to a path"),
     }
 }
