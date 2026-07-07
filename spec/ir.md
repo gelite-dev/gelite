@@ -217,11 +217,11 @@ contains the computed field. A computed field inside a nested link shape uses
 the nested shape source object, not the root select object.
 
 The first computed projection milestone accepts scalar numeric arithmetic
-expressions over scalar paths and numeric literals. Boolean expressions,
-membership expressions, link values, many-cardinality paths, `null`, function
-calls, and subqueries are rejected before SQLite planning. Literal-only
-computed projections are also rejected in this milestone because they do not
-depend on the current row.
+expressions and supported built-in value functions over scalar paths and scalar
+literals. Boolean expressions, membership expressions, link values,
+many-cardinality paths, `null`, unsupported function calls, and subqueries are
+rejected before SQLite planning. Literal-only computed projections are also
+rejected in this milestone because they do not depend on the current row.
 
 Output names must be unique within one `ResolvedShape`. This rule applies
 across schema-backed fields and computed fields. Nested shapes have independent
@@ -281,6 +281,7 @@ Minimum variants:
 - arithmetic
 - unary arithmetic
 - cast
+- string function
 - comparison
 - membership
 - boolean `and`
@@ -295,7 +296,8 @@ Minimum metadata:
 The result type may be a scalar type, an object type for future subquery work,
 or a dedicated boolean type for predicates. The current implementation needs
 literal scalar values, resolved scalar paths, arithmetic scalar values, unary
-arithmetic scalar values, numeric cast values, and boolean predicate results.
+arithmetic scalar values, numeric cast values, string function values, and
+boolean predicate results.
 
 The expression tree does not store SQLite SQL fragments. SQLite-specific
 operator spelling, parentheses, bind placeholders, and joins belong to SQLite
@@ -435,6 +437,40 @@ introduce additional `NULL` results by themselves. SQLite runtime conversion
 details are backend-specific lowering behavior and must not be encoded as SQL
 fragments in Semantic IR.
 
+### `StringFunctionExpr`
+
+Represents a resolved built-in string value function.
+
+Minimum fields:
+
+- function kind
+- ordered argument expressions
+- ordered argument scalar types
+- result cardinality
+
+Supported function kinds in the first string function milestone:
+
+- `concat`
+- `str`
+
+`concat` accepts two or more scalar `str` value expressions and returns `str`.
+The resolver must reject non-string arguments, `null`, object values, link
+values, and many-cardinality operands before IR construction. `concat`
+cardinality is null-propagating: if any argument is optional, the result is
+optional; otherwise the result is required.
+
+`str` accepts exactly one scalar value expression and returns `str`. The
+accepted source scalar types are `str`, `int64`, `float64`, `bool`, `uuid`, and
+`datetime`. The resolver must reject `null`, object values, link values, and
+many-cardinality operands before IR construction. `str` cardinality follows the
+operand cardinality.
+
+The source syntax for these operations is function-call syntax, but Semantic IR
+stores the resolved operation as a string function expression rather than an
+opaque function call or SQL fragment. Backend-specific text conversion rules,
+including SQLite `CAST` or boolean rendering choices, belong to backend
+planning and SQL generation.
+
 ### `CompareExpr`
 
 Minimum fields:
@@ -510,7 +546,8 @@ accepted Semantic IR:
 - `SubqueryExpr`
 
 The resolver may lower accepted built-in function calls to specific Semantic IR
-nodes, such as `CastExpr` for `i64(expr)` and `f64(expr)`. It must reject
+nodes, such as `CastExpr` for `i64(expr)` and `f64(expr)` or
+`StringFunctionExpr` for `concat(...)` and `str(expr)`. It must reject
 unsupported forms with diagnostics. Do not pass an unsupported expression
 through IR as an opaque node.
 
@@ -523,10 +560,10 @@ Minimum fields:
 - value expression
 - direction: `asc` or `desc`
 
-The order value must resolve to a scalar `ValueExpr`. Supported order values in
-the arithmetic and numeric cast milestones are resolved scalar paths, numeric
-arithmetic expressions over scalar paths and numeric literals, unary
-arithmetic, and numeric casts that refer to the current row.
+The order value must resolve to a scalar `ValueExpr`. Supported order values
+are resolved scalar paths, numeric arithmetic expressions over scalar paths and
+numeric literals, unary arithmetic, numeric casts, and string functions that
+refer to the current row.
 Boolean expressions, membership expressions, and literal-only order values are
 rejected by the resolver before SQLite planning.
 

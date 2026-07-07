@@ -2,8 +2,8 @@ mod fixtures;
 
 use crate::{
     SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
-    SQLiteJoinReason, SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteUnaryArithmeticOp,
-    SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
+    SQLiteJoinReason, SQLiteLiteral, SQLiteOrder, SQLiteOrderDirection, SQLiteStringFunctionKind,
+    SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteValueRole, SQLiteWhereExpr, plan_select,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -36,6 +36,7 @@ fn assert_order_column(order: &SQLiteOrder, source_alias: &str, column_name: &st
         SQLiteValueExpr::Arithmetic(_) => panic!("order value should be a column"),
         SQLiteValueExpr::UnaryArithmetic(_) => panic!("order value should be a column"),
         SQLiteValueExpr::Cast(_) => panic!("order value should be a column"),
+        SQLiteValueExpr::StringFunction(_) => panic!("order value should be a column"),
     }
 }
 
@@ -49,6 +50,7 @@ fn assert_column_value(value: &SQLiteValueExpr, source_alias: &str, column_name:
         SQLiteValueExpr::Arithmetic(_) => panic!("value should be a column"),
         SQLiteValueExpr::UnaryArithmetic(_) => panic!("value should be a column"),
         SQLiteValueExpr::Cast(_) => panic!("value should be a column"),
+        SQLiteValueExpr::StringFunction(_) => panic!("value should be a column"),
     }
 }
 
@@ -60,6 +62,7 @@ fn assert_int_literal_value(value: &SQLiteValueExpr, expected: i64) {
         SQLiteValueExpr::Arithmetic(_) => panic!("value should be a literal"),
         SQLiteValueExpr::UnaryArithmetic(_) => panic!("value should be a literal"),
         SQLiteValueExpr::Cast(_) => panic!("value should be a literal"),
+        SQLiteValueExpr::StringFunction(_) => panic!("value should be a literal"),
     }
 }
 
@@ -1234,6 +1237,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
                     panic!("filter left side should be a column")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(compare.op(), SQLiteCompareOp::Eq);
@@ -1251,6 +1257,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_string_literal() {
                     panic!("filter right side should be a literal")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1351,6 +1360,63 @@ fn sqlite_select_plan_can_filter_cast_expr_compared_to_float_literal() {
     match compare.right() {
         SQLiteValueExpr::Literal(SQLiteLiteral::Float64(value)) => assert_eq!(*value, 10.5),
         _ => panic!("comparison right side should be a float literal"),
+    }
+}
+
+#[test]
+fn sqlite_select_plan_can_filter_string_function_expr() {
+    let concat = query_ir::ValueExpr::StringFunction(query_ir::StringFunctionExpr::new(
+        query_ir::StringFunctionKind::Concat,
+        vec![
+            query_ir::StringFunctionArg::new(
+                post_title_path_value(),
+                schema_model::ScalarType::Str,
+            ),
+            query_ir::StringFunctionArg::new(
+                query_ir::ValueExpr::Literal(Literal::String("!".to_string())),
+                schema_model::ScalarType::Str,
+            ),
+        ],
+        schema_model::Cardinality::Required,
+    ));
+    let filter = query_ir::CompareExpr::new(
+        concat,
+        query_ir::CompareOp::Eq,
+        query_ir::ValueExpr::Literal(Literal::String("Hello!".to_string())),
+    );
+
+    let ir = SelectQuery::new(
+        post_type(),
+        ResolvedShape::new(post_type(), vec![]),
+        Some(query_ir::Expr::Compare(filter)),
+        vec![],
+        None,
+        None,
+    );
+
+    let plan = plan_select(&ir);
+
+    let Some(SQLiteWhereExpr::Compare(compare)) = plan.filter() else {
+        panic!("expected compare filter");
+    };
+    let SQLiteValueExpr::StringFunction(function) = compare.left() else {
+        panic!("filter left side should be a string function");
+    };
+
+    assert_eq!(function.kind(), SQLiteStringFunctionKind::Concat);
+    assert_eq!(function.args().len(), 2);
+    assert_eq!(
+        function.args()[0].scalar_type(),
+        schema_model::ScalarType::Str
+    );
+    assert_column_value(function.args()[0].value(), "root", "title");
+    assert_eq!(
+        function.args()[1].scalar_type(),
+        schema_model::ScalarType::Str
+    );
+    match function.args()[1].value() {
+        SQLiteValueExpr::Literal(SQLiteLiteral::String(value)) => assert_eq!(value, "!"),
+        _ => panic!("second concat argument should be a string literal"),
     }
 }
 
@@ -1536,6 +1602,7 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_equals_string_literal()
             SQLiteValueExpr::Arithmetic(_) => panic!("filter left side should be a column"),
             SQLiteValueExpr::UnaryArithmetic(_) => panic!("filter left side should be a column"),
             SQLiteValueExpr::Cast(_) => panic!("filter left side should be a column"),
+            SQLiteValueExpr::StringFunction(_) => panic!("filter left side should be a column"),
         },
         _ => panic!("expected compare filter"),
     }
@@ -1619,6 +1686,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_int_literal() {
                     panic!("filter right side should be a literal")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1662,6 +1732,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_equals_bool_literal() {
                     panic!("filter right side should be a literal")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),
@@ -1704,6 +1777,9 @@ fn sqlite_select_plan_can_filter_root_scalar_field_in_literal_list() {
                     panic!("filter left side should be a column")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(in_expr.op(), SQLiteInOp::In);
@@ -1799,6 +1875,9 @@ fn sqlite_select_plan_can_filter_single_link_scalar_path_not_in_literal_list() {
                     panic!("filter left side should be a column")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(in_expr.op(), SQLiteInOp::NotIn);
@@ -1842,6 +1921,7 @@ fn sqlite_select_plan_can_filter_root_scalar_field_is_null() {
             SQLiteValueExpr::Arithmetic(_) => panic!("is null value should be a column"),
             SQLiteValueExpr::UnaryArithmetic(_) => panic!("is null value should be a column"),
             SQLiteValueExpr::Cast(_) => panic!("is null value should be a column"),
+            SQLiteValueExpr::StringFunction(_) => panic!("is null value should be a column"),
         },
         _ => panic!("expected is null filter"),
     }
@@ -2023,6 +2103,9 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
                     panic!("filter left side should be a column")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter left side should be a column"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter left side should be a column")
+                }
             }
 
             assert_eq!(compare.op(), SQLiteCompareOp::Eq);
@@ -2040,6 +2123,9 @@ fn sqlite_select_plan_can_filter_implicit_id_equals_string_literal() {
                     panic!("filter right side should be a literal")
                 }
                 SQLiteValueExpr::Cast(_) => panic!("filter right side should be a literal"),
+                SQLiteValueExpr::StringFunction(_) => {
+                    panic!("filter right side should be a literal")
+                }
             }
         }
         _ => panic!("expected compare filter"),

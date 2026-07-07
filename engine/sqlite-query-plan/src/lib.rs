@@ -272,7 +272,8 @@ impl SQLiteFieldSelectValue {
             SQLiteValueExpr::Literal(_)
             | SQLiteValueExpr::Arithmetic(_)
             | SQLiteValueExpr::UnaryArithmetic(_)
-            | SQLiteValueExpr::Cast(_) => {
+            | SQLiteValueExpr::Cast(_)
+            | SQLiteValueExpr::StringFunction(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -284,7 +285,8 @@ impl SQLiteFieldSelectValue {
             SQLiteValueExpr::Literal(_)
             | SQLiteValueExpr::Arithmetic(_)
             | SQLiteValueExpr::UnaryArithmetic(_)
-            | SQLiteValueExpr::Cast(_) => {
+            | SQLiteValueExpr::Cast(_)
+            | SQLiteValueExpr::StringFunction(_) => {
                 unreachable!("field selected values are always columns")
             }
         }
@@ -569,6 +571,11 @@ fn collect_root_path_aliases_from_value(value: &query_ir::ValueExpr, aliases: &m
         }
         query_ir::ValueExpr::Cast(cast) => {
             collect_root_path_aliases_from_value(cast.operand(), aliases);
+        }
+        query_ir::ValueExpr::StringFunction(function) => {
+            for arg in function.args() {
+                collect_root_path_aliases_from_value(arg.value(), aliases);
+            }
         }
     }
 }
@@ -967,6 +974,57 @@ pub enum SQLiteValueExpr {
     Arithmetic(SQLiteArithmeticExpr),
     UnaryArithmetic(SQLiteUnaryArithmeticExpr),
     Cast(SQLiteCastExpr),
+    StringFunction(SQLiteStringFunctionExpr),
+}
+
+/// Backend-specific string value function expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SQLiteStringFunctionExpr {
+    kind: SQLiteStringFunctionKind,
+    args: Vec<SQLiteStringFunctionArg>,
+}
+
+impl SQLiteStringFunctionExpr {
+    pub fn kind(&self) -> SQLiteStringFunctionKind {
+        self.kind
+    }
+
+    pub fn args(&self) -> &[SQLiteStringFunctionArg] {
+        &self.args
+    }
+}
+
+/// SQLite string function kinds emitted by the planner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteStringFunctionKind {
+    Concat,
+    Str,
+}
+
+impl SQLiteStringFunctionKind {
+    fn from_ir(kind: query_ir::StringFunctionKind) -> Self {
+        match kind {
+            query_ir::StringFunctionKind::Concat => Self::Concat,
+            query_ir::StringFunctionKind::Str => Self::Str,
+        }
+    }
+}
+
+/// One SQLite string function argument.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SQLiteStringFunctionArg {
+    value: SQLiteValueExpr,
+    scalar_type: schema_model::ScalarType,
+}
+
+impl SQLiteStringFunctionArg {
+    pub fn value(&self) -> &SQLiteValueExpr {
+        &self.value
+    }
+
+    pub fn scalar_type(&self) -> schema_model::ScalarType {
+        self.scalar_type
+    }
 }
 
 /// Backend-specific scalar cast value expression.
@@ -1363,6 +1421,28 @@ fn plan_value_expr(
                     target: SQLiteCastTarget::from_scalar_type(cast.target_type()),
                 }),
                 joins: operand.joins,
+            }
+        }
+        query_ir::ValueExpr::StringFunction(function) => {
+            let mut args = Vec::new();
+            let mut joins = Vec::new();
+
+            for arg in function.args() {
+                let planned =
+                    plan_value_expr(arg.value(), source_alias, source_nullable, join_aliases);
+                joins.extend(planned.joins);
+                args.push(SQLiteStringFunctionArg {
+                    value: planned.value,
+                    scalar_type: arg.scalar_type(),
+                });
+            }
+
+            PlannedValueExpr {
+                value: SQLiteValueExpr::StringFunction(SQLiteStringFunctionExpr {
+                    kind: SQLiteStringFunctionKind::from_ir(function.kind()),
+                    args,
+                }),
+                joins,
             }
         }
     }

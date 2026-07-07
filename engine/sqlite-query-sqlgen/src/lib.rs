@@ -18,8 +18,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
     SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
-    SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteUnaryArithmeticOp,
-    SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteStringFunctionKind,
+    SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -262,6 +262,50 @@ fn render_value_expr(value: &SQLiteValueExpr, bind_values: &mut Vec<SQLiteBindVa
             let target = render_cast_target(cast.target());
 
             format!("CAST({operand} AS {target})")
+        }
+        SQLiteValueExpr::StringFunction(function) => match function.kind() {
+            SQLiteStringFunctionKind::Concat => {
+                let args = function
+                    .args()
+                    .iter()
+                    .map(|arg| render_value_expr(arg.value(), bind_values))
+                    .collect::<Vec<_>>()
+                    .join(" || ");
+
+                format!("({args})")
+            }
+            SQLiteStringFunctionKind::Str => {
+                let [arg] = function.args() else {
+                    unreachable!("SQLite planner receives only resolver-accepted str arity");
+                };
+
+                render_str_value_expr(arg.value(), arg.scalar_type(), bind_values)
+            }
+        },
+    }
+}
+
+fn render_str_value_expr(
+    value: &SQLiteValueExpr,
+    scalar_type: schema_model::ScalarType,
+    bind_values: &mut Vec<SQLiteBindValue>,
+) -> String {
+    match scalar_type {
+        schema_model::ScalarType::Str
+        | schema_model::ScalarType::Uuid
+        | schema_model::ScalarType::DateTime => render_value_expr(value, bind_values),
+        schema_model::ScalarType::Int64 | schema_model::ScalarType::Float64 => {
+            let value_sql = render_value_expr(value, bind_values);
+
+            format!("CAST({value_sql} AS TEXT)")
+        }
+        schema_model::ScalarType::Bool => {
+            let null_check_sql = render_value_expr(value, bind_values);
+            let value_sql = render_value_expr(value, bind_values);
+
+            format!(
+                "CASE WHEN {null_check_sql} IS NULL THEN NULL WHEN {value_sql} THEN 'true' ELSE 'false' END"
+            )
         }
     }
 }

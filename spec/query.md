@@ -104,8 +104,8 @@ primary_expr     := literal | path | "(" expr ")"
   MVP.
 
 Computed projection expressions are value expressions. The first computed
-projection milestone accepts numeric arithmetic expressions over scalar paths
-and numeric literals:
+projection milestone accepts numeric arithmetic expressions and supported
+built-in value functions over scalar paths and scalar literals:
 
 ```text
 select Post {
@@ -137,8 +137,8 @@ milestone. They are output fields only.
 
 The resolver rejects boolean expressions, membership expressions, `null`, link
 values, many-cardinality paths, and literal-only computed projections before
-SQLite planning. Function calls and subqueries remain reserved until their own
-issues define resolver rules.
+SQLite planning. Unsupported function calls and subqueries remain reserved
+until their own issues define resolver rules.
 
 ### Filters
 
@@ -283,9 +283,50 @@ membership list items must be row-independent, and order expressions must refer
 to the current row rather than being literal-only.
 
 The parser may represent any `IDENT "(" ... ")"` form as a function call, but
-the resolver only accepts the built-in numeric casts listed above in this
-milestone. Unsupported function names and unsupported arities are rejected
-before Semantic IR construction.
+the resolver only accepts the built-in numeric casts and string functions listed
+in this document. Unsupported function names and unsupported arities are
+rejected before Semantic IR construction.
+
+### String Functions
+
+String operations use named built-in functions. Gelite does not overload `+`
+for string concatenation and does not expose SQLite `||` directly in query
+syntax.
+
+Supported string value functions:
+
+- `concat(first, second, ...rest) -> str`
+- `str(value) -> str`
+
+`concat` accepts two or more scalar string value expressions. Every argument
+must resolve to `str`; numeric, boolean, uuid, datetime, `null`, object, link,
+and many-cardinality arguments are rejected before SQLite planning. The result
+is `str`. Cardinality is null-propagating: if any argument is optional, the
+result is optional; otherwise the result is required.
+
+`str` accepts exactly one scalar value expression. It accepts `str`, `int64`,
+`float64`, `bool`, `uuid`, and `datetime` operands and rejects `null`, object,
+link, and many-cardinality operands before SQLite planning. `str` is an
+explicit conversion; it does not enable implicit casts for comparisons,
+membership checks, arithmetic, or concatenation. `str` of an optional value is
+optional. `str` of a required value or scalar literal is required.
+
+`str` uses Gelite conversion semantics, not backend-default text coercion.
+`str` of a `str`, `uuid`, or `datetime` value returns its canonical stored text
+form. `str` of `int64` or `float64` returns the backend-rendered decimal text
+for that numeric value. `str` of `bool` returns `"true"` or `"false"`.
+
+String functions may appear anywhere a scalar value expression is allowed,
+including filter comparisons, membership list items, order expressions, and
+computed select projections. Context-specific restrictions still apply:
+membership list items must be row-independent, order expressions must refer to
+the current row rather than being literal-only, and computed projections must
+depend on the current row.
+
+Deferred string functions include `length`, `lower`, `upper`, `trim`, `ltrim`,
+`rtrim`, `replace`, `substr`, `contains`, `starts_with`, and `ends_with`.
+These names remain reserved until their resolver rules and backend lowering are
+specified.
 
 ### Ordering
 
@@ -296,6 +337,7 @@ Supported order values:
 - scalar paths
 - numeric arithmetic expressions over scalar paths, numeric literals, and
   numeric casts
+- supported string functions that refer to the current row
 
 Examples:
 
@@ -304,6 +346,7 @@ order by .title asc
 order by .view_count + 1 desc
 order by (.view_count + 1) * 10 asc
 order by f64(.view_count) / 2.0 asc
+order by concat(.title, " draft") asc
 ```
 
 Order expressions must resolve to scalar values. Boolean expressions such as
@@ -354,15 +397,15 @@ expr_list         := expr ("," expr)*
 subquery_expr     := "(" select_stmt ")"
 ```
 
-Only path, literal, arithmetic, numeric cast function calls, comparison,
+Only path, literal, arithmetic, supported built-in function calls, comparison,
 bracketed-list `in`, bracketed-list `not in`, boolean, and parenthesized
 expressions are accepted by the resolver in the current expression milestones.
 Context determines which subset is valid: filters accept boolean expressions,
-ordering accepts scalar order values, and computed projection accepts numeric
-arithmetic value expressions.
-`function_call` is currently accepted only for built-in numeric casts:
-`i64(expr)` and `f64(expr)`. Other function names remain reserved. `subquery_expr`
-is also reserved until subquery expression scope is defined.
+ordering accepts scalar order values, and computed projection accepts value
+expressions that refer to the current row. `function_call` is currently
+accepted only for built-in numeric casts and supported string functions. Other
+function names remain reserved. `subquery_expr` is also reserved until subquery
+expression scope is defined.
 
 The first accepted `in_rhs` form is a non-empty bracketed list. The parser may
 accept `null` as a list item because it is a literal expression, but the
@@ -401,6 +444,7 @@ The MVP supports:
 - numeric arithmetic expressions used as comparison or membership operands
 - unary numeric arithmetic expressions
 - explicit numeric casts with `i64(expr)` and `f64(expr)`
+- string functions with `concat(...)` and `str(expr)`
 - scalar membership checks against non-empty lists of non-null scalar value
   expressions
 - boolean composition
@@ -413,8 +457,9 @@ The MVP does not support:
 - aggregation
 - `exists`
 - subquery `in`
-- arbitrary function calls other than supported built-in numeric casts
+- arbitrary function calls other than supported built-ins
 - implicit numeric casts
+- implicit string casts
 - path scoping with aliases
 
 ## Insert
@@ -611,7 +656,7 @@ These are intentionally out of scope until the end-to-end path is stable:
 - aggregation
 - grouping
 - pagination cursors
-- arbitrary function calls beyond supported built-in numeric casts
+- arbitrary function calls beyond supported built-ins
 - subqueries
 - query parameters
 - upsert

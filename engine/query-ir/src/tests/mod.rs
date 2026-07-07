@@ -4,7 +4,8 @@ use crate::{
     ArithmeticExpr, ArithmeticOp, CastExpr, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
     OrderDirection, OrderExpr, ResolvedComputedField, ResolvedPath, ResolvedPathError,
     ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
-    SelectQuery, UnaryArithmeticExpr, UnaryArithmeticOp, ValueExpr,
+    SelectQuery, StringFunctionArg, StringFunctionExpr, StringFunctionKind, UnaryArithmeticExpr,
+    UnaryArithmeticOp, ValueExpr,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -111,6 +112,35 @@ fn cast_expr_can_store_operand_and_target_type() {
 
     assert_eq!(cast.operand(), &ValueExpr::Literal(Literal::Int64(1)));
     assert_eq!(cast.target_type(), ScalarType::Float64);
+}
+
+#[test]
+fn string_function_expr_can_store_kind_arguments_types_and_cardinality() {
+    let expr = ValueExpr::StringFunction(StringFunctionExpr::new(
+        StringFunctionKind::Concat,
+        vec![
+            StringFunctionArg::new(
+                ValueExpr::Literal(Literal::String("Hello".to_string())),
+                ScalarType::Str,
+            ),
+            StringFunctionArg::new(post_title_path_value(), ScalarType::Str),
+        ],
+        Cardinality::Required,
+    ));
+
+    let ValueExpr::StringFunction(function) = expr else {
+        panic!("value expression should store a string function");
+    };
+
+    assert_eq!(function.kind(), StringFunctionKind::Concat);
+    assert_eq!(function.cardinality(), Cardinality::Required);
+    assert_eq!(function.args().len(), 2);
+    assert_eq!(function.args()[0].scalar_type(), ScalarType::Str);
+    assert_eq!(
+        function.args()[0].value(),
+        &ValueExpr::Literal(Literal::String("Hello".to_string()))
+    );
+    assert_eq!(function.args()[1].scalar_type(), ScalarType::Str);
 }
 
 #[test]
@@ -330,6 +360,7 @@ fn resolved_select_query_can_store_order_by_path() {
         ValueExpr::Arithmetic(_) => panic!("order by should reference a resolved path"),
         ValueExpr::UnaryArithmetic(_) => panic!("order by should reference a resolved path"),
         ValueExpr::Cast(_) => panic!("order by should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("order by should reference a resolved path"),
     }
 }
 
@@ -367,6 +398,7 @@ fn resolved_select_query_can_store_filter_compare_expr() {
             panic!("filter left side should reference a resolved path")
         }
         ValueExpr::Cast(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("filter left side should reference a resolved path"),
     }
 
     match compare.right() {
@@ -378,6 +410,7 @@ fn resolved_select_query_can_store_filter_compare_expr() {
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::Cast(_) => panic!("filter right side should store a literal"),
+        ValueExpr::StringFunction(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -412,6 +445,7 @@ fn resolved_select_query_can_store_filter_compare_int_literal() {
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::Cast(_) => panic!("filter right side should store a literal"),
+        ValueExpr::StringFunction(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -446,6 +480,7 @@ fn resolved_select_query_can_store_filter_compare_bool_literal() {
         ValueExpr::Arithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::UnaryArithmetic(_) => panic!("filter right side should store a literal"),
         ValueExpr::Cast(_) => panic!("filter right side should store a literal"),
+        ValueExpr::StringFunction(_) => panic!("filter right side should store a literal"),
     }
 }
 
@@ -504,6 +539,7 @@ fn resolved_select_query_can_store_filter_is_null_expr() {
             panic!("filter left side should reference a resolved path")
         }
         ValueExpr::Cast(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("filter left side should reference a resolved path"),
     }
 }
 
@@ -538,6 +574,7 @@ fn resolved_select_query_can_store_filter_is_not_null_expr() {
             panic!("filter left side should reference a resolved path")
         }
         ValueExpr::Cast(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("filter left side should reference a resolved path"),
     }
 }
 
@@ -577,6 +614,7 @@ fn resolved_select_query_can_store_filter_in_expr() {
             panic!("filter left side should reference a resolved path")
         }
         ValueExpr::Cast(_) => panic!("filter left side should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("filter left side should reference a resolved path"),
     }
 
     assert_eq!(in_expr.op(), InOp::In);
@@ -640,6 +678,7 @@ fn value_expr_can_reference_resolved_path() {
             panic!("value expression should reference a resolved path")
         }
         ValueExpr::Cast(_) => panic!("value expression should reference a resolved path"),
+        ValueExpr::StringFunction(_) => panic!("value expression should reference a resolved path"),
     }
 }
 
@@ -656,6 +695,7 @@ fn value_expr_can_store_literal() {
         ValueExpr::Arithmetic(_) => panic!("value expression should store a literal"),
         ValueExpr::UnaryArithmetic(_) => panic!("value expression should store a literal"),
         ValueExpr::Cast(_) => panic!("value expression should store a literal"),
+        ValueExpr::StringFunction(_) => panic!("value expression should store a literal"),
     }
 }
 

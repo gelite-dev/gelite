@@ -477,6 +477,69 @@ pub enum ValueExpr {
     Arithmetic(ArithmeticExpr),
     UnaryArithmetic(UnaryArithmeticExpr),
     Cast(CastExpr),
+    StringFunction(StringFunctionExpr),
+}
+
+/// Resolved built-in string value function.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StringFunctionExpr {
+    kind: StringFunctionKind,
+    args: Vec<StringFunctionArg>,
+    cardinality: Cardinality,
+}
+
+impl StringFunctionExpr {
+    pub fn new(
+        kind: StringFunctionKind,
+        args: Vec<StringFunctionArg>,
+        cardinality: Cardinality,
+    ) -> Self {
+        Self {
+            kind,
+            args,
+            cardinality,
+        }
+    }
+
+    pub fn kind(&self) -> StringFunctionKind {
+        self.kind
+    }
+
+    pub fn args(&self) -> &[StringFunctionArg] {
+        &self.args
+    }
+
+    pub fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
+}
+
+/// Built-in string value functions accepted by Semantic IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StringFunctionKind {
+    Concat,
+    Str,
+}
+
+/// One resolved string function argument.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StringFunctionArg {
+    value: ValueExpr,
+    scalar_type: ScalarType,
+}
+
+impl StringFunctionArg {
+    pub fn new(value: ValueExpr, scalar_type: ScalarType) -> Self {
+        Self { value, scalar_type }
+    }
+
+    pub fn value(&self) -> &ValueExpr {
+        &self.value
+    }
+
+    pub fn scalar_type(&self) -> ScalarType {
+        self.scalar_type
+    }
 }
 
 /// Resolved explicit scalar cast value expression.
