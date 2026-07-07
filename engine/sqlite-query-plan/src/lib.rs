@@ -628,11 +628,11 @@ fn selected_link_aliases(shape: &query_ir::ResolvedShape) -> Vec<String> {
 
 fn collect_selected_link_aliases(shape: &query_ir::ResolvedShape, aliases: &mut Vec<String>) {
     for item in shape.items() {
-        if let query_ir::ResolvedShapeItem::Field(field) = item {
-            if let Some(child_shape) = field.child_shape() {
-                aliases.push(field.output_name().to_string());
-                collect_selected_link_aliases(child_shape, aliases);
-            }
+        if let query_ir::ResolvedShapeItem::Field(field) = item
+            && let Some(child_shape) = field.child_shape()
+        {
+            aliases.push(field.output_name().to_string());
+            collect_selected_link_aliases(child_shape, aliases);
         }
     }
 }
