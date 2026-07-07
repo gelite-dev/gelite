@@ -352,19 +352,13 @@ fn render_order_clause(
 fn render_limit_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     let limit = plan.limit();
 
-    match limit {
-        None => None,
-        Some(val) => Some(format!("LIMIT {val}")),
-    }
+    limit.map(|val| format!("LIMIT {val}"))
 }
 
 fn render_offset_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     let offset = plan.offset();
 
-    match offset {
-        None => None,
-        Some(val) => Some(format!("OFFSET {val}")),
-    }
+    offset.map(|val| format!("OFFSET {val}"))
 }
 
 /// Rendered SQLite select statement.

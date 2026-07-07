@@ -1,4 +1,5 @@
 use crate::{Keyword, LexError, Span, Token, TokenKind, lex};
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use schema_model::{
@@ -23,13 +24,16 @@ fn parse_schema_tokens(tokens: &[Token]) -> Result<schema_model::SchemaCatalog, 
 /// Parser error with an optional source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
-    kind: ParseErrorKind,
+    kind: Box<ParseErrorKind>,
     span: Option<Span>,
 }
 
 impl ParseError {
     fn new(kind: ParseErrorKind, span: Option<Span>) -> Self {
-        Self { kind, span }
+        Self {
+            kind: Box::new(kind),
+            span,
+        }
     }
 
     pub fn kind(&self) -> &ParseErrorKind {

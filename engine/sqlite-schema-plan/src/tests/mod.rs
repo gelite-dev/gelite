@@ -44,15 +44,15 @@ fn initial_schema_plan_defines_catalog_objects_metadata_table() {
     let columns = plan.metadata_tables()[1].columns();
     assert_eq!(columns[0].name(), "object_id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
-    assert_eq!(columns[0].is_unique(), true);
+    assert!(!columns[0].is_nullable());
+    assert!(columns[0].is_primary_key());
+    assert!(columns[0].is_unique());
 
     assert_eq!(columns[1].name(), "name");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_primary_key(), false);
-    assert_eq!(columns[1].is_unique(), true);
+    assert!(!columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
+    assert!(columns[1].is_unique());
 }
 
 #[test]
@@ -66,27 +66,27 @@ fn initial_schema_plan_defines_schema_versions_metadata_table() {
     let columns = plan.metadata_tables()[0].columns();
     assert_eq!(columns[0].name(), "version_id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
-    assert_eq!(columns[0].is_unique(), true);
+    assert!(!columns[0].is_nullable());
+    assert!(columns[0].is_primary_key());
+    assert!(columns[0].is_unique());
 
     assert_eq!(columns[1].name(), "checksum");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_primary_key(), false);
-    assert_eq!(columns[1].is_unique(), false);
+    assert!(!columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
+    assert!(!columns[1].is_unique());
 
     assert_eq!(columns[2].name(), "applied_at");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[2].is_nullable(), false);
-    assert_eq!(columns[2].is_primary_key(), false);
-    assert_eq!(columns[2].is_unique(), false);
+    assert!(!columns[2].is_nullable());
+    assert!(!columns[2].is_primary_key());
+    assert!(!columns[2].is_unique());
 
     assert_eq!(columns[3].name(), "schema_snapshot");
     assert_eq!(columns[3].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[3].is_nullable(), false);
-    assert_eq!(columns[3].is_primary_key(), false);
-    assert_eq!(columns[3].is_unique(), false);
+    assert!(!columns[3].is_nullable());
+    assert!(!columns[3].is_primary_key());
+    assert!(!columns[3].is_unique());
 }
 
 #[test]
@@ -100,57 +100,57 @@ fn initial_schema_plan_defines_catalog_fields_metadata_table() {
     let columns = plan.metadata_tables()[2].columns();
     assert_eq!(columns[0].name(), "object_id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), false);
-    assert_eq!(columns[0].is_unique(), false);
+    assert!(!columns[0].is_nullable());
+    assert!(!columns[0].is_primary_key());
+    assert!(!columns[0].is_unique());
 
     assert_eq!(columns[1].name(), "field_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_primary_key(), false);
-    assert_eq!(columns[1].is_unique(), false);
+    assert!(!columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
+    assert!(!columns[1].is_unique());
 
     assert_eq!(columns[2].name(), "name");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[2].is_nullable(), false);
-    assert_eq!(columns[2].is_primary_key(), false);
-    assert_eq!(columns[2].is_unique(), false);
+    assert!(!columns[2].is_nullable());
+    assert!(!columns[2].is_primary_key());
+    assert!(!columns[2].is_unique());
 
     assert_eq!(columns[3].name(), "field_kind");
     assert_eq!(columns[3].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[3].is_nullable(), false);
-    assert_eq!(columns[3].is_primary_key(), false);
-    assert_eq!(columns[3].is_unique(), false);
+    assert!(!columns[3].is_nullable());
+    assert!(!columns[3].is_primary_key());
+    assert!(!columns[3].is_unique());
 
     assert_eq!(columns[4].name(), "cardinality");
     assert_eq!(columns[4].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[4].is_nullable(), false);
-    assert_eq!(columns[4].is_primary_key(), false);
-    assert_eq!(columns[4].is_unique(), false);
+    assert!(!columns[4].is_nullable());
+    assert!(!columns[4].is_primary_key());
+    assert!(!columns[4].is_unique());
 
     assert_eq!(columns[5].name(), "scalar_type");
     assert_eq!(columns[5].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[5].is_nullable(), true);
-    assert_eq!(columns[5].is_primary_key(), false);
-    assert_eq!(columns[5].is_unique(), false);
+    assert!(columns[5].is_nullable());
+    assert!(!columns[5].is_primary_key());
+    assert!(!columns[5].is_unique());
 
     assert_eq!(columns[6].name(), "target_object_id");
     assert_eq!(columns[6].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[6].is_nullable(), true);
-    assert_eq!(columns[6].is_primary_key(), false);
-    assert_eq!(columns[6].is_unique(), false);
+    assert!(columns[6].is_nullable());
+    assert!(!columns[6].is_primary_key());
+    assert!(!columns[6].is_unique());
 
     assert_eq!(columns[7].name(), "is_implicit");
     assert_eq!(columns[7].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[7].is_nullable(), false);
-    assert_eq!(columns[7].is_primary_key(), false);
-    assert_eq!(columns[7].is_unique(), false);
+    assert!(!columns[7].is_nullable());
+    assert!(!columns[7].is_primary_key());
+    assert!(!columns[7].is_unique());
 
     assert_eq!(columns[8].name(), "is_unique");
     assert_eq!(columns[8].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[8].is_nullable(), false);
-    assert_eq!(columns[8].is_primary_key(), false);
-    assert_eq!(columns[8].is_unique(), false);
+    assert!(!columns[8].is_nullable());
+    assert!(!columns[8].is_primary_key());
+    assert!(!columns[8].is_unique());
 
     let primary_key = plan.metadata_tables()[2].primary_key().unwrap();
     assert_eq!(primary_key.column_names().len(), 2);
@@ -209,16 +209,16 @@ fn initial_schema_plan_creates_object_table_for_scalar_fields() {
     let columns = user.columns();
     assert_eq!(columns[0].name(), "id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
+    assert!(!columns[0].is_nullable());
+    assert!(columns[0].is_primary_key());
 
     assert_eq!(columns[1].name(), "name");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
+    assert!(!columns[1].is_nullable());
 
     assert_eq!(columns[2].name(), "age");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[2].is_nullable(), true);
+    assert!(columns[2].is_nullable());
 }
 
 #[test]
@@ -315,18 +315,18 @@ fn initial_schema_plan_creates_required_single_link_foreign_key_column() {
     let columns = post.columns();
     assert_eq!(columns[0].name(), "id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
+    assert!(!columns[0].is_nullable());
+    assert!(columns[0].is_primary_key());
 
     assert_eq!(columns[1].name(), "title");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_primary_key(), false);
+    assert!(!columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
 
     assert_eq!(columns[2].name(), "author_id");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[2].is_nullable(), false);
-    assert_eq!(columns[2].is_primary_key(), false);
+    assert!(!columns[2].is_nullable());
+    assert!(!columns[2].is_primary_key());
 
     assert_eq!(post.foreign_keys().len(), 1);
 
@@ -365,8 +365,8 @@ fn initial_schema_plan_creates_optional_single_link_foreign_key_column() {
     let columns = post.columns();
     assert_eq!(columns[1].name(), "author_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), true);
-    assert_eq!(columns[1].is_primary_key(), false);
+    assert!(columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
 
     assert_eq!(post.foreign_keys().len(), 1);
 
@@ -398,14 +398,14 @@ fn schema_scalar_field_can_be_marked_unique() {
     let columns = user.columns();
     assert_eq!(columns[0].name(), "id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[0].is_nullable(), false);
-    assert_eq!(columns[0].is_primary_key(), true);
-    assert_eq!(columns[0].is_unique(), true);
+    assert!(!columns[0].is_nullable());
+    assert!(columns[0].is_primary_key());
+    assert!(columns[0].is_unique());
 
     assert_eq!(columns[1].name(), "email");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_unique(), true);
+    assert!(!columns[1].is_nullable());
+    assert!(columns[1].is_unique());
 }
 
 #[test]
@@ -438,8 +438,8 @@ fn initial_schema_plan_allows_optional_unique_scalar_field() {
     let columns = user.columns();
     assert_eq!(columns[1].name(), "nickname");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), true);
-    assert_eq!(columns[1].is_unique(), true);
+    assert!(columns[1].is_nullable());
+    assert!(columns[1].is_unique());
 }
 
 #[test]
@@ -473,9 +473,9 @@ fn initial_schema_plan_marks_required_unique_single_link_column() {
     let columns = profile.columns();
     assert_eq!(columns[1].name(), "user_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
-    assert_eq!(columns[1].is_primary_key(), false);
-    assert_eq!(columns[1].is_unique(), true);
+    assert!(!columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
+    assert!(columns[1].is_unique());
 
     assert_eq!(profile.foreign_keys().len(), 1);
 
@@ -516,9 +516,9 @@ fn initial_schema_plan_marks_optional_unique_single_link_column() {
     let columns = profile.columns();
     assert_eq!(columns[1].name(), "user_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), true);
-    assert_eq!(columns[1].is_primary_key(), false);
-    assert_eq!(columns[1].is_unique(), true);
+    assert!(columns[1].is_nullable());
+    assert!(!columns[1].is_primary_key());
+    assert!(columns[1].is_unique());
 
     assert_eq!(profile.foreign_keys().len(), 1);
 
@@ -561,15 +561,15 @@ fn initial_schema_plan_creates_multi_link_join_table() {
     let columns = user_posts.columns();
     assert_eq!(columns[0].name(), "source_id");
     assert_eq!(columns[0].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[0].is_nullable(), false);
+    assert!(!columns[0].is_nullable());
 
     assert_eq!(columns[1].name(), "target_id");
     assert_eq!(columns[1].affinity(), SQLiteAffinity::Text);
-    assert_eq!(columns[1].is_nullable(), false);
+    assert!(!columns[1].is_nullable());
 
     assert_eq!(columns[2].name(), "position");
     assert_eq!(columns[2].affinity(), SQLiteAffinity::Integer);
-    assert_eq!(columns[2].is_nullable(), true);
+    assert!(columns[2].is_nullable());
 
     let primary_key = user_posts
         .primary_key()
@@ -668,8 +668,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[0].cardinality(), Cardinality::Required);
     assert_eq!(rows[0].scalar_type(), Some(ScalarType::Uuid));
     assert_eq!(rows[0].target_object_id(), None);
-    assert_eq!(rows[0].is_implicit(), true);
-    assert_eq!(rows[0].is_unique(), false);
+    assert!(rows[0].is_implicit());
+    assert!(!rows[0].is_unique());
 
     assert_eq!(rows[1].object_id(), 1);
     assert_eq!(rows[1].field_id(), 2);
@@ -678,8 +678,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[1].cardinality(), Cardinality::Required);
     assert_eq!(rows[1].scalar_type(), Some(ScalarType::Str));
     assert_eq!(rows[1].target_object_id(), None);
-    assert_eq!(rows[1].is_implicit(), false);
-    assert_eq!(rows[1].is_unique(), true);
+    assert!(!rows[1].is_implicit());
+    assert!(rows[1].is_unique());
 
     assert_eq!(rows[2].object_id(), 1);
     assert_eq!(rows[2].field_id(), 3);
@@ -688,8 +688,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[2].cardinality(), Cardinality::Many);
     assert_eq!(rows[2].scalar_type(), None);
     assert_eq!(rows[2].target_object_id(), Some(2));
-    assert_eq!(rows[2].is_implicit(), false);
-    assert_eq!(rows[2].is_unique(), false);
+    assert!(!rows[2].is_implicit());
+    assert!(!rows[2].is_unique());
 
     assert_eq!(rows[3].object_id(), 2);
     assert_eq!(rows[3].field_id(), 1);
@@ -698,8 +698,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[3].cardinality(), Cardinality::Required);
     assert_eq!(rows[3].scalar_type(), Some(ScalarType::Uuid));
     assert_eq!(rows[3].target_object_id(), None);
-    assert_eq!(rows[3].is_implicit(), true);
-    assert_eq!(rows[3].is_unique(), false);
+    assert!(rows[3].is_implicit());
+    assert!(!rows[3].is_unique());
 
     assert_eq!(rows[4].object_id(), 2);
     assert_eq!(rows[4].field_id(), 2);
@@ -708,8 +708,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[4].cardinality(), Cardinality::Required);
     assert_eq!(rows[4].scalar_type(), Some(ScalarType::Str));
     assert_eq!(rows[4].target_object_id(), None);
-    assert_eq!(rows[4].is_implicit(), false);
-    assert_eq!(rows[4].is_unique(), false);
+    assert!(!rows[4].is_implicit());
+    assert!(!rows[4].is_unique());
 
     assert_eq!(rows[5].object_id(), 2);
     assert_eq!(rows[5].field_id(), 3);
@@ -718,8 +718,8 @@ fn initial_schema_plan_records_catalog_field_rows() {
     assert_eq!(rows[5].cardinality(), Cardinality::Required);
     assert_eq!(rows[5].scalar_type(), None);
     assert_eq!(rows[5].target_object_id(), Some(1));
-    assert_eq!(rows[5].is_implicit(), false);
-    assert_eq!(rows[5].is_unique(), true);
+    assert!(!rows[5].is_implicit());
+    assert!(rows[5].is_unique());
 }
 
 #[test]
@@ -930,7 +930,7 @@ fn initial_schema_plan_creates_single_link_foreign_key_index() {
     assert_eq!(indexes[0].table_name(), "post");
     assert_eq!(indexes[0].column_names().len(), 1);
     assert_eq!(indexes[0].column_names()[0], "author_id");
-    assert_eq!(indexes[0].is_unique(), false);
+    assert!(!indexes[0].is_unique());
 }
 
 #[test]
@@ -964,11 +964,11 @@ fn initial_schema_plan_creates_multi_link_join_table_indexes() {
     assert_eq!(indexes[0].table_name(), "user__posts");
     assert_eq!(indexes[0].column_names().len(), 1);
     assert_eq!(indexes[0].column_names()[0], "source_id");
-    assert_eq!(indexes[0].is_unique(), false);
+    assert!(!indexes[0].is_unique());
 
     assert_eq!(indexes[1].name(), "user__posts__target_id_idx");
     assert_eq!(indexes[1].table_name(), "user__posts");
     assert_eq!(indexes[1].column_names().len(), 1);
     assert_eq!(indexes[1].column_names()[0], "target_id");
-    assert_eq!(indexes[1].is_unique(), false);
+    assert!(!indexes[1].is_unique());
 }
