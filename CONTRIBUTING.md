@@ -96,6 +96,78 @@ Before changing files for an issue:
 Do not treat a request to handle an issue as permission to edit files when the
 issue or conversation is still ambiguous. Clarify the intended scope first.
 
+## Example workflows
+
+Use these examples as starting points. If an issue gives different scope or
+acceptance criteria, follow the issue and explain the difference in the pull
+request.
+
+### Documentation-only issue
+
+1. Read the issue body and use the branch named in the issue.
+2. Check whether the change affects `CONTRIBUTING.md`, `AGENTS.md`,
+   `AI_POLICY.md`, `README.md`, `spec/`, or `plan/`.
+3. Update the relevant document.
+4. Run:
+
+   ```sh
+   git diff --check
+   ```
+
+5. If no code, examples, Cargo metadata, or documented command behavior changed,
+   do not run `cargo test --workspace`. State the reason in the pull request.
+6. Fill [.github/pull_request_template.md](.github/pull_request_template.md).
+
+### Query syntax change
+
+1. Read the issue, [spec/query.md](spec/query.md), and the relevant plan
+   document.
+2. Update [spec/query.md](spec/query.md) first if the syntax or meaning
+   changes.
+3. Update parser tests in `engine/query-parser`.
+4. Update AST, resolver, IR, planner, or SQL generation only if the new syntax
+   reaches those layers.
+5. Add pipeline tests in `tests/query-pipeline` only when cross-crate behavior
+   changes.
+6. Run focused tests first, then:
+
+   ```sh
+   cargo test --workspace
+   ```
+
+### Resolver behavior change
+
+1. Read the issue, [spec/query.md](spec/query.md), and [spec/ir.md](spec/ir.md).
+2. Confirm the parser already represents the syntax needed for the change.
+3. Update `engine/query-resolver`.
+4. Add resolver tests for success and failure paths.
+5. Update `engine/query-ir` only if the backend-independent meaning changes.
+6. Run the relevant resolver tests, then `cargo test --workspace`.
+
+### SQLite planning change
+
+1. Read [spec/ir.md](spec/ir.md),
+   [spec/storage-sqlite.md](spec/storage-sqlite.md), and
+   [spec/sqlite-query-plan.md](spec/sqlite-query-plan.md).
+2. Keep SQLite table, column, alias, and join decisions inside SQLite-specific
+   crates.
+3. Update `engine/sqlite-query-plan` or `engine/sqlite-query-sqlgen`.
+4. Add tests at the planning or SQL rendering layer.
+5. Add `tests/query-pipeline` coverage only if behavior across the full
+   pipeline changes.
+
+### AI-assisted change
+
+1. Read [AI_POLICY.md](AI_POLICY.md).
+2. Use AI output as a draft, not as authority.
+3. Verify the change against the relevant spec, plan, tests, and code.
+4. Disclose AI usage in the pull request template.
+5. Add the required commit trailer:
+
+   ```text
+   Assisted-by: Codex:gpt-5.5
+   ```
+
 ## Document changes
 
 Documentation changes should describe the actual repository state. Do not use
