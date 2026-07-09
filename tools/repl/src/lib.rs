@@ -12,13 +12,19 @@ pub struct ReplOptions {
     pub query: Option<String>,
 }
 
-pub fn run(options: ReplOptions) -> Result<(), ()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplError;
+
+type QueryExecutor<'a> =
+    dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String> + 'a;
+
+pub fn run(options: ReplOptions) -> Result<(), ReplError> {
     let catalog = build_development_schema();
 
     run_with_catalog(&catalog, options)
 }
 
-pub fn run_with_catalog(catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
+pub fn run_with_catalog(catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ReplError> {
     let mut runtime = ReplRuntime { executor: None };
 
     runtime.run(catalog, options)
@@ -27,8 +33,8 @@ pub fn run_with_catalog(catalog: &SchemaCatalog, options: ReplOptions) -> Result
 pub fn run_with_executor(
     catalog: &SchemaCatalog,
     options: ReplOptions,
-    executor: &mut dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String>,
-) -> Result<(), ()> {
+    executor: &mut QueryExecutor<'_>,
+) -> Result<(), ReplError> {
     let mut runtime = ReplRuntime {
         executor: Some(executor),
     };
@@ -37,8 +43,7 @@ pub fn run_with_executor(
 }
 
 struct ReplRuntime<'a> {
-    executor:
-        Option<&'a mut dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String>>,
+    executor: Option<&'a mut QueryExecutor<'a>>,
 }
 
 enum ReplLoopAction {
@@ -47,14 +52,14 @@ enum ReplLoopAction {
 }
 
 impl ReplRuntime<'_> {
-    fn run(&mut self, catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ()> {
+    fn run(&mut self, catalog: &SchemaCatalog, options: ReplOptions) -> Result<(), ReplError> {
         match options.query {
             Some(query_text) => self.inspect_query(catalog, &query_text, options.debug),
             None => self.run_repl(catalog, options.debug),
         }
     }
 
-    fn run_repl(&mut self, catalog: &SchemaCatalog, debug: bool) -> Result<(), ()> {
+    fn run_repl(&mut self, catalog: &SchemaCatalog, debug: bool) -> Result<(), ReplError> {
         run_repl(catalog, debug, self)
     }
 
@@ -63,13 +68,14 @@ impl ReplRuntime<'_> {
         catalog: &SchemaCatalog,
         query_text: &str,
         debug: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), ReplError> {
         let statement = compile_query(catalog, query_text, debug)?;
 
         match self.executor.as_deref_mut() {
             Some(executor) => {
                 let result = executor(&statement).map_err(|error| {
                     eprintln!("failed to execute query: {error}");
+                    ReplError
                 })?;
                 print_query_result(&result);
             }
@@ -80,7 +86,11 @@ impl ReplRuntime<'_> {
     }
 }
 
-fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>) -> Result<(), ()> {
+fn run_repl(
+    catalog: &SchemaCatalog,
+    debug: bool,
+    runtime: &mut ReplRuntime<'_>,
+) -> Result<(), ReplError> {
     println!("gelite repl");
     println!("Type a select query, or :quit / :exit to leave.");
     println!("Use balanced braces for multiline input.");
@@ -91,6 +101,7 @@ fn run_repl(catalog: &SchemaCatalog, debug: bool, runtime: &mut ReplRuntime<'_>)
 
     let mut editor = DefaultEditor::new().map_err(|error| {
         eprintln!("failed to initialize line editor: {error}");
+        ReplError
     })?;
     let mut pending = String::new();
     let mut interrupt_count = 0;
@@ -139,7 +150,7 @@ fn handle_repl_line(
     pending: &mut String,
     interrupt_count: &mut i32,
     line: String,
-) -> Result<ReplLoopAction, ()> {
+) -> Result<ReplLoopAction, ReplError> {
     *interrupt_count = 0;
 
     if pending.is_empty() && is_exit_command(line.trim()) {
@@ -174,13 +185,13 @@ fn handle_repl_read_error(
     error: ReadlineError,
     pending: &mut String,
     interrupt_count: &mut i32,
-) -> Result<ReplLoopAction, ()> {
+) -> Result<ReplLoopAction, ReplError> {
     match error {
         ReadlineError::Interrupted => handle_repl_interrupt(pending, interrupt_count),
         ReadlineError::Eof => Ok(ReplLoopAction::Break),
         error => {
             eprintln!("failed to read input: {error}");
-            Err(())
+            Err(ReplError)
         }
     }
 }
@@ -188,7 +199,7 @@ fn handle_repl_read_error(
 fn handle_repl_interrupt(
     pending: &mut String,
     interrupt_count: &mut i32,
-) -> Result<ReplLoopAction, ()> {
+) -> Result<ReplLoopAction, ReplError> {
     pending.clear();
     *interrupt_count += 1;
 
@@ -228,12 +239,12 @@ fn compile_query(
     catalog: &SchemaCatalog,
     query_text: &str,
     debug: bool,
-) -> Result<SQLiteSelectStatement, ()> {
+) -> Result<SQLiteSelectStatement, ReplError> {
     let query = match parse_select(query_text) {
         Ok(query) => query,
         Err(error) => {
             eprintln!("failed to parse query: {error:#?}");
-            return Err(());
+            return Err(ReplError);
         }
     };
 
@@ -251,7 +262,7 @@ fn compile_query(
         }
         Err(error) => {
             eprintln!("failed to resolve query: {error:#?}");
-            Err(())
+            Err(ReplError)
         }
     }
 }

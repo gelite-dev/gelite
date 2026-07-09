@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, process::ExitCode};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use clap::{Args, Parser, Subcommand};
 use gelite_commands::{SchemaPlanStatement, apply_schema, plan_schema};
@@ -152,10 +156,10 @@ fn run_repl_command(command: ReplCommand) -> Result<(), String> {
         }
         None => repl::run_with_catalog(&catalog, options),
     }
-    .map_err(|()| "gelite repl failed".to_string())
+    .map_err(|_| "gelite repl failed".to_string())
 }
 
-fn path_to_str(path: &PathBuf) -> Result<&str, String> {
+fn path_to_str(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
 }
