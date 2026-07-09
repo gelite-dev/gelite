@@ -19,15 +19,17 @@ Before starting work, read:
 
 When instructions conflict, use this priority:
 
-1. Repository documents: [AGENTS.md](AGENTS.md),
+1. Explicit maintainer constraints in the current conversation, such as
+   `review only`, `do not edit files`, `stop`, or a narrowed task scope.
+2. Repository documents: [AGENTS.md](AGENTS.md),
    [CONTRIBUTING.md](CONTRIBUTING.md), [AI_POLICY.md](AI_POLICY.md), and
    `.github` templates.
-2. The current issue's explicit instructions, including branch, scope, and
+3. The current issue's explicit instructions, including branch, scope, and
    acceptance criteria.
-3. Relevant `spec/` documents.
-4. Relevant `plan/` documents.
-5. The current conversation.
-6. Local implementation convenience.
+4. Relevant `spec/` documents.
+5. Relevant `plan/` documents.
+6. Other instructions in the current conversation.
+7. Local implementation convenience.
 
 If the current conversation is explicitly about changing repository guidance,
 use it as the basis for the document update and make the resulting rule clear
@@ -46,6 +48,12 @@ in the changed document.
   [CONTRIBUTING.md](CONTRIBUTING.md).
 - Follow [AI_POLICY.md](AI_POLICY.md) for pull request disclosure and commit
   trailers.
+
+## Reviewing changes
+
+Follow the repository-specific review rubric in
+[CONTRIBUTING.md](CONTRIBUTING.md#reviewing-changes). Report defects before
+summaries, ordered by severity and supported by file and line references.
 
 ## Reporting work
 

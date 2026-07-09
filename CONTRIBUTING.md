@@ -31,15 +31,17 @@ Use these files as the source of contribution rules:
 
 When instructions conflict, use this priority:
 
-1. Repository documents: [AGENTS.md](AGENTS.md),
+1. Explicit maintainer constraints for the current task, such as `review only`,
+   `do not edit files`, `stop`, or a narrowed task scope.
+2. Repository documents: [AGENTS.md](AGENTS.md),
    [CONTRIBUTING.md](CONTRIBUTING.md), [AI_POLICY.md](AI_POLICY.md), and
    `.github` templates.
-2. The current issue's explicit instructions, including branch, scope, and
+3. The current issue's explicit instructions, including branch, scope, and
    acceptance criteria.
-3. Relevant `spec/` documents.
-4. Relevant `plan/` documents.
-5. The current conversation.
-6. Local implementation convenience.
+4. Relevant `spec/` documents.
+5. Relevant `plan/` documents.
+6. Other instructions for the current task.
+7. Local implementation convenience.
 
 If the current conversation is explicitly about changing repository guidance,
 use it as the basis for the document update and make the resulting rule clear
@@ -384,6 +386,23 @@ Every crate should have crate-level `//!` docs that state its responsibility and
 non-goals. Public types and functions should be documented when they define a
 layer contract, invariant, error condition, or non-obvious behavior. Do not add
 noise documentation to simple getters.
+
+## Reviewing changes
+
+Prioritize defects, behavioral regressions, and missing tests over summaries or
+style preferences. Review repository-specific risks first:
+
+- mismatches with the relevant `spec/` documents
+- crate boundary leaks, especially backend-specific decisions outside SQLite
+  crates
+- incorrect type, cardinality, resolver, or planner behavior
+- happy-path-only handling that omits supported failure cases
+- unclear ownership hidden by plausible names or abstractions
+- tests that assert output shape without checking the semantic contract
+- abstractions introduced before there are at least two concrete users
+
+Report findings in severity order with file and line references. If no defect
+is found, say so and identify remaining test gaps or assumptions.
 
 ## Validation
 
