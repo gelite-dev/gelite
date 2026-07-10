@@ -23,6 +23,23 @@ fn lexer_can_tokenize_select_shape() {
 }
 
 #[test]
+fn lexer_can_tokenize_insert_assignment() {
+    let tokens =
+        lex("insert User { name := \"Sheri\" }").expect("insert query should lex");
+
+    match tokens[0].kind() {
+        TokenKind::Keyword(keyword) => assert_eq!(keyword.as_str(), "insert"),
+        token_kind => panic!("expected insert keyword, got {token_kind:?}"),
+    }
+    assert_eq!(tokens[1].kind(), &TokenKind::Ident("User".to_string()));
+    assert_eq!(tokens[2].kind(), &TokenKind::LBrace);
+    assert_eq!(tokens[3].kind(), &TokenKind::Ident("name".to_string()));
+    assert_eq!(tokens[4].kind(), &TokenKind::ColonEq);
+    assert_eq!(tokens[5].kind(), &TokenKind::String("Sheri".to_string()));
+    assert_eq!(tokens[6].kind(), &TokenKind::RBrace);
+}
+
+#[test]
 fn lexer_tracks_line_and_column_for_tokens() {
     let tokens = lex("select Post {\n  title\n}").expect("query should lex");
     let title_span = tokens[3].span();
