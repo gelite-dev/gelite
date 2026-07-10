@@ -133,6 +133,12 @@ author_id TEXT NULL REFERENCES user(id)
 
 `required link author: User` becomes `NOT NULL`.
 
+For an MVP insert, a declared single-link assignment writes the related object
+id to this `<field>_id` column. The temporary query-language string-literal
+link shorthand is bound as a SQLite `TEXT` value; it is not stored as a nested
+object or as a value in a join table. An optional single-link `null` assignment
+writes SQLite `NULL`.
+
 ## Multi Relation Mapping
 
 Multi relations use a dedicated join table named:
@@ -177,6 +183,13 @@ Every object row has:
 The runtime is responsible for generating UUID values during insert when the
 query inserts a new object. The schema language and query language do not
 expose user control over identity definition in the MVP.
+
+The runner binds the generated id as the `id` column value in the same prepared
+`INSERT` statement as user-provided scalar and single-link values, then returns
+that generated id to its caller. SQLite constraint failures, including missing
+required values and invalid foreign-key targets when foreign keys are enabled,
+are execution errors; semantic validation remains responsible for the query
+language's field, cardinality, and literal-type rules.
 
 ## Internal Metadata Tables
 

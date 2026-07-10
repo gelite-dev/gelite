@@ -482,7 +482,7 @@ insert User {
 ```text
 insert_stmt     := "insert" type_ref object_literal
 object_literal  := "{" assign_item* "}"
-assign_item     := IDENT ":=" value_expr ","?
+assign_item     := IDENT ":=" literal ","?
 ```
 
 ### Insert Semantics
@@ -491,11 +491,23 @@ assign_item     := IDENT ":=" value_expr ","?
 - Assignments may target declared scalar fields and declared single relation
   fields only.
 - Required scalar fields must be supplied unless a built-in default exists.
+- Required single relation fields must be supplied unless a built-in default
+  exists.
 - Optional scalar fields may be omitted.
+- Optional single relation fields may be omitted.
 - Assigning `id` is not allowed.
-- Single relation fields may be assigned by target object id only in the MVP.
+- Scalar assignment literals must match the declared scalar type. `null` is
+  accepted only for optional scalar fields.
+- A single relation assignment accepts a string literal as a temporary MVP
+  object-id shorthand. It does not accept a scalar value of another kind.
+- `null` is accepted only for optional single relation fields.
 - Multi relation inserts are deferred from the first execution milestone.
 - Relation assignments must target declared `link` fields.
+
+The temporary string-literal relation shorthand is an execution-scope
+convenience, not a general object-expression feature. Nested inserts,
+subqueries, and object-valued assignment expressions remain unsupported until
+a later mutation design replaces or extends this syntax.
 
 Allowed single relation insert example:
 
