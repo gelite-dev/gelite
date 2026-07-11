@@ -1,7 +1,4 @@
-#[path = "fixtures.rs"]
-mod fixtures;
-
-use self::fixtures::{
+use super::fixtures::{
     assert_and_expr, assert_arithmetic_expr, assert_compare_expr, assert_literal_expr,
     assert_not_expr, assert_or_expr, assert_path_expr, assert_unary_arithmetic_expr,
 };

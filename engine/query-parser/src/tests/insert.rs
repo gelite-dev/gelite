@@ -1,6 +1,3 @@
-#[path = "fixtures.rs"]
-mod fixtures;
-
 use crate::{LexErrorKind, ParseErrorKind, TokenKind, lex, parse_insert};
 use alloc::string::ToString;
 use query_ast::Literal;
