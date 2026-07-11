@@ -1,9 +1,42 @@
 use crate::{
-    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, FunctionCallExpr, InExpr, InOp,
-    Literal, OrderDirection, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
+    ArithmeticExpr, ArithmeticOp, Assignment, CompareExpr, CompareOp, Expr, FunctionCallExpr,
+    InExpr, InOp, InsertQuery, Literal, OrderDirection, OrderExpr, Path, PathStep, SelectQuery,
+    Shape, ShapeItem,
 };
 use alloc::string::ToString;
 use alloc::vec;
+
+#[test]
+fn assignment_can_store_field_name_and_literal_value() {
+    let assignment = Assignment::new("name", Literal::String("Sheri".to_string()));
+
+    assert_eq!(assignment.field_name(), "name");
+    assert_eq!(assignment.value(), &Literal::String("Sheri".to_string()));
+}
+
+#[test]
+fn insert_query_can_store_root_type_and_assignments_in_definition_order() {
+    let query = InsertQuery::new(
+        "User",
+        vec![
+            Assignment::new("name", Literal::String("Sheri".to_string())),
+            Assignment::new("email", Literal::String("sheri@example.com".to_string())),
+        ],
+    );
+
+    assert_eq!(query.root_type_name(), "User");
+    assert_eq!(query.assignments().len(), 2);
+    assert_eq!(query.assignments()[0].field_name(), "name");
+    assert_eq!(
+        query.assignments()[0].value(),
+        &Literal::String("Sheri".to_string())
+    );
+    assert_eq!(query.assignments()[1].field_name(), "email");
+    assert_eq!(
+        query.assignments()[1].value(),
+        &Literal::String("sheri@example.com".to_string())
+    );
+}
 
 #[test]
 fn select_query_can_store_root_type_name() {
