@@ -114,6 +114,11 @@ pub fn user_with_posts_catalog() -> SchemaCatalog {
             "User",
             vec![
                 Field::Scalar(ScalarField::new(
+                    "name",
+                    ScalarType::Str,
+                    schema_model::SingleCardinality::Required,
+                )),
+                Field::Scalar(ScalarField::new(
                     "email",
                     ScalarType::Str,
                     schema_model::SingleCardinality::Required,
