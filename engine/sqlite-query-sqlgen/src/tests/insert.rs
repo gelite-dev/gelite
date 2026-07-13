@@ -1,0 +1,1 @@
+//! Insert SQL generation tests.
