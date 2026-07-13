@@ -1,14 +1,14 @@
 #![no_std]
-//! SQL renderer for SQLite select plans.
+//! SQL renderer for SQLite query plans.
 //!
 //! This crate serializes `sqlite-query-plan` structures into SQL text and bind
 //! values. It does not resolve schema names, choose joins, or inspect query AST
 //! nodes. Those responsibilities belong to earlier compiler stages.
 //!
-//! The renderer currently emits `SELECT`, `FROM`, `JOIN`, `WHERE`, `ORDER BY`,
-//! `LIMIT`, and `OFFSET` clauses for the select subset implemented by
-//! `sqlite-query-plan`. Literal values are emitted as bind placeholders instead of
-//! being interpolated into SQL strings.
+//! The renderer currently emits select statements and literal-only insert
+//! statements for the subsets implemented by `sqlite-query-plan`. Literal
+//! values are emitted as bind placeholders instead of being interpolated into
+//! SQL strings.
 
 extern crate alloc;
 
@@ -17,9 +17,9 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
-    SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteStringFunctionKind,
-    SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteGeneratedIdStrategy, SQLiteInOp,
+    SQLiteInsertPlan, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan,
+    SQLiteStringFunctionKind, SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -62,6 +62,33 @@ pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelect
 
     SQLiteSelectStatement {
         sql: clauses.join(" "),
+        bind_values,
+    }
+}
+
+/// Renders a structured SQLite insert plan with a runtime-generated object id.
+pub fn render_insert(plan: &SQLiteInsertPlan, generated_id: &str) -> SQLiteInsertStatement {
+    let mut columns = vec![quote_identifier(plan.root_target().id_column())];
+    let mut placeholders = vec!["?".to_string()];
+    let mut bind_values = match plan.generated_id_strategy() {
+        SQLiteGeneratedIdStrategy::RuntimeUuid => {
+            vec![SQLiteBindValue::String(generated_id.to_string())]
+        }
+    };
+
+    for assignment in plan.assignments() {
+        columns.push(quote_identifier(assignment.column_name()));
+        placeholders.push("?".to_string());
+        bind_values.push(bind_value_from_literal(assignment.value()));
+    }
+
+    SQLiteInsertStatement {
+        sql: format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            quote_identifier(plan.root_target().table_name()),
+            columns.join(", "),
+            placeholders.join(", ")
+        ),
         bind_values,
     }
 }
@@ -311,15 +338,19 @@ fn render_str_value_expr(
 }
 
 fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue>) -> String {
-    match literal {
-        SQLiteLiteral::String(value) => bind_values.push(SQLiteBindValue::String(value.clone())),
-        SQLiteLiteral::Int64(value) => bind_values.push(SQLiteBindValue::Int64(*value)),
-        SQLiteLiteral::Float64(value) => bind_values.push(SQLiteBindValue::Float64(*value)),
-        SQLiteLiteral::Bool(value) => bind_values.push(SQLiteBindValue::Bool(*value)),
-        SQLiteLiteral::Null => bind_values.push(SQLiteBindValue::Null),
-    }
+    bind_values.push(bind_value_from_literal(literal));
 
     "?".to_string()
+}
+
+fn bind_value_from_literal(literal: &SQLiteLiteral) -> SQLiteBindValue {
+    match literal {
+        SQLiteLiteral::String(value) => SQLiteBindValue::String(value.clone()),
+        SQLiteLiteral::Int64(value) => SQLiteBindValue::Int64(*value),
+        SQLiteLiteral::Float64(value) => SQLiteBindValue::Float64(*value),
+        SQLiteLiteral::Bool(value) => SQLiteBindValue::Bool(*value),
+        SQLiteLiteral::Null => SQLiteBindValue::Null,
+    }
 }
 
 fn render_order_clause(
@@ -375,6 +406,22 @@ impl SQLiteSelectStatement {
         }
     }
 
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    pub fn bind_values(&self) -> &[SQLiteBindValue] {
+        &self.bind_values
+    }
+}
+
+/// Rendered SQLite insert statement and its ordered bind values.
+pub struct SQLiteInsertStatement {
+    sql: String,
+    bind_values: Vec<SQLiteBindValue>,
+}
+
+impl SQLiteInsertStatement {
     pub fn sql(&self) -> &str {
         &self.sql
     }
