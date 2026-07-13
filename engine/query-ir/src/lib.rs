@@ -10,9 +10,9 @@
 //! crates such as `sqlite-query-plan` must be able to lower the IR without looking
 //! back at raw query text.
 //!
-//! The implemented subset currently represents `select` queries. Insert,
-//! update, and delete are part of the MVP query spec but are deferred until the
-//! select pipeline is stable.
+//! The implemented subset currently represents `select` and `insert` queries.
+//! Update and delete are part of the MVP query spec but are deferred until the
+//! existing query pipelines are stable.
 
 extern crate alloc;
 
@@ -76,6 +76,34 @@ impl SelectQuery {
 
     pub fn shape(&self) -> &ResolvedShape {
         &self.shape
+    }
+}
+
+/// Resolved insert query.
+///
+/// The target object and every assigned field are stable schema references.
+/// Assignments retain source order and contain values already checked against
+/// field type, nullability, and link-cardinality rules by the resolver.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertQuery {
+    root_object_type: ObjectTypeRef,
+    assignments: Vec<Assignment>,
+}
+
+impl InsertQuery {
+    pub fn new(root_object_type: ObjectTypeRef, assignments: Vec<Assignment>) -> Self {
+        Self {
+            root_object_type,
+            assignments,
+        }
+    }
+
+    pub fn root_object_type(&self) -> &ObjectTypeRef {
+        &self.root_object_type
+    }
+
+    pub fn assignments(&self) -> &[Assignment] {
+        &self.assignments
     }
 }
 
@@ -669,12 +697,36 @@ pub enum Literal {
     Null,
 }
 
+/// One resolved field assignment in an insert query.
+///
+/// `field` identifies the destination schema field. `value` distinguishes
+/// stored scalar expressions from single-link object identifiers and explicit
+/// nulls so backend planners do not need to infer mutation semantics again.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Assignment {
     field: FieldRef,
     value: AssignmentValue,
 }
 
+impl Assignment {
+    pub fn new(field: FieldRef, value: AssignmentValue) -> Self {
+        Self { field, value }
+    }
+
+    pub fn field(&self) -> &FieldRef {
+        &self.field
+    }
+
+    pub fn value(&self) -> &AssignmentValue {
+        &self.value
+    }
+}
+
+/// Value forms supported by the literal-only insert IR.
+///
+/// Scalar literals reuse [`ValueExpr`] so scalar representation remains shared
+/// with the select pipeline. A link identifier is kept distinct from a scalar
+/// string, while `Null` represents an explicitly assigned optional value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssignmentValue {
     Scalar(ValueExpr),
