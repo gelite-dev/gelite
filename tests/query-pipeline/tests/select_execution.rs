@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sqlite_query_sqlgen::{SQLiteBindValue, SQLiteSelectStatement, render_select};
+use sqlite_query_sqlgen::{SQLiteBindValue, SQLiteSelectStatement, render_insert, render_select};
 use sqlite_runner::{
     SQLiteCellValue, SQLiteQueryResult, SQLiteRunner, apply_schema_statements,
     native::NativeSQLiteRunner,
@@ -67,81 +67,78 @@ fn setup_blog_database() -> NativeSQLiteRunner {
     apply_schema_statements(&mut runner, &schema_statements)
         .expect("schema statements should apply");
 
-    insert_blog_fixture_rows(&mut runner);
+    insert_blog_fixture_rows(&mut runner, &catalog);
 
     runner
 }
 
-fn insert_blog_fixture_rows(runner: &mut NativeSQLiteRunner) {
-    // Temporary fixture setup: Gelite does not have an insert pipeline yet.
-    // Replace these raw SQL inserts with Gelite insert statements once insert
-    // parsing, resolution, planning, and execution exist.
-    runner
-        .execute_with_values(
-            "INSERT INTO user (id, email, score, best_friend_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("user-3".to_string()),
-                SQLiteValuePlan::Text("carol@example.com".to_string()),
-                SQLiteValuePlan::Integer(50),
-                SQLiteValuePlan::Null,
-            ],
-        )
-        .expect("third user fixture row should insert");
-    runner
-        .execute_with_values(
-            "INSERT INTO user (id, email, score, best_friend_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("user-2".to_string()),
-                SQLiteValuePlan::Text("blocked@example.com".to_string()),
-                SQLiteValuePlan::Integer(0),
-                SQLiteValuePlan::Text("user-3".to_string()),
-            ],
-        )
-        .expect("second user fixture row should insert");
-    runner
-        .execute_with_values(
-            "INSERT INTO user (id, email, score, best_friend_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("user-1".to_string()),
-                SQLiteValuePlan::Text("alice@example.com".to_string()),
-                SQLiteValuePlan::Integer(100),
-                SQLiteValuePlan::Text("user-2".to_string()),
-            ],
-        )
-        .expect("first user fixture row should insert");
-    runner
-        .execute_with_values(
-            "INSERT INTO post (id, title, view_count, author_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("post-1".to_string()),
-                SQLiteValuePlan::Text("Draft".to_string()),
-                SQLiteValuePlan::Integer(5),
-                SQLiteValuePlan::Text("user-1".to_string()),
-            ],
-        )
-        .expect("draft post fixture row should insert");
-    runner
-        .execute_with_values(
-            "INSERT INTO post (id, title, view_count, author_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("post-2".to_string()),
-                SQLiteValuePlan::Text("Published".to_string()),
-                SQLiteValuePlan::Integer(20),
-                SQLiteValuePlan::Text("user-1".to_string()),
-            ],
-        )
-        .expect("published post fixture row should insert");
-    runner
-        .execute_with_values(
-            "INSERT INTO post (id, title, view_count, author_id) VALUES (?, ?, ?, ?)",
-            &[
-                SQLiteValuePlan::Text("post-3".to_string()),
-                SQLiteValuePlan::Text("Archived".to_string()),
-                SQLiteValuePlan::Integer(100),
-                SQLiteValuePlan::Text("user-2".to_string()),
-            ],
-        )
-        .expect("archived post fixture row should insert");
+fn insert_blog_fixture_rows(
+    runner: &mut NativeSQLiteRunner,
+    catalog: &schema_model::SchemaCatalog,
+) {
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert User {
+            email := "carol@example.com",
+            score := 50,
+            best_friend := null,
+        }"#,
+        "user-3",
+    );
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert User {
+            email := "blocked@example.com",
+            score := 0,
+            best_friend := "user-3",
+        }"#,
+        "user-2",
+    );
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert User {
+            email := "alice@example.com",
+            score := 100,
+            best_friend := "user-2",
+        }"#,
+        "user-1",
+    );
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert Post {
+            title := "Draft",
+            view_count := 5,
+            author := "user-1",
+        }"#,
+        "post-1",
+    );
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert Post {
+            title := "Published",
+            view_count := 20,
+            author := "user-1",
+        }"#,
+        "post-2",
+    );
+    execute_insert(
+        runner,
+        catalog,
+        r#"insert Post {
+            title := "Archived",
+            view_count := 100,
+            author := "user-2",
+        }"#,
+        "post-3",
+    );
+
+    // Multi-link mutation syntax is outside the first insert milestone, so the
+    // join-table fixture rows remain explicit storage setup for select tests.
     runner
         .execute_with_values(
             "INSERT INTO user__posts (source_id, target_id, position) VALUES (?, ?, ?)",
@@ -162,6 +159,22 @@ fn insert_blog_fixture_rows(runner: &mut NativeSQLiteRunner) {
             ],
         )
         .expect("second multi-link fixture row should insert");
+}
+
+fn execute_insert(
+    runner: &mut NativeSQLiteRunner,
+    catalog: &schema_model::SchemaCatalog,
+    source: &str,
+    generated_id: &str,
+) {
+    let ast = query_parser::parse_insert(source).expect("fixture insert should parse");
+    let ir = query_resolver::resolve_insert(catalog, &ast).expect("fixture insert should resolve");
+    let plan = sqlite_query_plan::plan_insert(&ir);
+    let statement = render_insert(&plan, generated_id);
+
+    runner
+        .execute_insert(&statement)
+        .expect("fixture insert should execute");
 }
 
 fn render_query(source: &str) -> SQLiteSelectStatement {
