@@ -1367,17 +1367,63 @@ fn resolve_order_expr(
 /// callers can distinguish syntax failures from schema or type failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveError {
-    UnknownObjectType { name: String },
-    UnknownField { object_type: String, field: String },
-    NestedShapeOnScalarField { object_type: String, field: String },
-    MissingShapeOnLinkField { object_type: String, field: String },
+    UnknownObjectType {
+        name: String,
+    },
+    UnknownField {
+        object_type: String,
+        field: String,
+    },
+    NestedShapeOnScalarField {
+        object_type: String,
+        field: String,
+    },
+    MissingShapeOnLinkField {
+        object_type: String,
+        field: String,
+    },
     UnsupportedPath,
-    UnsupportedExpr { expr_type: String },
-    UnsupportedLiteral { literal: String },
-    IncompatibleOperandTypes { expected: String, actual: String },
-    NonNumericArithmeticOperand { actual: String },
-    NullComparisonOnNonOptionalPath { cardinality: String },
-    DuplicateOutputName { name: String },
+    UnsupportedExpr {
+        expr_type: String,
+    },
+    UnsupportedLiteral {
+        literal: String,
+    },
+    IncompatibleOperandTypes {
+        expected: String,
+        actual: String,
+    },
+    NonNumericArithmeticOperand {
+        actual: String,
+    },
+    NullComparisonOnNonOptionalPath {
+        cardinality: String,
+    },
+    DuplicateOutputName {
+        name: String,
+    },
+    AssignmentToImplicitField {
+        object_type: String,
+        field: String,
+    },
+    IncompatibleAssignmentType {
+        object_type: String,
+        field: String,
+        expected: String,
+        actual: String,
+    },
+    NullAssignmentToRequiredField {
+        object_type: String,
+        field: String,
+    },
+    MissingRequiredField {
+        object_type: String,
+        field: String,
+    },
+    MultiLinkAssignmentUnsupported {
+        object_type: String,
+        field: String,
+    },
 }
 
 #[cfg(test)]
