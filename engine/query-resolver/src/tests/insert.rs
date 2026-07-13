@@ -217,7 +217,10 @@ fn resolves_insert_null_for_optional_scalar() {
 
     assert_eq!(assignments.len(), 1);
     assert_eq!(assignments[0].field().name(), "nickname");
-    assert_eq!(assignments[0].value(), &query_ir::AssignmentValue::Null);
+    assert_eq!(
+        assignments[0].value(),
+        &query_ir::AssignmentValue::ScalarNull
+    );
 }
 
 #[test]
@@ -231,7 +234,7 @@ fn resolves_insert_null_for_optional_single_link() {
 
     assert_eq!(assignments.len(), 1);
     assert_eq!(assignments[0].field().name(), "author");
-    assert_eq!(assignments[0].value(), &query_ir::AssignmentValue::Null);
+    assert_eq!(assignments[0].value(), &query_ir::AssignmentValue::LinkNull);
 }
 
 #[test]

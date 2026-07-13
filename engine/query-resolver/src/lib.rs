@@ -218,7 +218,7 @@ fn resolve_insert_scalar_value(
     // value expressions.
     match literal {
         query_ast::Literal::Null => match field.cardinality() {
-            schema_model::Cardinality::Optional => Ok(query_ir::AssignmentValue::Null),
+            schema_model::Cardinality::Optional => Ok(query_ir::AssignmentValue::ScalarNull),
             schema_model::Cardinality::Required => {
                 Err(ResolveError::NullAssignmentToRequiredField {
                     object_type: root_object_type.name().to_string(),
@@ -270,7 +270,7 @@ fn resolve_insert_link_value(
         // Optional links may be cleared explicitly. Required links reject null
         // with the same required-field rule used for scalar assignments.
         query_ast::Literal::Null => match link.cardinality() {
-            schema_model::Cardinality::Optional => Ok(query_ir::AssignmentValue::Null),
+            schema_model::Cardinality::Optional => Ok(query_ir::AssignmentValue::LinkNull),
             schema_model::Cardinality::Required => {
                 Err(ResolveError::NullAssignmentToRequiredField {
                     object_type: root_object_type.name().to_string(),

@@ -74,14 +74,16 @@ fn resolved_assignment_can_store_supported_value_kinds() {
         post_author_field(),
         AssignmentValue::LinkId("00000000-0000-0000-0000-000000000001".to_string()),
     );
-    let null = Assignment::new(post_subtitle_field(), AssignmentValue::Null);
+    let scalar_null = Assignment::new(post_subtitle_field(), AssignmentValue::ScalarNull);
+    let link_null = Assignment::new(post_author_field(), AssignmentValue::LinkNull);
 
     assert!(matches!(
         scalar.value(),
         AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(_)))
     ));
     assert!(matches!(link_id.value(), AssignmentValue::LinkId(_)));
-    assert_eq!(null.value(), &AssignmentValue::Null);
+    assert_eq!(scalar_null.value(), &AssignmentValue::ScalarNull);
+    assert_eq!(link_null.value(), &AssignmentValue::LinkNull);
 }
 
 #[test]

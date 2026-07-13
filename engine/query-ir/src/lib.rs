@@ -726,12 +726,14 @@ impl Assignment {
 ///
 /// Scalar literals reuse [`ValueExpr`] so scalar representation remains shared
 /// with the select pipeline. A link identifier is kept distinct from a scalar
-/// string, while `Null` represents an explicitly assigned optional value.
+/// string. Scalar and link nulls remain distinct so backend planners can choose
+/// the correct physical column without consulting the schema catalog again.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssignmentValue {
     Scalar(ValueExpr),
     LinkId(String),
-    Null,
+    ScalarNull,
+    LinkNull,
 }
 
 #[cfg(test)]
