@@ -669,5 +669,18 @@ pub enum Literal {
     Null,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assignment {
+    field: FieldRef,
+    value: AssignmentValue,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignmentValue {
+    Scalar(ValueExpr),
+    LinkId(String),
+    Null,
+}
+
 #[cfg(test)]
 mod tests;

@@ -142,6 +142,174 @@ pub fn user_with_posts_catalog() -> SchemaCatalog {
     .expect("user-with-posts schema catalog should be valid")
 }
 
+pub fn user_with_only_multi_posts_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![
+        ObjectType::new("Post", vec![]),
+        ObjectType::new(
+            "User",
+            vec![Field::Link(LinkField::new(
+                "posts",
+                "Post",
+                schema_model::Cardinality::Many,
+            ))],
+        ),
+    ])
+    .expect("user-with-only-multi-posts schema catalog should be valid")
+}
+
+pub fn user_only_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new("User", vec![])])
+        .expect("user-only schema catalog should be valid")
+}
+
+pub fn user_with_required_name_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![Field::Scalar(ScalarField::new(
+            "name",
+            ScalarType::Str,
+            schema_model::SingleCardinality::Required,
+        ))],
+    )])
+    .expect("user-with-required-name schema catalog should be valid")
+}
+
+pub fn user_with_required_name_and_email_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "email",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+        ],
+    )])
+    .expect("user-with-required-name-and-email schema catalog should be valid")
+}
+
+pub fn insert_scalar_types_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![
+            Field::Scalar(ScalarField::new(
+                "name",
+                ScalarType::Str,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "alive",
+                ScalarType::Bool,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "number",
+                ScalarType::Int64,
+                schema_model::SingleCardinality::Required,
+            )),
+            Field::Scalar(ScalarField::new(
+                "weight",
+                ScalarType::Float64,
+                schema_model::SingleCardinality::Required,
+            )),
+        ],
+    )])
+    .expect("insert-scalar-types schema catalog should be valid")
+}
+
+pub fn user_with_required_uuid_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![Field::Scalar(ScalarField::new(
+            "external_id",
+            ScalarType::Uuid,
+            schema_model::SingleCardinality::Required,
+        ))],
+    )])
+    .expect("user-with-required-uuid schema catalog should be valid")
+}
+
+pub fn event_with_required_datetime_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "Event",
+        vec![Field::Scalar(ScalarField::new(
+            "starts_at",
+            ScalarType::DateTime,
+            schema_model::SingleCardinality::Required,
+        ))],
+    )])
+    .expect("event-with-required-datetime schema catalog should be valid")
+}
+
+pub fn post_with_only_required_author_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![
+        ObjectType::new("User", vec![]),
+        ObjectType::new(
+            "Post",
+            vec![Field::Link(LinkField::new(
+                "author",
+                "User",
+                schema_model::Cardinality::Required,
+            ))],
+        ),
+    ])
+    .expect("post-with-only-required-author schema catalog should be valid")
+}
+
+pub fn user_with_optional_nickname_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![ObjectType::new(
+        "User",
+        vec![Field::Scalar(ScalarField::new(
+            "nickname",
+            ScalarType::Str,
+            schema_model::SingleCardinality::Optional,
+        ))],
+    )])
+    .expect("user-with-optional-nickname schema catalog should be valid")
+}
+
+pub fn post_with_optional_author_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![
+        ObjectType::new("User", vec![]),
+        ObjectType::new(
+            "Post",
+            vec![Field::Link(LinkField::new(
+                "author",
+                "User",
+                schema_model::Cardinality::Optional,
+            ))],
+        ),
+    ])
+    .expect("post-with-optional-author schema catalog should be valid")
+}
+
+pub fn profile_with_optional_fields_catalog() -> SchemaCatalog {
+    SchemaCatalog::try_new(vec![
+        ObjectType::new("User", vec![]),
+        ObjectType::new(
+            "Profile",
+            vec![
+                Field::Scalar(ScalarField::new(
+                    "nickname",
+                    ScalarType::Str,
+                    schema_model::SingleCardinality::Optional,
+                )),
+                Field::Link(LinkField::new(
+                    "owner",
+                    "User",
+                    schema_model::Cardinality::Optional,
+                )),
+            ],
+        ),
+    ])
+    .expect("profile-with-optional-fields schema catalog should be valid")
+}
+
 pub fn path_expr(path: &[&str]) -> Expr {
     Expr::Path(Path::new(path.iter().copied().map(PathStep::new).collect()))
 }
