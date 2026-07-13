@@ -1,11 +1,11 @@
 mod fixtures;
 
 use crate::{
-    ArithmeticExpr, ArithmeticOp, CastExpr, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal,
-    OrderDirection, OrderExpr, ResolvedComputedField, ResolvedPath, ResolvedPathError,
-    ResolvedPathStep, ResolvedPathStepKind, ResolvedShape, ResolvedShapeField, ResolvedShapeItem,
-    SelectQuery, StringFunctionArg, StringFunctionExpr, StringFunctionKind, UnaryArithmeticExpr,
-    UnaryArithmeticOp, ValueExpr,
+    ArithmeticExpr, ArithmeticOp, Assignment, AssignmentValue, CastExpr, CompareExpr, CompareOp,
+    Expr, InExpr, InOp, InsertQuery, Literal, OrderDirection, OrderExpr, ResolvedComputedField,
+    ResolvedPath, ResolvedPathError, ResolvedPathStep, ResolvedPathStepKind, ResolvedShape,
+    ResolvedShapeField, ResolvedShapeItem, SelectQuery, StringFunctionArg, StringFunctionExpr,
+    StringFunctionKind, UnaryArithmeticExpr, UnaryArithmeticOp, ValueExpr,
 };
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -26,6 +26,62 @@ fn resolved_select_query_can_store_root_object_type() {
 
     assert_eq!(query.root_object_type().id(), ObjectTypeId::new(1));
     assert_eq!(query.root_object_type().name(), "Post");
+}
+
+#[test]
+fn resolved_insert_query_can_store_root_object_type() {
+    let query = InsertQuery::new(post_type(), vec![]);
+
+    assert_eq!(query.root_object_type().id(), ObjectTypeId::new(1));
+    assert_eq!(query.root_object_type().name(), "Post");
+    assert!(query.assignments().is_empty());
+}
+
+#[test]
+fn resolved_insert_query_preserves_assignment_order() {
+    let query = InsertQuery::new(
+        post_type(),
+        vec![
+            Assignment::new(
+                post_title_field(),
+                AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(
+                    "The Witch Trial".to_string(),
+                ))),
+            ),
+            Assignment::new(
+                post_author_field(),
+                AssignmentValue::LinkId("00000000-0000-0000-0000-000000000001".to_string()),
+            ),
+        ],
+    );
+
+    let assignments = query.assignments();
+
+    assert_eq!(assignments.len(), 2);
+    assert_eq!(assignments[0].field().name(), "title");
+    assert_eq!(assignments[1].field().name(), "author");
+}
+
+#[test]
+fn resolved_assignment_can_store_supported_value_kinds() {
+    let scalar = Assignment::new(
+        post_title_field(),
+        AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(
+            "00000000-0000-0000-0000-000000000001".to_string(),
+        ))),
+    );
+    let link_id = Assignment::new(
+        post_author_field(),
+        AssignmentValue::LinkId("00000000-0000-0000-0000-000000000001".to_string()),
+    );
+    let null = Assignment::new(post_subtitle_field(), AssignmentValue::Null);
+
+    assert!(matches!(
+        scalar.value(),
+        AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(_)))
+    ));
+    assert!(matches!(link_id.value(), AssignmentValue::LinkId(_)));
+    assert_eq!(null.value(), &AssignmentValue::Null);
 }
 
 #[test]
