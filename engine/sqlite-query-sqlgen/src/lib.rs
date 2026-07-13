@@ -422,6 +422,13 @@ pub struct SQLiteInsertStatement {
 }
 
 impl SQLiteInsertStatement {
+    pub fn new(sql: impl Into<String>, bind_values: Vec<SQLiteBindValue>) -> Self {
+        Self {
+            sql: sql.into(),
+            bind_values,
+        }
+    }
+
     pub fn sql(&self) -> &str {
         &self.sql
     }
