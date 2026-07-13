@@ -118,7 +118,6 @@ pub fn plan_insert(ir: &query_ir::InsertQuery) -> SQLiteInsertPlan {
         root_target: SQLiteInsertTarget {
             table_name: sqlite_table_name(&root_object_type),
             id_column: "id".to_string(),
-            object_type: root_object_type,
         },
         generated_id_strategy: SQLiteGeneratedIdStrategy::RuntimeUuid,
         assignments,
@@ -130,10 +129,10 @@ fn sqlite_table_name(object_type: &ObjectTypeRef) -> String {
 }
 
 fn plan_insert_assignment(assignment: &query_ir::Assignment) -> SQLiteInsertAssignment {
-    let field = assignment.field().clone();
+    let field = assignment.field();
     let (column_name, value) = match assignment.value() {
         query_ir::AssignmentValue::Scalar(value) => {
-            (field.name().to_string(), sqlite_insert_literal(value))
+            (field.name().to_string(), sqlite_literal_from_ir(value))
         }
         query_ir::AssignmentValue::LinkId(value) => (
             format!("{}_id", field.name()),
@@ -145,18 +144,7 @@ fn plan_insert_assignment(assignment: &query_ir::Assignment) -> SQLiteInsertAssi
         }
     };
 
-    SQLiteInsertAssignment {
-        field,
-        column_name,
-        value,
-    }
-}
-
-fn sqlite_insert_literal(value: &query_ir::ValueExpr) -> SQLiteLiteral {
-    match value {
-        query_ir::ValueExpr::Literal(literal) => sqlite_literal_from_ir(literal),
-        _ => panic!("resolved insert scalar assignment must contain a literal"),
-    }
+    SQLiteInsertAssignment { column_name, value }
 }
 
 /// Structured SQLite plan for inserting one resolved object.
@@ -182,16 +170,11 @@ impl SQLiteInsertPlan {
 
 /// Physical table targeted by a SQLite insert.
 pub struct SQLiteInsertTarget {
-    object_type: ObjectTypeRef,
     table_name: String,
     id_column: String,
 }
 
 impl SQLiteInsertTarget {
-    pub fn object_type(&self) -> &ObjectTypeRef {
-        &self.object_type
-    }
-
     pub fn table_name(&self) -> &str {
         &self.table_name
     }
@@ -209,16 +192,11 @@ pub enum SQLiteGeneratedIdStrategy {
 
 /// One physical SQLite column assignment in an insert plan.
 pub struct SQLiteInsertAssignment {
-    field: FieldRef,
     column_name: String,
     value: SQLiteLiteral,
 }
 
 impl SQLiteInsertAssignment {
-    pub fn field(&self) -> &FieldRef {
-        &self.field
-    }
-
     pub fn column_name(&self) -> &str {
         &self.column_name
     }

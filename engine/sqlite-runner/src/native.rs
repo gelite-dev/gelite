@@ -176,7 +176,7 @@ impl NativeSQLiteRunner {
 
     pub fn execute_select(
         &mut self,
-        statement: &sqlite_query_sqlgen::SQLiteSelectStatement,
+        statement: &sqlite_query_sqlgen::SQLiteStatement,
     ) -> Result<SQLiteQueryResult, SQLiteRunnerError> {
         let prepared = self
             .connection
@@ -217,7 +217,7 @@ impl NativeSQLiteRunner {
 
     pub fn execute_insert(
         &mut self,
-        statement: &sqlite_query_sqlgen::SQLiteInsertStatement,
+        statement: &sqlite_query_sqlgen::SQLiteStatement,
     ) -> Result<(), SQLiteRunnerError> {
         let prepared = self
             .connection

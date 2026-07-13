@@ -79,7 +79,7 @@ fn native_runner_can_execute_query_insert_statement_with_bind_values() {
         )
         .expect("create table should execute");
 
-    let statement = sqlite_query_sqlgen::SQLiteInsertStatement::new(
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
         "INSERT INTO entry (id, title, view_count, rating, published, subtitle) VALUES (?, ?, ?, ?, ?, ?)",
         vec![
             sqlite_query_sqlgen::SQLiteBindValue::String("entry-1".to_string()),
@@ -95,7 +95,7 @@ fn native_runner_can_execute_query_insert_statement_with_bind_values() {
         .execute_insert(&statement)
         .expect("query insert should execute");
 
-    let select = sqlite_query_sqlgen::SQLiteSelectStatement::new(
+    let select = sqlite_query_sqlgen::SQLiteStatement::new(
         "SELECT id, title, view_count, rating, published, subtitle FROM entry",
         vec![],
     );
@@ -170,7 +170,7 @@ fn native_runner_can_execute_select_statement_with_bind_values() {
         )
         .expect("insert should execute");
 
-    let statement = sqlite_query_sqlgen::SQLiteSelectStatement::new(
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
         "SELECT title FROM post WHERE title = ?",
         vec![sqlite_query_sqlgen::SQLiteBindValue::String(
             "Hello".to_string(),

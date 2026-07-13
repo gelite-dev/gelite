@@ -4,7 +4,7 @@ use schema_model::{
     Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
     SingleCardinality,
 };
-use sqlite_query_sqlgen::SQLiteSelectStatement;
+use sqlite_query_sqlgen::SQLiteStatement;
 use sqlite_runner::{SQLiteCellValue, SQLiteQueryResult};
 
 pub struct ReplOptions {
@@ -15,8 +15,7 @@ pub struct ReplOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReplError;
 
-type QueryExecutor<'a> =
-    dyn FnMut(&SQLiteSelectStatement) -> Result<SQLiteQueryResult, String> + 'a;
+type QueryExecutor<'a> = dyn FnMut(&SQLiteStatement) -> Result<SQLiteQueryResult, String> + 'a;
 
 pub fn run(options: ReplOptions) -> Result<(), ReplError> {
     let catalog = build_development_schema();
@@ -239,7 +238,7 @@ fn compile_query(
     catalog: &SchemaCatalog,
     query_text: &str,
     debug: bool,
-) -> Result<SQLiteSelectStatement, ReplError> {
+) -> Result<SQLiteStatement, ReplError> {
     let query = match parse_select(query_text) {
         Ok(query) => query,
         Err(error) => {

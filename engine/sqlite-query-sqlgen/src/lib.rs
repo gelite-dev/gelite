@@ -35,7 +35,7 @@ fn render_qualified_identifier(source_alias: &str, column_name: &str) -> String 
 }
 
 /// Renders a structured SQLite select plan into SQL text and bind values.
-pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
+pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteStatement {
     let (select_clause, mut bind_values) = render_select_clause(plan);
     let from_clause = render_from_clause(plan);
     let (where_clause, where_bind_values) = render_where_clause(plan);
@@ -60,16 +60,15 @@ pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelect
         clauses.push(offset_clause);
     }
 
-    SQLiteSelectStatement {
+    SQLiteStatement {
         sql: clauses.join(" "),
         bind_values,
     }
 }
 
 /// Renders a structured SQLite insert plan with a runtime-generated object id.
-pub fn render_insert(plan: &SQLiteInsertPlan, generated_id: &str) -> SQLiteInsertStatement {
+pub fn render_insert(plan: &SQLiteInsertPlan, generated_id: &str) -> SQLiteStatement {
     let mut columns = vec![quote_identifier(plan.root_target().id_column())];
-    let mut placeholders = vec!["?".to_string()];
     let mut bind_values = match plan.generated_id_strategy() {
         SQLiteGeneratedIdStrategy::RuntimeUuid => {
             vec![SQLiteBindValue::String(generated_id.to_string())]
@@ -78,16 +77,15 @@ pub fn render_insert(plan: &SQLiteInsertPlan, generated_id: &str) -> SQLiteInser
 
     for assignment in plan.assignments() {
         columns.push(quote_identifier(assignment.column_name()));
-        placeholders.push("?".to_string());
         bind_values.push(bind_value_from_literal(assignment.value()));
     }
 
-    SQLiteInsertStatement {
+    SQLiteStatement {
         sql: format!(
             "INSERT INTO {} ({}) VALUES ({})",
             quote_identifier(plan.root_target().table_name()),
             columns.join(", "),
-            placeholders.join(", ")
+            vec!["?"; columns.len()].join(", ")
         ),
         bind_values,
     }
@@ -392,36 +390,13 @@ fn render_offset_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     offset.map(|val| format!("OFFSET {val}"))
 }
 
-/// Rendered SQLite select statement.
-pub struct SQLiteSelectStatement {
+/// Rendered SQLite statement and its ordered bind values.
+pub struct SQLiteStatement {
     sql: String,
     bind_values: Vec<SQLiteBindValue>,
 }
 
-impl SQLiteSelectStatement {
-    pub fn new(sql: impl Into<String>, bind_values: Vec<SQLiteBindValue>) -> Self {
-        Self {
-            sql: sql.into(),
-            bind_values,
-        }
-    }
-
-    pub fn sql(&self) -> &str {
-        &self.sql
-    }
-
-    pub fn bind_values(&self) -> &[SQLiteBindValue] {
-        &self.bind_values
-    }
-}
-
-/// Rendered SQLite insert statement and its ordered bind values.
-pub struct SQLiteInsertStatement {
-    sql: String,
-    bind_values: Vec<SQLiteBindValue>,
-}
-
-impl SQLiteInsertStatement {
+impl SQLiteStatement {
     pub fn new(sql: impl Into<String>, bind_values: Vec<SQLiteBindValue>) -> Self {
         Self {
             sql: sql.into(),

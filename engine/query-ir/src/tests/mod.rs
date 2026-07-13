@@ -44,9 +44,7 @@ fn resolved_insert_query_preserves_assignment_order() {
         vec![
             Assignment::new(
                 post_title_field(),
-                AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(
-                    "The Witch Trial".to_string(),
-                ))),
+                AssignmentValue::Scalar(Literal::String("The Witch Trial".to_string())),
             ),
             Assignment::new(
                 post_author_field(),
@@ -66,9 +64,9 @@ fn resolved_insert_query_preserves_assignment_order() {
 fn resolved_assignment_can_store_supported_value_kinds() {
     let scalar = Assignment::new(
         post_title_field(),
-        AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(
+        AssignmentValue::Scalar(Literal::String(
             "00000000-0000-0000-0000-000000000001".to_string(),
-        ))),
+        )),
     );
     let link_id = Assignment::new(
         post_author_field(),
@@ -79,7 +77,7 @@ fn resolved_assignment_can_store_supported_value_kinds() {
 
     assert!(matches!(
         scalar.value(),
-        AssignmentValue::Scalar(ValueExpr::Literal(Literal::String(_)))
+        AssignmentValue::Scalar(Literal::String(_))
     ));
     assert!(matches!(link_id.value(), AssignmentValue::LinkId(_)));
     assert_eq!(scalar_null.value(), &AssignmentValue::ScalarNull);

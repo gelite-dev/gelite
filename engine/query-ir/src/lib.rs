@@ -724,13 +724,12 @@ impl Assignment {
 
 /// Value forms supported by the literal-only insert IR.
 ///
-/// Scalar literals reuse [`ValueExpr`] so scalar representation remains shared
-/// with the select pipeline. A link identifier is kept distinct from a scalar
-/// string. Scalar and link nulls remain distinct so backend planners can choose
-/// the correct physical column without consulting the schema catalog again.
+/// A link identifier is kept distinct from a scalar string. Scalar and link
+/// nulls remain distinct so backend planners can choose the correct physical
+/// column without consulting the schema catalog again.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssignmentValue {
-    Scalar(ValueExpr),
+    Scalar(Literal),
     LinkId(String),
     ScalarNull,
     LinkNull,

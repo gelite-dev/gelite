@@ -40,9 +40,7 @@ pub fn post_insert_with_title_assignment() -> query_ir::InsertQuery {
         post_type(),
         vec![query_ir::Assignment::new(
             post_title_field(),
-            query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                query_ir::Literal::String("Case File".to_string()),
-            )),
+            query_ir::AssignmentValue::Scalar(query_ir::Literal::String("Case File".to_string())),
         )],
     )
 }
@@ -53,14 +51,12 @@ pub fn post_insert_with_ordered_assignments() -> query_ir::InsertQuery {
         vec![
             query_ir::Assignment::new(
                 post_view_count_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::Int64(7),
-                )),
+                query_ir::AssignmentValue::Scalar(query_ir::Literal::Int64(7)),
             ),
             query_ir::Assignment::new(
                 post_title_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::String("Case File".to_string()),
+                query_ir::AssignmentValue::Scalar(query_ir::Literal::String(
+                    "Case File".to_string(),
                 )),
             ),
             query_ir::Assignment::new(

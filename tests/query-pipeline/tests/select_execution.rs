@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sqlite_query_sqlgen::{SQLiteBindValue, SQLiteSelectStatement, render_insert, render_select};
+use sqlite_query_sqlgen::{SQLiteBindValue, SQLiteStatement, render_insert, render_select};
 use sqlite_runner::{
     SQLiteCellValue, SQLiteQueryResult, SQLiteRunner, apply_schema_statements,
     native::NativeSQLiteRunner,
@@ -177,7 +177,7 @@ fn execute_insert(
         .expect("fixture insert should execute");
 }
 
-fn render_query(source: &str) -> SQLiteSelectStatement {
+fn render_query(source: &str) -> SQLiteStatement {
     let catalog = parse_blog_catalog_from_geli_file();
     let ast = query_parser::parse_select(source).expect("query should parse");
     let ir = query_resolver::resolve_select(&catalog, &ast).expect("query should resolve");
@@ -571,7 +571,7 @@ fn query_pipeline_executes_multi_link_schema_storage_setup() {
 
     assert_eq!(runner.table_exists("user__posts"), Ok(true));
 
-    let statement = SQLiteSelectStatement::new(
+    let statement = SQLiteStatement::new(
         "SELECT source_id, target_id, position FROM user__posts WHERE source_id = ? ORDER BY position ASC",
         vec![SQLiteBindValue::String("user-1".to_string())],
     );

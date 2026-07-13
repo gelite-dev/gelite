@@ -11,7 +11,6 @@ fn sqlite_insert_plan_can_store_root_target() {
 
     let plan = plan_insert(&ir);
 
-    assert_eq!(plan.root_target().object_type().name(), "Post");
     assert_eq!(plan.root_target().table_name(), "post");
     assert_eq!(plan.root_target().id_column(), "id");
     assert!(plan.assignments().is_empty());
@@ -37,7 +36,6 @@ fn sqlite_insert_plan_maps_scalar_assignment_to_column() {
     let assignments = plan.assignments();
 
     assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0].field().name(), "title");
     assert_eq!(assignments[0].column_name(), "title");
     assert_eq!(
         assignments[0].value(),
@@ -53,10 +51,7 @@ fn sqlite_insert_plan_preserves_assignment_order() {
     let assignments = plan.assignments();
 
     assert_eq!(assignments.len(), 3);
-    assert_eq!(assignments[0].field().name(), "view_count");
     assert_eq!(assignments[0].column_name(), "view_count");
-    assert_eq!(assignments[1].field().name(), "title");
     assert_eq!(assignments[1].column_name(), "title");
-    assert_eq!(assignments[2].field().name(), "author");
     assert_eq!(assignments[2].column_name(), "author_id");
 }

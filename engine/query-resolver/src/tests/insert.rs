@@ -43,9 +43,7 @@ fn resolves_insert_scalar_assignment() {
     assert_eq!(assignments[0].field().name(), "name");
     assert_eq!(
         assignments[0].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("Sheri".to_string())
-        ))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String("Sheri".to_string()))
     );
 }
 
@@ -69,15 +67,13 @@ fn resolves_insert_scalar_definition_order() {
     assert_eq!(assignments[0].field().name(), "name");
     assert_eq!(
         assignments[0].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("Sheri".to_string())
-        ))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String("Sheri".to_string()))
     );
     assert_eq!(assignments[1].field().name(), "email");
     assert_eq!(
         assignments[1].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("sheri@tachibana.com".to_string())
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String(
+            "sheri@tachibana.com".to_string()
         ))
     );
 }
@@ -104,32 +100,24 @@ fn resolves_insert_scalar_literal_types() {
     assert_eq!(assignments[0].field().name(), "name");
     assert_eq!(
         assignments[0].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("Sheri".to_string())
-        ))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String("Sheri".to_string()))
     );
     assert_eq!(assignments[1].field().name(), "alive");
     assert_eq!(
         assignments[1].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(query_ir::Literal::Bool(
-            true
-        )))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::Bool(true))
     );
 
     assert_eq!(assignments[2].field().name(), "number");
     assert_eq!(
         assignments[2].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(query_ir::Literal::Int64(
-            667
-        )))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::Int64(667))
     );
 
     assert_eq!(assignments[3].field().name(), "weight");
     assert_eq!(
         assignments[3].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::Float64(55.0)
-        ))
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::Float64(55.0))
     );
 }
 
@@ -152,8 +140,8 @@ fn resolves_insert_uuid_string_literal() {
     assert_eq!(assignments[0].field().name(), "external_id");
     assert_eq!(
         assignments[0].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("00000000-0000-0000-0000-000000000001".to_string())
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String(
+            "00000000-0000-0000-0000-000000000001".to_string()
         ))
     );
 }
@@ -177,8 +165,8 @@ fn resolves_insert_datetime_string_literal() {
     assert_eq!(assignments[0].field().name(), "starts_at");
     assert_eq!(
         assignments[0].value(),
-        &query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-            query_ir::Literal::String("2026-07-13T10:30:00Z".to_string())
+        &query_ir::AssignmentValue::Scalar(query_ir::Literal::String(
+            "2026-07-13T10:30:00Z".to_string()
         ))
     );
 }

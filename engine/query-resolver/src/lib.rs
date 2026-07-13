@@ -241,7 +241,11 @@ fn resolve_insert_scalar_value(
                 });
             }
 
-            Ok(query_ir::AssignmentValue::Scalar(typed.value))
+            let query_ir::ValueExpr::Literal(literal) = typed.value else {
+                unreachable!("resolved literal expression must contain a literal")
+            };
+
+            Ok(query_ir::AssignmentValue::Scalar(literal))
         }
     }
 }

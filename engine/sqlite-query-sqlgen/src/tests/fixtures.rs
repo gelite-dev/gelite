@@ -114,34 +114,21 @@ pub fn empty_post_insert_query() -> query_ir::InsertQuery {
     query_ir::InsertQuery::new(post_type(), vec![])
 }
 
+fn scalar_assignment(field: FieldRef, literal: query_ir::Literal) -> query_ir::Assignment {
+    query_ir::Assignment::new(field, query_ir::AssignmentValue::Scalar(literal))
+}
+
 pub fn post_insert_with_scalar_assignments() -> query_ir::InsertQuery {
     query_ir::InsertQuery::new(
         post_type(),
         vec![
-            query_ir::Assignment::new(
+            scalar_assignment(
                 post_title_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::String("Case File".to_string()),
-                )),
+                query_ir::Literal::String("Case File".to_string()),
             ),
-            query_ir::Assignment::new(
-                post_view_count_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::Int64(7),
-                )),
-            ),
-            query_ir::Assignment::new(
-                post_rating_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::Float64(4.5),
-                )),
-            ),
-            query_ir::Assignment::new(
-                post_published_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::Bool(true),
-                )),
-            ),
+            scalar_assignment(post_view_count_field(), query_ir::Literal::Int64(7)),
+            scalar_assignment(post_rating_field(), query_ir::Literal::Float64(4.5)),
+            scalar_assignment(post_published_field(), query_ir::Literal::Bool(true)),
         ],
     )
 }
@@ -170,17 +157,10 @@ pub fn post_insert_with_ordered_assignments() -> query_ir::InsertQuery {
     query_ir::InsertQuery::new(
         post_type(),
         vec![
-            query_ir::Assignment::new(
-                post_view_count_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::Int64(7),
-                )),
-            ),
-            query_ir::Assignment::new(
+            scalar_assignment(post_view_count_field(), query_ir::Literal::Int64(7)),
+            scalar_assignment(
                 post_title_field(),
-                query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                    query_ir::Literal::String("Case File".to_string()),
-                )),
+                query_ir::Literal::String("Case File".to_string()),
             ),
             query_ir::Assignment::new(
                 post_author_field(),
@@ -198,11 +178,9 @@ pub fn quoted_insert_query() -> query_ir::InsertQuery {
 
     query_ir::InsertQuery::new(
         object_type,
-        vec![query_ir::Assignment::new(
+        vec![scalar_assignment(
             title,
-            query_ir::AssignmentValue::Scalar(query_ir::ValueExpr::Literal(
-                query_ir::Literal::String("Case File".to_string()),
-            )),
+            query_ir::Literal::String("Case File".to_string()),
         )],
     )
 }
