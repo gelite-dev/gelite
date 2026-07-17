@@ -13,6 +13,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeSet;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -132,10 +133,21 @@ pub fn resolve_insert(
     // Resolve explicit assignments before checking omissions. This preserves a
     // more specific error for an unknown, implicit, or incompatible assignment
     // instead of masking it with a missing-required-field error.
+    let mut assigned_fields = BTreeSet::new();
+
     let assignments = query
         .assignments()
         .iter()
-        .map(|assignment| resolve_insert_assignment(catalog, &root_object_type, assignment))
+        .map(|assignment| {
+            if !assigned_fields.insert(assignment.field_name()) {
+                return Err(ResolveError::DuplicateAssignment {
+                    object_type: root_object_type.name().to_string(),
+                    field: assignment.field_name().to_string(),
+                });
+            }
+
+            resolve_insert_assignment(catalog, &root_object_type, assignment)
+        })
         .collect::<Result<Vec<_>, ResolveError>>()?;
 
     let object_type = catalog
@@ -1607,6 +1619,10 @@ pub enum ResolveError {
         field: String,
     },
     MultiLinkAssignmentUnsupported {
+        object_type: String,
+        field: String,
+    },
+    DuplicateAssignment {
         object_type: String,
         field: String,
     },

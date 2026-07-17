@@ -275,6 +275,28 @@ fn rejects_insert_unknown_assignment_field() {
 }
 
 #[test]
+fn rejects_insert_duplicate_assignment_field() {
+    let catalog = user_with_required_name_catalog();
+    let query = InsertQuery::new(
+        "User",
+        vec![
+            AstAssignment::new("name", Literal::String("Sheri".to_string())),
+            AstAssignment::new("name", Literal::String("Ellie".to_string())),
+        ],
+    );
+
+    let err = resolve_insert(&catalog, &query).expect_err("insert query should not resolve");
+
+    assert_eq!(
+        err,
+        ResolveError::DuplicateAssignment {
+            object_type: "User".to_string(),
+            field: "name".to_string(),
+        }
+    );
+}
+
+#[test]
 fn rejects_insert_assignment_to_implicit_id() {
     let catalog = user_only_catalog();
 

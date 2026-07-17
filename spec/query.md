@@ -490,6 +490,7 @@ assign_item     := IDENT ":=" literal ","?
 - The target must be an object type.
 - Assignments may target declared scalar fields and declared single relation
   fields only.
+- A field may appear at most once in an insert assignment list.
 - Required scalar fields must be supplied unless a built-in default exists.
 - Required single relation fields must be supplied unless a built-in default
   exists.
