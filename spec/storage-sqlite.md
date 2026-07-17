@@ -180,16 +180,17 @@ Every object row has:
 
 - `id TEXT PRIMARY KEY`
 
-The runtime is responsible for generating UUID values during insert when the
-query inserts a new object. The schema language and query language do not
-expose user control over identity definition in the MVP.
+For the current insert milestone, the caller supplies the object id to SQL
+rendering. The renderer binds it as the `id` column value in the same prepared
+`INSERT` statement as user-provided scalar and single-link values, and the
+runner reports only execution success or failure. Runtime UUID generation and
+returning the inserted id remain deferred. The schema language and query
+language do not expose user control over identity definition in the MVP.
 
-The runner binds the generated id as the `id` column value in the same prepared
-`INSERT` statement as user-provided scalar and single-link values, then returns
-that generated id to its caller. SQLite constraint failures, including missing
-required values and invalid foreign-key targets when foreign keys are enabled,
-are execution errors; semantic validation remains responsible for the query
-language's field, cardinality, and literal-type rules.
+SQLite constraint failures, including missing required values and invalid
+foreign-key targets when foreign keys are enabled, are execution errors;
+semantic validation remains responsible for the query language's field,
+cardinality, and literal-type rules.
 
 ## Internal Metadata Tables
 
