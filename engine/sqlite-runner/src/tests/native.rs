@@ -117,6 +117,36 @@ fn native_runner_can_execute_query_insert_statement_with_bind_values() {
 }
 
 #[test]
+fn native_runner_enforces_foreign_keys_for_query_inserts() {
+    let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");
+
+    runner
+        .execute("CREATE TABLE author (id TEXT PRIMARY KEY)")
+        .expect("author table should be created");
+    runner
+        .execute(
+            "CREATE TABLE post (
+                id TEXT PRIMARY KEY,
+                author_id TEXT NOT NULL,
+                FOREIGN KEY (author_id) REFERENCES author(id)
+            )",
+        )
+        .expect("post table should be created");
+
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
+        "INSERT INTO post (id, author_id) VALUES (?, ?)",
+        vec![
+            sqlite_query_sqlgen::SQLiteBindValue::String("post-1".to_string()),
+            sqlite_query_sqlgen::SQLiteBindValue::String("missing-author".to_string()),
+        ],
+    );
+
+    runner
+        .execute_insert(&statement)
+        .expect_err("missing foreign-key target should reject insert");
+}
+
+#[test]
 fn native_runner_can_apply_rendered_initial_schema() {
     let statements = rendered_post_schema_statements();
     let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");

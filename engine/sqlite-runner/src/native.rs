@@ -38,8 +38,10 @@ impl NativeSQLiteRunner {
                 "failed to open SQLite database `{path}`: {error:?}"
             ))
         })?;
+        let mut runner = Self { connection };
+        runner.execute("PRAGMA foreign_keys = ON")?;
 
-        Ok(Self { connection })
+        Ok(runner)
     }
 
     pub fn table_exists(&self, table_name: &str) -> Result<bool, SQLiteRunnerError> {
