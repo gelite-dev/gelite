@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use schema_model::{FieldId, FieldRef, ObjectTypeId, ObjectTypeRef};
@@ -28,6 +29,44 @@ pub fn post_view_count_field() -> FieldRef {
 
 pub fn post_id_field() -> FieldRef {
     FieldRef::new(FieldId::new(1), post_type(), "id")
+}
+
+pub fn empty_post_insert_query() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(post_type(), vec![])
+}
+
+pub fn post_insert_with_title_assignment() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![query_ir::Assignment::new(
+            post_title_field(),
+            query_ir::AssignmentValue::Scalar(query_ir::Literal::String("Case File".to_string())),
+        )],
+    )
+}
+
+pub fn post_insert_with_ordered_assignments() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![
+            query_ir::Assignment::new(
+                post_view_count_field(),
+                query_ir::AssignmentValue::Scalar(query_ir::Literal::Int64(7)),
+            ),
+            query_ir::Assignment::new(
+                post_title_field(),
+                query_ir::AssignmentValue::Scalar(query_ir::Literal::String(
+                    "Case File".to_string(),
+                )),
+            ),
+            query_ir::Assignment::new(
+                post_author_field(),
+                query_ir::AssignmentValue::LinkId(
+                    "00000000-0000-0000-0000-000000000001".to_string(),
+                ),
+            ),
+        ],
+    )
 }
 
 pub fn post_title_path_value() -> query_ir::ValueExpr {

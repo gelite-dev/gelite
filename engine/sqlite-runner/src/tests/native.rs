@@ -63,6 +63,90 @@ fn native_runner_can_execute_insert_statement_with_bind_values() {
 }
 
 #[test]
+fn native_runner_can_execute_query_insert_statement_with_bind_values() {
+    let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");
+
+    runner
+        .execute(
+            "CREATE TABLE entry (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                view_count INTEGER NOT NULL,
+                rating REAL NOT NULL,
+                published INTEGER NOT NULL,
+                subtitle TEXT NULL
+            )",
+        )
+        .expect("create table should execute");
+
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
+        "INSERT INTO entry (id, title, view_count, rating, published, subtitle) VALUES (?, ?, ?, ?, ?, ?)",
+        vec![
+            sqlite_query_sqlgen::SQLiteBindValue::String("entry-1".to_string()),
+            sqlite_query_sqlgen::SQLiteBindValue::String("Case File".to_string()),
+            sqlite_query_sqlgen::SQLiteBindValue::Int64(7),
+            sqlite_query_sqlgen::SQLiteBindValue::Float64(4.5),
+            sqlite_query_sqlgen::SQLiteBindValue::Bool(true),
+            sqlite_query_sqlgen::SQLiteBindValue::Null,
+        ],
+    );
+
+    runner
+        .execute_insert(&statement)
+        .expect("query insert should execute");
+
+    let select = sqlite_query_sqlgen::SQLiteStatement::new(
+        "SELECT id, title, view_count, rating, published, subtitle FROM entry",
+        vec![],
+    );
+    let result = runner
+        .execute_select(&select)
+        .expect("inserted row should be readable");
+
+    assert_eq!(
+        result.rows(),
+        &[vec![
+            crate::SQLiteCellValue::Text("entry-1".to_string()),
+            crate::SQLiteCellValue::Text("Case File".to_string()),
+            crate::SQLiteCellValue::Integer(7),
+            crate::SQLiteCellValue::Real(4.5),
+            crate::SQLiteCellValue::Integer(1),
+            crate::SQLiteCellValue::Null,
+        ]]
+    );
+}
+
+#[test]
+fn native_runner_enforces_foreign_keys_for_query_inserts() {
+    let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");
+
+    runner
+        .execute("CREATE TABLE author (id TEXT PRIMARY KEY)")
+        .expect("author table should be created");
+    runner
+        .execute(
+            "CREATE TABLE post (
+                id TEXT PRIMARY KEY,
+                author_id TEXT NOT NULL,
+                FOREIGN KEY (author_id) REFERENCES author(id)
+            )",
+        )
+        .expect("post table should be created");
+
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
+        "INSERT INTO post (id, author_id) VALUES (?, ?)",
+        vec![
+            sqlite_query_sqlgen::SQLiteBindValue::String("post-1".to_string()),
+            sqlite_query_sqlgen::SQLiteBindValue::String("missing-author".to_string()),
+        ],
+    );
+
+    runner
+        .execute_insert(&statement)
+        .expect_err("missing foreign-key target should reject insert");
+}
+
+#[test]
 fn native_runner_can_apply_rendered_initial_schema() {
     let statements = rendered_post_schema_statements();
     let mut runner = NativeSQLiteRunner::open_in_memory().expect("in-memory database should open");
@@ -116,7 +200,7 @@ fn native_runner_can_execute_select_statement_with_bind_values() {
         )
         .expect("insert should execute");
 
-    let statement = sqlite_query_sqlgen::SQLiteSelectStatement::new(
+    let statement = sqlite_query_sqlgen::SQLiteStatement::new(
         "SELECT title FROM post WHERE title = ?",
         vec![sqlite_query_sqlgen::SQLiteBindValue::String(
             "Hello".to_string(),

@@ -38,8 +38,10 @@ impl NativeSQLiteRunner {
                 "failed to open SQLite database `{path}`: {error:?}"
             ))
         })?;
+        let mut runner = Self { connection };
+        runner.execute("PRAGMA foreign_keys = ON")?;
 
-        Ok(Self { connection })
+        Ok(runner)
     }
 
     pub fn table_exists(&self, table_name: &str) -> Result<bool, SQLiteRunnerError> {
@@ -176,14 +178,69 @@ impl NativeSQLiteRunner {
 
     pub fn execute_select(
         &mut self,
-        statement: &sqlite_query_sqlgen::SQLiteSelectStatement,
+        statement: &sqlite_query_sqlgen::SQLiteStatement,
     ) -> Result<SQLiteQueryResult, SQLiteRunnerError> {
         let prepared = self
             .connection
             .prepare_v2(statement.sql())
             .map_err(|_| self.connection_error("prepare SELECT"))?;
 
-        for (index, value) in statement.bind_values().iter().enumerate() {
+        self.bind_query_values(&prepared, statement.bind_values())?;
+
+        let column_count = prepared.column_count();
+        let mut columns = Vec::new();
+        for index in 0..column_count {
+            columns.push(
+                prepared
+                    .column_name(index)
+                    .map_err(|error| self.result_error("read result column name", error))?
+                    .to_string(),
+            );
+        }
+
+        let mut rows = Vec::new();
+        loop {
+            match prepared.step() {
+                Ok(ResultCode::ROW) => {
+                    let mut row = Vec::new();
+                    for index in 0..column_count {
+                        row.push(read_cell_value(&prepared, index)?);
+                    }
+                    rows.push(row);
+                }
+                Ok(ResultCode::DONE) => break,
+                Ok(result) => return Err(self.result_error("step SELECT", result)),
+                Err(result) => return Err(self.result_error("step SELECT", result)),
+            }
+        }
+
+        Ok(SQLiteQueryResult::new(columns, rows))
+    }
+
+    pub fn execute_insert(
+        &mut self,
+        statement: &sqlite_query_sqlgen::SQLiteStatement,
+    ) -> Result<(), SQLiteRunnerError> {
+        let prepared = self
+            .connection
+            .prepare_v2(statement.sql())
+            .map_err(|_| self.connection_error("prepare INSERT"))?;
+
+        self.bind_query_values(&prepared, statement.bind_values())?;
+
+        match prepared.step() {
+            Ok(ResultCode::DONE) => Ok(()),
+            Ok(result) => Err(self.result_error("step INSERT", result)),
+            Err(result) => Err(self.result_error("step INSERT", result)),
+        }
+    }
+
+    fn bind_query_values(
+        &self,
+        prepared: &ManagedStmt,
+        bind_values: &[sqlite_query_sqlgen::SQLiteBindValue],
+    ) -> Result<(), SQLiteRunnerError> {
+        for (index, value) in bind_values.iter().enumerate() {
             let parameter_index = i32::try_from(index + 1).map_err(|_| {
                 SQLiteRunnerError::execution_failed("bind parameter index exceeds i32 range")
             })?;
@@ -217,34 +274,7 @@ impl NativeSQLiteRunner {
             }
         }
 
-        let column_count = prepared.column_count();
-        let mut columns = Vec::new();
-        for index in 0..column_count {
-            columns.push(
-                prepared
-                    .column_name(index)
-                    .map_err(|error| self.result_error("read result column name", error))?
-                    .to_string(),
-            );
-        }
-
-        let mut rows = Vec::new();
-        loop {
-            match prepared.step() {
-                Ok(ResultCode::ROW) => {
-                    let mut row = Vec::new();
-                    for index in 0..column_count {
-                        row.push(read_cell_value(&prepared, index)?);
-                    }
-                    rows.push(row);
-                }
-                Ok(ResultCode::DONE) => break,
-                Ok(result) => return Err(self.result_error("step SELECT", result)),
-                Err(result) => return Err(self.result_error("step SELECT", result)),
-            }
-        }
-
-        Ok(SQLiteQueryResult::new(columns, rows))
+        Ok(())
     }
 
     fn read_catalog_objects(&self) -> Result<Vec<CatalogObjectRow>, SQLiteRunnerError> {

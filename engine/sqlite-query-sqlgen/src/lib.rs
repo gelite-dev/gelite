@@ -1,14 +1,14 @@
 #![no_std]
-//! SQL renderer for SQLite select plans.
+//! SQL renderer for SQLite query plans.
 //!
 //! This crate serializes `sqlite-query-plan` structures into SQL text and bind
 //! values. It does not resolve schema names, choose joins, or inspect query AST
 //! nodes. Those responsibilities belong to earlier compiler stages.
 //!
-//! The renderer currently emits `SELECT`, `FROM`, `JOIN`, `WHERE`, `ORDER BY`,
-//! `LIMIT`, and `OFFSET` clauses for the select subset implemented by
-//! `sqlite-query-plan`. Literal values are emitted as bind placeholders instead of
-//! being interpolated into SQL strings.
+//! The renderer currently emits select statements and literal-only insert
+//! statements for the subsets implemented by `sqlite-query-plan`. Literal
+//! values are emitted as bind placeholders instead of being interpolated into
+//! SQL strings.
 
 extern crate alloc;
 
@@ -17,9 +17,9 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use sqlite_query_plan::{
-    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteInOp, SQLiteJoinKind,
-    SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan, SQLiteStringFunctionKind,
-    SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteWhereExpr,
+    SQLiteArithmeticOp, SQLiteCastTarget, SQLiteCompareOp, SQLiteGeneratedIdStrategy, SQLiteInOp,
+    SQLiteInsertPlan, SQLiteJoinKind, SQLiteLiteral, SQLiteOrderDirection, SQLiteSelectPlan,
+    SQLiteStringFunctionKind, SQLiteUnaryArithmeticOp, SQLiteValueExpr, SQLiteWhereExpr,
 };
 
 fn quote_identifier(identifier: &str) -> String {
@@ -35,7 +35,7 @@ fn render_qualified_identifier(source_alias: &str, column_name: &str) -> String 
 }
 
 /// Renders a structured SQLite select plan into SQL text and bind values.
-pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelectStatement {
+pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteStatement {
     let (select_clause, mut bind_values) = render_select_clause(plan);
     let from_clause = render_from_clause(plan);
     let (where_clause, where_bind_values) = render_where_clause(plan);
@@ -60,8 +60,33 @@ pub fn render_select(plan: &sqlite_query_plan::SQLiteSelectPlan) -> SQLiteSelect
         clauses.push(offset_clause);
     }
 
-    SQLiteSelectStatement {
+    SQLiteStatement {
         sql: clauses.join(" "),
+        bind_values,
+    }
+}
+
+/// Renders a structured SQLite insert plan with a runtime-generated object id.
+pub fn render_insert(plan: &SQLiteInsertPlan, generated_id: &str) -> SQLiteStatement {
+    let mut columns = vec![quote_identifier(plan.root_target().id_column())];
+    let mut bind_values = match plan.generated_id_strategy() {
+        SQLiteGeneratedIdStrategy::RuntimeUuid => {
+            vec![SQLiteBindValue::String(generated_id.to_string())]
+        }
+    };
+
+    for assignment in plan.assignments() {
+        columns.push(quote_identifier(assignment.column_name()));
+        bind_values.push(bind_value_from_literal(assignment.value()));
+    }
+
+    SQLiteStatement {
+        sql: format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            quote_identifier(plan.root_target().table_name()),
+            columns.join(", "),
+            vec!["?"; columns.len()].join(", ")
+        ),
         bind_values,
     }
 }
@@ -311,15 +336,19 @@ fn render_str_value_expr(
 }
 
 fn render_literal(literal: &SQLiteLiteral, bind_values: &mut Vec<SQLiteBindValue>) -> String {
-    match literal {
-        SQLiteLiteral::String(value) => bind_values.push(SQLiteBindValue::String(value.clone())),
-        SQLiteLiteral::Int64(value) => bind_values.push(SQLiteBindValue::Int64(*value)),
-        SQLiteLiteral::Float64(value) => bind_values.push(SQLiteBindValue::Float64(*value)),
-        SQLiteLiteral::Bool(value) => bind_values.push(SQLiteBindValue::Bool(*value)),
-        SQLiteLiteral::Null => bind_values.push(SQLiteBindValue::Null),
-    }
+    bind_values.push(bind_value_from_literal(literal));
 
     "?".to_string()
+}
+
+fn bind_value_from_literal(literal: &SQLiteLiteral) -> SQLiteBindValue {
+    match literal {
+        SQLiteLiteral::String(value) => SQLiteBindValue::String(value.clone()),
+        SQLiteLiteral::Int64(value) => SQLiteBindValue::Int64(*value),
+        SQLiteLiteral::Float64(value) => SQLiteBindValue::Float64(*value),
+        SQLiteLiteral::Bool(value) => SQLiteBindValue::Bool(*value),
+        SQLiteLiteral::Null => SQLiteBindValue::Null,
+    }
 }
 
 fn render_order_clause(
@@ -361,13 +390,13 @@ fn render_offset_clause(plan: &SQLiteSelectPlan) -> Option<String> {
     offset.map(|val| format!("OFFSET {val}"))
 }
 
-/// Rendered SQLite select statement.
-pub struct SQLiteSelectStatement {
+/// Rendered SQLite statement and its ordered bind values.
+pub struct SQLiteStatement {
     sql: String,
     bind_values: Vec<SQLiteBindValue>,
 }
 
-impl SQLiteSelectStatement {
+impl SQLiteStatement {
     pub fn new(sql: impl Into<String>, bind_values: Vec<SQLiteBindValue>) -> Self {
         Self {
             sql: sql.into(),

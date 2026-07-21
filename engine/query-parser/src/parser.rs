@@ -3,8 +3,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 use query_ast::{
-    ArithmeticExpr, ArithmeticOp, CompareExpr, CompareOp, Expr, InExpr, InOp, Literal, OrderExpr,
-    Path, PathStep, SelectQuery, Shape, ShapeItem,
+    ArithmeticExpr, ArithmeticOp, Assignment, CompareExpr, CompareOp, Expr, InExpr, InOp,
+    InsertQuery, Literal, OrderExpr, Path, PathStep, SelectQuery, Shape, ShapeItem,
 };
 
 /// Parses one MVP `select` statement from source text.
@@ -223,11 +223,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut left = self.parse_prefix_or_primary()?;
 
-        loop {
-            let Some(op) = self.peek_infix_op()? else {
-                break;
-            };
-
+        while let Some(op) = self.peek_infix_op()? {
             let (left_bp, right_bp) = op.binding_power();
 
             if left_bp < min_bp {
@@ -928,4 +924,85 @@ fn token_kind_description(token_kind: &TokenKind) -> &'static str {
 
 fn token_is_ident(token: &Token, expected: &str) -> bool {
     matches!(token.kind(), TokenKind::Ident(value) if value == expected)
+}
+
+/// Parses one MVP `insert` statement from source text.
+///
+/// The parser checks syntax only. Schema names, field names, link traversal,
+/// and type compatibility are validated by the resolver.
+pub fn parse_insert(input: &str) -> Result<query_ast::InsertQuery, ParseError> {
+    let tokens = lex(input).map_err(ParseError::from)?;
+    parse_insert_tokens(&tokens)
+}
+
+fn parse_insert_tokens(tokens: &[Token]) -> Result<query_ast::InsertQuery, ParseError> {
+    Parser::new(tokens).parse_insert_stmt()
+}
+
+impl<'a> Parser<'a> {
+    fn parse_insert_stmt(&mut self) -> Result<InsertQuery, ParseError> {
+        self.expect_keyword(Keyword::Insert)?;
+        let root_type_name = self.expect_ident()?;
+        let assignments = self.parse_insert_assignments()?;
+        self.ensure_eof()?;
+
+        Ok(InsertQuery::new(root_type_name, assignments))
+    }
+
+    fn parse_insert_assignments(&mut self) -> Result<Vec<Assignment>, ParseError> {
+        let mut results = Vec::new();
+        self.expect_lbrace()?;
+
+        if self
+            .peek()
+            .is_some_and(|token| token.kind() == &TokenKind::RBrace)
+        {
+            self.expect_rbrace()?;
+            return Ok(results);
+        }
+
+        results.push(self.parse_insert_assignment()?);
+
+        loop {
+            if self.consume_comma_if_present() {
+                if self
+                    .peek()
+                    .is_some_and(|token| token.kind() == &TokenKind::RBrace)
+                {
+                    break;
+                }
+
+                results.push(self.parse_insert_assignment()?);
+                continue;
+            }
+
+            match self.peek() {
+                Some(token) if token.kind() == &TokenKind::RBrace => break,
+                Some(token) => {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken { expected: "comma" },
+                        Some(token.span()),
+                    ));
+                }
+                None => {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedEof { expected: "}" },
+                        None,
+                    ));
+                }
+            }
+        }
+
+        self.expect_rbrace()?;
+
+        Ok(results)
+    }
+
+    fn parse_insert_assignment(&mut self) -> Result<Assignment, ParseError> {
+        let field_name = self.expect_ident()?;
+        self.expect_token(TokenKind::ColonEq)?;
+        let value = self.expect_literal()?;
+
+        Ok(Assignment::new(field_name, value))
+    }
 }

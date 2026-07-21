@@ -17,6 +17,52 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertQuery {
+    root_type_name: String,
+    assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assignment {
+    field_name: String,
+    value: Literal,
+}
+
+impl InsertQuery {
+    pub fn new(root_type_name: impl Into<String>, assignments: Vec<Assignment>) -> Self {
+        Self {
+            root_type_name: root_type_name.into(),
+            assignments,
+        }
+    }
+
+    pub fn root_type_name(&self) -> &str {
+        &self.root_type_name
+    }
+
+    pub fn assignments(&self) -> &[Assignment] {
+        &self.assignments
+    }
+}
+
+impl Assignment {
+    pub fn new(field_name: impl Into<String>, value: Literal) -> Self {
+        Self {
+            field_name: field_name.into(),
+            value,
+        }
+    }
+
+    pub fn field_name(&self) -> &str {
+        &self.field_name
+    }
+
+    pub fn value(&self) -> &Literal {
+        &self.value
+    }
+}
+
 /// Parsed `select` query before schema resolution.
 ///
 /// `root_type_name` is an unresolved object type name. The resolver turns it

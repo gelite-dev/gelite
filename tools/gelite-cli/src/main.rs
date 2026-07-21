@@ -146,7 +146,7 @@ fn run_repl_command(command: ReplCommand) -> Result<(), String> {
 
     match runner.as_mut() {
         Some(runner) => {
-            let mut executor = |statement: &sqlite_query_sqlgen::SQLiteSelectStatement| {
+            let mut executor = |statement: &sqlite_query_sqlgen::SQLiteStatement| {
                 runner
                     .execute_select(statement)
                     .map_err(|error| error.message().to_string())

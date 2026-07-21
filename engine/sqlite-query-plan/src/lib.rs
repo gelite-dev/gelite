@@ -1,5 +1,5 @@
 #![no_std]
-//! SQLite-specific execution plan for resolved select queries.
+//! SQLite-specific execution plan for resolved queries.
 //!
 //! This crate is the first backend-specific compiler layer. It lowers Semantic
 //! IR into structured SQLite access information: root table, aliases, selected
@@ -9,7 +9,8 @@
 //! physical decisions before `sqlite-query-sqlgen` serializes them. It also keeps
 //! SQLite naming and join rules out of the backend-independent IR.
 //!
-//! The current planner handles one object table per object type, direct scalar
+//! The current planner handles select queries and literal-only insert queries.
+//! Select planning supports one object table per object type, direct scalar
 //! columns, single-link joins, path traversal through single links, equality
 //! predicates, `IS NULL`, ordering, limit, and offset. Multi-link planning and
 //! follow-up fetch plans are specified but not implemented yet.
@@ -89,7 +90,7 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
 
     SQLiteSelectPlan {
         root_source: SQLiteObjectSource {
-            table_name: root_object_type.name().to_ascii_lowercase().to_string(),
+            table_name: sqlite_table_name(&root_object_type),
             alias: "root".to_string(),
             id_column: "id".to_string(),
             object_type: root_object_type,
@@ -101,6 +102,107 @@ pub fn plan_select(ir: &SelectQuery) -> SQLiteSelectPlan {
         offset: ir.offset(),
         joins,
         result_shape,
+    }
+}
+
+/// Lowers a resolved insert query to a structured SQLite insert plan.
+pub fn plan_insert(ir: &query_ir::InsertQuery) -> SQLiteInsertPlan {
+    let root_object_type = ir.root_object_type().clone();
+    let assignments = ir
+        .assignments()
+        .iter()
+        .map(plan_insert_assignment)
+        .collect();
+
+    SQLiteInsertPlan {
+        root_target: SQLiteInsertTarget {
+            table_name: sqlite_table_name(&root_object_type),
+            id_column: "id".to_string(),
+        },
+        generated_id_strategy: SQLiteGeneratedIdStrategy::RuntimeUuid,
+        assignments,
+    }
+}
+
+fn sqlite_table_name(object_type: &ObjectTypeRef) -> String {
+    object_type.name().to_ascii_lowercase()
+}
+
+fn plan_insert_assignment(assignment: &query_ir::Assignment) -> SQLiteInsertAssignment {
+    let field = assignment.field();
+    let (column_name, value) = match assignment.value() {
+        query_ir::AssignmentValue::Scalar(value) => {
+            (field.name().to_string(), sqlite_literal_from_ir(value))
+        }
+        query_ir::AssignmentValue::LinkId(value) => (
+            format!("{}_id", field.name()),
+            SQLiteLiteral::String(value.clone()),
+        ),
+        query_ir::AssignmentValue::ScalarNull => (field.name().to_string(), SQLiteLiteral::Null),
+        query_ir::AssignmentValue::LinkNull => {
+            (format!("{}_id", field.name()), SQLiteLiteral::Null)
+        }
+    };
+
+    SQLiteInsertAssignment { column_name, value }
+}
+
+/// Structured SQLite plan for inserting one resolved object.
+pub struct SQLiteInsertPlan {
+    root_target: SQLiteInsertTarget,
+    generated_id_strategy: SQLiteGeneratedIdStrategy,
+    assignments: Vec<SQLiteInsertAssignment>,
+}
+
+impl SQLiteInsertPlan {
+    pub fn root_target(&self) -> &SQLiteInsertTarget {
+        &self.root_target
+    }
+
+    pub fn generated_id_strategy(&self) -> SQLiteGeneratedIdStrategy {
+        self.generated_id_strategy
+    }
+
+    pub fn assignments(&self) -> &[SQLiteInsertAssignment] {
+        &self.assignments
+    }
+}
+
+/// Physical table targeted by a SQLite insert.
+pub struct SQLiteInsertTarget {
+    table_name: String,
+    id_column: String,
+}
+
+impl SQLiteInsertTarget {
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
+
+    pub fn id_column(&self) -> &str {
+        &self.id_column
+    }
+}
+
+/// Runtime strategy used to create the implicit object identity for an insert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SQLiteGeneratedIdStrategy {
+    RuntimeUuid,
+}
+
+/// One physical SQLite column assignment in an insert plan.
+pub struct SQLiteInsertAssignment {
+    column_name: String,
+    value: SQLiteLiteral,
+}
+
+impl SQLiteInsertAssignment {
+    pub fn column_name(&self) -> &str {
+        &self.column_name
+    }
+
+    pub fn value(&self) -> &SQLiteLiteral {
+        &self.value
     }
 }
 

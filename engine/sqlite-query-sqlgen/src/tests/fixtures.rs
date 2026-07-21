@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use schema_model::{FieldId, FieldRef, ObjectTypeId, ObjectTypeRef};
@@ -95,6 +96,93 @@ pub fn post_author_field() -> FieldRef {
 
 pub fn post_view_count_field() -> FieldRef {
     FieldRef::new(FieldId::new(6), post_type(), "view_count")
+}
+
+pub fn post_rating_field() -> FieldRef {
+    FieldRef::new(FieldId::new(7), post_type(), "rating")
+}
+
+pub fn post_published_field() -> FieldRef {
+    FieldRef::new(FieldId::new(8), post_type(), "published")
+}
+
+pub fn post_subtitle_field() -> FieldRef {
+    FieldRef::new(FieldId::new(9), post_type(), "subtitle")
+}
+
+pub fn empty_post_insert_query() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(post_type(), vec![])
+}
+
+fn scalar_assignment(field: FieldRef, literal: query_ir::Literal) -> query_ir::Assignment {
+    query_ir::Assignment::new(field, query_ir::AssignmentValue::Scalar(literal))
+}
+
+pub fn post_insert_with_scalar_assignments() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![
+            scalar_assignment(
+                post_title_field(),
+                query_ir::Literal::String("Case File".to_string()),
+            ),
+            scalar_assignment(post_view_count_field(), query_ir::Literal::Int64(7)),
+            scalar_assignment(post_rating_field(), query_ir::Literal::Float64(4.5)),
+            scalar_assignment(post_published_field(), query_ir::Literal::Bool(true)),
+        ],
+    )
+}
+
+pub fn post_insert_with_author_link() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![query_ir::Assignment::new(
+            post_author_field(),
+            query_ir::AssignmentValue::LinkId("00000000-0000-0000-0000-000000000001".to_string()),
+        )],
+    )
+}
+
+pub fn post_insert_with_null_assignments() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![
+            query_ir::Assignment::new(post_subtitle_field(), query_ir::AssignmentValue::ScalarNull),
+            query_ir::Assignment::new(post_author_field(), query_ir::AssignmentValue::LinkNull),
+        ],
+    )
+}
+
+pub fn post_insert_with_ordered_assignments() -> query_ir::InsertQuery {
+    query_ir::InsertQuery::new(
+        post_type(),
+        vec![
+            scalar_assignment(post_view_count_field(), query_ir::Literal::Int64(7)),
+            scalar_assignment(
+                post_title_field(),
+                query_ir::Literal::String("Case File".to_string()),
+            ),
+            query_ir::Assignment::new(
+                post_author_field(),
+                query_ir::AssignmentValue::LinkId(
+                    "00000000-0000-0000-0000-000000000001".to_string(),
+                ),
+            ),
+        ],
+    )
+}
+
+pub fn quoted_insert_query() -> query_ir::InsertQuery {
+    let object_type = ObjectTypeRef::new(ObjectTypeId::new(3), "Post\"Archive");
+    let title = FieldRef::new(FieldId::new(2), object_type.clone(), "title\"quote");
+
+    query_ir::InsertQuery::new(
+        object_type,
+        vec![scalar_assignment(
+            title,
+            query_ir::Literal::String("Case File".to_string()),
+        )],
+    )
 }
 
 pub fn post_view_count_path_value() -> query_ir::ValueExpr {
