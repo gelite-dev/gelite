@@ -1172,19 +1172,26 @@ the schema apply smoke test passes, because rollback behavior needs its own
 contract and tests.
 
 The WASM runner implements the low-level connection lifecycle and raw and
-prepared SQL contracts without changing native consumers. Schema and query
-workflows remain separate work.
+prepared SQL contracts without changing native consumers. It also implements
+the existing transaction and verified stored-schema reader contracts so the
+shared schema command can apply initial schemas and append-only migrations.
+Query workflows remain separate work.
 
 Current browser WASM verification gate:
 
 ```text
 CC_wasm32_unknown_unknown=clang wasm-pack test --headless --chrome \
   engine/sqlite-runner --no-default-features --features wasm --locked
+
+CC_wasm32_unknown_unknown=clang wasm-pack test --headless --chrome \
+  tools/gelite-commands --locked
 ```
 
-This gate opens and closes an in-memory database and verifies raw SQL,
-prepared bindings, returned rows, affected-row counts, and error propagation
-in a real browser.
+The runner gate opens and closes an in-memory database and verifies raw SQL,
+prepared bindings, returned rows, affected-row counts, and error propagation.
+The command gate applies and verifies initial schemas and ordered append-only
+migrations, including no-op reapplication, rollback, and corrupt metadata.
+Both gates exercise the final WASM artifacts in a real browser.
 
 Initial runner tests:
 
