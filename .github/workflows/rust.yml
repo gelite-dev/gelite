@@ -57,3 +57,6 @@ jobs:
           CC_wasm32_unknown_unknown=clang wasm-pack test --headless --chrome \
             --chromedriver ${{ steps.setup-chrome.outputs.chromedriver-path }} \
             engine/sqlite-runner --no-default-features --features wasm --locked
+          CC_wasm32_unknown_unknown=clang wasm-pack test --headless --chrome \
+            --chromedriver ${{ steps.setup-chrome.outputs.chromedriver-path }} \
+            tools/gelite-commands --locked

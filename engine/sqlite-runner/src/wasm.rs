@@ -2,9 +2,11 @@ use rusqlite::Connection;
 use sqlite_schema_plan::SQLiteValuePlan;
 
 use crate::{
-    SQLiteRunner, SQLiteRunnerError,
+    SQLiteRunner, SQLiteRunnerError, SQLiteSchemaReader, SQLiteStoredSchema,
+    SQLiteTransactionRunner,
     rusqlite_support::{
-        execute, execute_with_values, first_three_column_row, sqlite_error, table_exists,
+        execute, execute_with_values, first_three_column_row, load_verified_schema, sqlite_error,
+        table_exists,
     },
 };
 
@@ -53,5 +55,25 @@ impl SQLiteRunner for WasmSQLiteRunner {
         values: &[SQLiteValuePlan],
     ) -> Result<(), SQLiteRunnerError> {
         execute_with_values(&self.connection, sql, values)
+    }
+}
+
+impl SQLiteTransactionRunner for WasmSQLiteRunner {
+    fn begin_transaction(&mut self) -> Result<(), SQLiteRunnerError> {
+        self.execute("BEGIN")
+    }
+
+    fn commit_transaction(&mut self) -> Result<(), SQLiteRunnerError> {
+        self.execute("COMMIT")
+    }
+
+    fn rollback_transaction(&mut self) -> Result<(), SQLiteRunnerError> {
+        self.execute("ROLLBACK")
+    }
+}
+
+impl SQLiteSchemaReader for WasmSQLiteRunner {
+    fn load_verified_schema(&mut self) -> Result<Option<SQLiteStoredSchema>, SQLiteRunnerError> {
+        load_verified_schema(&self.connection)
     }
 }

@@ -50,10 +50,21 @@ semantics.
 `WasmSQLiteRunner` is a separate concrete runner that owns an in-memory
 `rusqlite` connection backed by `sqlite-wasm-rs` on
 `wasm32-unknown-unknown`. The native and WASM runners share private value,
-row, and error helpers without adding a public adapter or generic runner
-framework. The WASM runner supports only connection lifecycle and low-level
-raw and prepared SQL in this stage; schema workflows, query workflows,
-persistence, and workers remain separate work.
+row, error, transaction, and stored-schema verification helpers without adding
+a public adapter or generic runner framework. The WASM runner supports
+connection lifecycle, low-level raw and prepared SQL, and the same initial and
+append-only schema workflows as the native runner. Query workflows, persistent
+browser storage, and workers remain separate work.
+
+Browser schema application uses the existing runner-facing schema contracts.
+It parses and plans through the same backend-independent pipeline, applies all
+rendered statements in one SQLite transaction, and verifies the latest stored
+catalog and checksum before planning a later migration. A fresh database has
+none of the three engine metadata tables; a partial set is corrupt metadata.
+Reapplying an equivalent catalog is a no-op without a write transaction or new
+version row. Migration failures roll back DDL, catalog metadata, and history
+together. These behaviors must be tested against the final WASM artifact in a
+real browser.
 
 ## Object Table Mapping
 
@@ -365,10 +376,10 @@ record against an actor who can rewrite both values. Verifying the logical
 schema additionally requires comparing the canonical snapshot of the loaded catalog with the
 stored snapshot; this does not audit physical SQLite DDL.
 
-#### Native version verification
+#### Stored schema version verification
 
-`NativeSQLiteRunner::verify_schema_version` verifies the latest stored version
-in a single read transaction, without reading the original schema source:
+`NativeSQLiteRunner` and `WasmSQLiteRunner` verify the latest stored version in
+a single read transaction, without reading the original schema source:
 
 1. Read the highest numbered row, rejecting a missing row or invalid version number.
 2. Hash the exact stored snapshot bytes and compare with the stored checksum.

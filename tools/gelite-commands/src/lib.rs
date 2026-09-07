@@ -135,8 +135,7 @@ pub fn apply_schema(
 
 fn schema_application_values() -> (String, String) {
     let version_id = uuid::Uuid::new_v4().to_string();
-    let applied_at = chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now())
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let applied_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     (version_id, applied_at)
 }
 
