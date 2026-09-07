@@ -2,17 +2,16 @@ use rusqlite::{
     Connection, Row, params_from_iter,
     types::{Value, ValueRef},
 };
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use schema_model::{
-    Cardinality, Field, LinkField, ScalarField, ScalarType, SingleCardinality, Uniqueness,
+    Cardinality, Field, LinkField, ObjectType, ScalarField, ScalarType, SchemaCatalog,
+    SingleCardinality, Uniqueness,
 };
-use sqlite_schema_plan::SQLiteValuePlan;
+use sqlite_schema_plan::{SQLiteValuePlan, schema_snapshot_checksum, serialize_schema_snapshot};
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use crate::SQLiteCellValue;
-use crate::SQLiteRunnerError;
+use crate::{SQLiteRunnerError, SQLiteStoredSchema};
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 #[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SchemaVersionRow {
@@ -23,13 +22,11 @@ pub(crate) struct SchemaVersionRow {
     pub(crate) version_number: i64,
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) struct CatalogObjectRow {
     pub(crate) object_id: i64,
     pub(crate) name: String,
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) struct CatalogFieldRow {
     pub(crate) object_id: i64,
     #[allow(dead_code)]
@@ -102,7 +99,241 @@ pub(crate) fn first_three_column_row(
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub(crate) fn load_verified_schema(
+    connection: &Connection,
+) -> Result<Option<SQLiteStoredSchema>, SQLiteRunnerError> {
+    let metadata_tables = [
+        "_engine_schema_versions",
+        "_engine_catalog_objects",
+        "_engine_catalog_fields",
+    ];
+    let existing = metadata_tables
+        .iter()
+        .map(|table| table_exists(connection, table))
+        .collect::<Result<Vec<_>, _>>()?;
+    if existing.iter().all(|exists| !exists) {
+        return Ok(None);
+    }
+    if existing.iter().any(|exists| !exists) {
+        return Err(SQLiteRunnerError::schema_verification_failed(
+            "database contains partial engine schema metadata",
+        ));
+    }
+
+    execute(connection, "BEGIN")?;
+    let result = (|| {
+        let last_schema = read_latest_schema_version(connection)?.ok_or_else(|| {
+            SQLiteRunnerError::schema_verification_failed(
+                "database does not contain a stored schema version",
+            )
+        })?;
+        if schema_snapshot_checksum(&last_schema.schema_snapshot) != last_schema.checksum {
+            return Err(SQLiteRunnerError::schema_verification_failed(
+                "stored schema snapshot checksum mismatch",
+            ));
+        }
+
+        let catalog = load_schema_catalog(connection)?;
+        let snapshot = serialize_schema_snapshot(&catalog).map_err(|error| {
+            SQLiteRunnerError::schema_verification_failed(format!(
+                "failed to serialize stored schema catalog: {error}",
+            ))
+        })?;
+        if snapshot != last_schema.schema_snapshot {
+            return Err(SQLiteRunnerError::schema_verification_failed(
+                "stored schema snapshot does not match the canonical logical catalog",
+            ));
+        }
+        let stored_schema = SQLiteStoredSchema {
+            catalog,
+            version_number: last_schema.version_number,
+        };
+        execute(connection, "COMMIT")?;
+        Ok(Some(stored_schema))
+    })();
+
+    result.map_err(|mut error: SQLiteRunnerError| {
+        if let Err(rollback_error) = execute(connection, "ROLLBACK") {
+            let message = match &mut error {
+                SQLiteRunnerError::ExecutionFailed { message }
+                | SQLiteRunnerError::SchemaVerificationFailed { message } => message,
+            };
+            message.push_str(&format!("; rollback failed: {}", rollback_error.message()));
+        }
+        error
+    })
+}
+
+pub(crate) fn load_schema_catalog(
+    connection: &Connection,
+) -> Result<SchemaCatalog, SQLiteRunnerError> {
+    let objects = read_catalog_objects(connection)?;
+    let fields = read_catalog_fields(connection)?;
+    if fields.iter().any(|field| {
+        !objects
+            .iter()
+            .any(|object| object.object_id == field.object_id)
+    }) {
+        return Err(SQLiteRunnerError::execution_failed(
+            "catalog field references an unknown owner object",
+        ));
+    }
+    if fields.iter().any(|field| {
+        field.inverse_field_name.is_some()
+            && (field.field_kind != "link" || field.is_implicit || field.is_unique)
+    }) {
+        return Err(SQLiteRunnerError::execution_failed(
+            "invalid inverse field metadata",
+        ));
+    }
+    if fields.iter().any(|field| {
+        (field.field_kind == "scalar" && field.target_object_id.is_some())
+            || (field.field_kind == "link" && field.scalar_type.is_some())
+    }) {
+        return Err(SQLiteRunnerError::execution_failed(
+            "catalog field contains metadata for a different field kind",
+        ));
+    }
+
+    let mut object_types = Vec::new();
+    for object in &objects {
+        let mut implicit = fields
+            .iter()
+            .filter(|field| field.object_id == object.object_id && field.is_implicit);
+        let valid_id = implicit.next().is_some_and(|field| {
+            field.name == "id"
+                && field.field_kind == "scalar"
+                && field.scalar_type.as_deref() == Some("uuid")
+                && field.cardinality == "required"
+                && !field.is_unique
+                && field.target_object_id.is_none()
+                && field.inverse_field_name.is_none()
+        });
+        if !valid_id || implicit.next().is_some() {
+            return Err(SQLiteRunnerError::execution_failed(format!(
+                "catalog object `{}` must contain exactly one implicit UUID id field",
+                object.name,
+            )));
+        }
+        let declared_fields = fields
+            .iter()
+            .filter(|field| field.object_id == object.object_id && !field.is_implicit)
+            .map(|field| field_from_catalog_row(field, &objects))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        object_types.push(ObjectType::new(object.name.clone(), declared_fields));
+    }
+
+    SchemaCatalog::try_new(object_types).map_err(|error| {
+        SQLiteRunnerError::execution_failed(format!("invalid catalog metadata: {error:?}"))
+    })
+}
+
+pub(crate) fn read_latest_schema_version(
+    connection: &Connection,
+) -> Result<Option<SchemaVersionRow>, SQLiteRunnerError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT version_id, checksum, applied_at, schema_snapshot, version_number
+             FROM _engine_schema_versions ORDER BY version_number DESC LIMIT 1",
+        )
+        .map_err(|error| sqlite_error("prepare schema version query", error))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| sqlite_error("step schema version query", error))?;
+    match rows
+        .next()
+        .map_err(|error| sqlite_error("step schema version query", error))?
+    {
+        Some(row) => {
+            let version_number = read_nullable_integer_column(row, 4, "read version number")?
+                .filter(|number| *number > 0)
+                .ok_or_else(|| {
+                    SQLiteRunnerError::schema_verification_failed(
+                        "stored schema version number must be positive",
+                    )
+                })?;
+            Ok(Some(SchemaVersionRow {
+                version_id: read_text_column(row, 0, "read schema version id")?,
+                checksum: read_text_column(row, 1, "read schema version checksum")?,
+                applied_at: read_text_column(row, 2, "read schema version applied_at")?,
+                schema_snapshot: read_text_column(row, 3, "read schema version snapshot")?,
+                version_number,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+fn read_catalog_objects(
+    connection: &Connection,
+) -> Result<Vec<CatalogObjectRow>, SQLiteRunnerError> {
+    let mut statement = connection
+        .prepare("SELECT object_id, name FROM _engine_catalog_objects ORDER BY object_id ASC")
+        .map_err(|error| sqlite_error("prepare catalog object query", error))?;
+    let mut rows = Vec::new();
+    let mut result_rows = statement
+        .query([])
+        .map_err(|error| sqlite_error("step catalog object query", error))?;
+
+    while let Some(row) = result_rows
+        .next()
+        .map_err(|error| sqlite_error("step catalog object query", error))?
+    {
+        rows.push(CatalogObjectRow {
+            object_id: read_integer_column(row, 0, "read catalog object id")?,
+            name: read_text_column(row, 1, "read catalog object name")?,
+        });
+    }
+
+    Ok(rows)
+}
+
+fn read_catalog_fields(connection: &Connection) -> Result<Vec<CatalogFieldRow>, SQLiteRunnerError> {
+    let mut columns = connection.prepare(
+        "SELECT name FROM pragma_table_info('_engine_catalog_fields') WHERE name = 'inverse_field_name'",
+    ).map_err(|error| sqlite_error("prepare catalog compatibility query", error))?;
+    let inverse_column = if columns
+        .exists([])
+        .map_err(|error| sqlite_error("read catalog columns", error))?
+    {
+        "inverse_field_name"
+    } else {
+        "NULL"
+    };
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT object_id, field_id, name, field_kind, cardinality, scalar_type, target_object_id, is_implicit, is_unique, {inverse_column}
+             FROM _engine_catalog_fields
+             ORDER BY object_id ASC, field_id ASC"
+        ))
+        .map_err(|error| sqlite_error("prepare catalog field query", error))?;
+    let mut rows = Vec::new();
+    let mut result_rows = statement
+        .query([])
+        .map_err(|error| sqlite_error("step catalog field query", error))?;
+
+    while let Some(row) = result_rows
+        .next()
+        .map_err(|error| sqlite_error("step catalog field query", error))?
+    {
+        rows.push(CatalogFieldRow {
+            object_id: read_integer_column(row, 0, "read catalog object id")?,
+            field_id: read_integer_column(row, 1, "read catalog field id")?,
+            name: read_text_column(row, 2, "read catalog field name")?,
+            field_kind: read_text_column(row, 3, "read catalog field kind")?,
+            cardinality: read_text_column(row, 4, "read catalog field cardinality")?,
+            scalar_type: read_nullable_text_column(row, 5, "read scalar_type")?,
+            target_object_id: read_nullable_integer_column(row, 6, "read target_object_id")?,
+            is_implicit: read_bool_column(row, 7, "read is_implicit")?,
+            is_unique: read_bool_column(row, 8, "read is_unique")?,
+            inverse_field_name: read_nullable_text_column(row, 9, "read inverse_field_name")?,
+        });
+    }
+
+    Ok(rows)
+}
+
 pub(crate) fn field_from_catalog_row(
     field: &CatalogFieldRow,
     objects: &[CatalogObjectRow],
@@ -185,7 +416,6 @@ pub(crate) fn read_text_column(
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) fn read_nullable_text_column(
     row: &Row<'_>,
     index: usize,
@@ -226,7 +456,6 @@ pub(crate) fn read_integer_column(
     })
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) fn read_bool_column(
     row: &Row<'_>,
     index: usize,
@@ -305,7 +534,6 @@ fn unexpected_column_type(context: &str, value: ValueRef<'_>) -> SQLiteRunnerErr
     ))
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn parse_scalar_type(value: &str) -> Result<ScalarType, SQLiteRunnerError> {
     match value {
         "str" => Ok(ScalarType::Str),
@@ -320,7 +548,6 @@ fn parse_scalar_type(value: &str) -> Result<ScalarType, SQLiteRunnerError> {
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn parse_cardinality(value: &str) -> Result<Cardinality, SQLiteRunnerError> {
     match value {
         "optional" => Ok(Cardinality::Optional),
@@ -332,7 +559,6 @@ fn parse_cardinality(value: &str) -> Result<Cardinality, SQLiteRunnerError> {
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn parse_single_cardinality(value: &str) -> Result<SingleCardinality, SQLiteRunnerError> {
     match parse_cardinality(value)? {
         Cardinality::Optional => Ok(SingleCardinality::Optional),
@@ -343,7 +569,6 @@ fn parse_single_cardinality(value: &str) -> Result<SingleCardinality, SQLiteRunn
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn parse_uniqueness(value: bool) -> Result<Uniqueness, SQLiteRunnerError> {
     if value {
         Ok(Uniqueness::Unique)
