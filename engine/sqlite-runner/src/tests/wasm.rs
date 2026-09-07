@@ -1,7 +1,7 @@
 use sqlite_schema_plan::SQLiteValuePlan;
 use wasm_bindgen_test::wasm_bindgen_test;
 
-use crate::{SQLiteRunner, wasm::WasmSQLiteRunner};
+use crate::{SQLiteRunner, SQLiteSchemaReader, SQLiteTransactionRunner, wasm::WasmSQLiteRunner};
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -62,4 +62,22 @@ fn wasm_runner_reports_sql_errors() {
         .execute_with_values("INSERT INTO missing VALUES (?)", &[SQLiteValuePlan::Null])
         .expect_err("invalid prepared SQL should fail");
     assert!(prepared_error.message().contains("prepare SQL"));
+}
+
+#[wasm_bindgen_test]
+fn wasm_runner_supports_schema_transactions_and_fresh_database_detection() {
+    let mut runner = WasmSQLiteRunner::open_in_memory().expect("in-memory database should open");
+
+    assert_eq!(runner.load_verified_schema(), Ok(None));
+    runner
+        .begin_transaction()
+        .expect("transaction should begin");
+    runner
+        .execute("CREATE TABLE pending (id INTEGER PRIMARY KEY)")
+        .expect("transactional DDL should execute");
+    runner
+        .rollback_transaction()
+        .expect("transaction should roll back");
+
+    assert_eq!(runner.table_exists("pending"), Ok(false));
 }
