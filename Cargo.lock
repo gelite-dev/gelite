@@ -302,6 +302,7 @@ name = "gelite-commands"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "js-sys",
  "query-ast",
  "query-parser",
  "query-resolver",
@@ -313,6 +314,7 @@ dependencies = [
  "sqlite-schema-plan",
  "sqlite-schema-sqlgen",
  "uuid",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

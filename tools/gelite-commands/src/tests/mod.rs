@@ -1,4 +1,6 @@
 mod fixtures;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod wasm;
 
 use schema_model::SchemaCatalog;
 use sqlite_query_sqlgen::SQLiteBindValue;
