@@ -135,19 +135,8 @@ pub fn apply_schema(
 
 fn schema_application_values() -> (String, String) {
     let version_id = uuid::Uuid::new_v4().to_string();
-    let applied_at = current_time().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let applied_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     (version_id, applied_at)
-}
-
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-fn current_time() -> chrono::DateTime<chrono::Utc> {
-    std::time::SystemTime::now().into()
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-fn current_time() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::from_timestamp_millis(js_sys::Date::now() as i64)
-        .expect("browser timestamp should be in range")
 }
 
 fn command_error_from_runner(error: SQLiteRunnerError) -> CommandError {
